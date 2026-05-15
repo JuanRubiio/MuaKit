@@ -49,7 +49,6 @@ const DASHBOARD_EXPENSE_LABELS = {
 };
 const DASHBOARD_INCOME_LABELS = {
   cobros: "Cobrado neto",
-  fees: "Fees",
   channel_shopify: "Shopify",
   channel_etsy: "Etsy",
   channel_bizum: "Bizum"
@@ -712,6 +711,9 @@ function renderDashboardCharts() {
 function renderDashboard() {
   const finance = state.dashboardFinance;
   if (!finance) return;
+  if (!["cobros", "channel_shopify", "channel_etsy", "channel_bizum"].includes(state.dashboardIncomeTrendView)) {
+    state.dashboardIncomeTrendView = "cobros";
+  }
 
   const k = finance.kpis;
   const expenseLabel = DASHBOARD_EXPENSE_LABELS[state.dashboardExpenseTrendView] || DASHBOARD_EXPENSE_LABELS.total;
@@ -951,6 +953,9 @@ async function openPayout(id) {
 function renderSettings() {
   const form = $("#settingsForm");
   if (!form || !state.settings) return;
+  if (!["cobros", "channel_shopify", "channel_etsy", "channel_bizum"].includes(state.settings.dashboard_income_monthly_view)) {
+    state.settings.dashboard_income_monthly_view = "cobros";
+  }
   setForm(form, state.settings);
   const colors = chartColors();
   if (form.elements.dashboard_color_total) form.elements.dashboard_color_total.value = state.settings.dashboard_color_total || colors.total;
@@ -1615,6 +1620,9 @@ async function saveSettings(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = formObject(form);
+  if (!["cobros", "channel_shopify", "channel_etsy", "channel_bizum"].includes(data.dashboard_income_monthly_view)) {
+    data.dashboard_income_monthly_view = "cobros";
+  }
   state.settings = await api("/api/settings", { method: "PATCH", body: JSON.stringify(data) });
   state.dashboardExpenseTrendView = state.settings.dashboard_monthly_view || "total";
   state.dashboardIncomeTrendView = state.settings.dashboard_income_monthly_view || "cobros";

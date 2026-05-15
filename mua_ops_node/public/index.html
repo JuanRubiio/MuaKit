@@ -43,92 +43,101 @@
         <section id="dashboard" class="view active">
           <div id="dashboardCards" class="dashboard-kpis"></div>
           <div class="dashboard-layout">
-            <section class="panel dashboard-expense-panel">
-              <div class="panel-head">
-                <div>
-                  <h2 id="dashboardExpenseTitle">Gastos mensuales</h2>
-                  <p id="dashboardExpenseText">Lectura mensual del gasto operativo por bloque principal.</p>
+            <div class="dashboard-primary-grid">
+              <section class="panel dashboard-expense-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2 id="dashboardExpenseTitle">Gastos mensuales</h2>
+                    <p id="dashboardExpenseText">Lectura mensual del gasto operativo por bloque principal.</p>
+                  </div>
+                  <div class="segmented-control">
+                    <button type="button" class="ghost is-active" data-dashboard-expense-trend-view="total">Total</button>
+                    <button type="button" class="ghost" data-dashboard-expense-trend-view="materiales">Materiales</button>
+                    <button type="button" class="ghost" data-dashboard-expense-trend-view="marketing">Marketing</button>
+                    <button type="button" class="ghost" data-dashboard-expense-trend-view="envios">Envíos</button>
+                  </div>
                 </div>
-                <div class="segmented-control">
-                  <button type="button" class="ghost is-active" data-dashboard-expense-trend-view="total">Total</button>
-                  <button type="button" class="ghost" data-dashboard-expense-trend-view="materiales">Materiales</button>
-                  <button type="button" class="ghost" data-dashboard-expense-trend-view="marketing">Marketing</button>
-                  <button type="button" class="ghost" data-dashboard-expense-trend-view="envios">Envíos</button>
-                </div>
-              </div>
-              <div id="dashboardExpenseChart" class="chart-surface"></div>
-            </section>
+                <div id="dashboardExpenseChart" class="chart-surface"></div>
+              </section>
 
-            <section class="panel dashboard-income-panel">
-              <div class="panel-head">
-                <div>
-                  <h2 id="dashboardIncomeTitle">Cobros mensuales</h2>
-                  <p id="dashboardIncomeText">Seguimiento del cobro neto, fees y peso por canal.</p>
+              <section class="panel dashboard-income-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2 id="dashboardIncomeTitle">Cobros mensuales</h2>
+                    <p id="dashboardIncomeText">Seguimiento del cobro neto y peso por canal.</p>
+                  </div>
+                  <div class="segmented-control">
+                    <button type="button" class="ghost is-active" data-dashboard-income-trend-view="cobros">Cobrado neto</button>
+                    <button type="button" class="ghost" data-dashboard-income-trend-view="channel_shopify">Shopify</button>
+                    <button type="button" class="ghost" data-dashboard-income-trend-view="channel_etsy">Etsy</button>
+                    <button type="button" class="ghost" data-dashboard-income-trend-view="channel_bizum">Bizum</button>
+                  </div>
                 </div>
-                <div class="segmented-control">
-                  <button type="button" class="ghost is-active" data-dashboard-income-trend-view="cobros">Cobrado neto</button>
-                  <button type="button" class="ghost" data-dashboard-income-trend-view="fees">Fees</button>
-                  <button type="button" class="ghost" data-dashboard-income-trend-view="channel_shopify">Shopify</button>
-                  <button type="button" class="ghost" data-dashboard-income-trend-view="channel_etsy">Etsy</button>
-                  <button type="button" class="ghost" data-dashboard-income-trend-view="channel_bizum">Bizum</button>
-                </div>
-              </div>
-              <div id="dashboardIncomeChart" class="chart-surface"></div>
-            </section>
+                <div id="dashboardIncomeChart" class="chart-surface"></div>
+              </section>
+            </div>
 
-            <section class="panel dashboard-balance-panel">
-              <div class="panel-head">
-                <div>
-                  <h2>Balance mensual</h2>
-                  <p>Cruce simple entre gasto total, cobro neto y diferencia del mes.</p>
-                </div>
-              </div>
-              <div id="dashboardBalanceChart" class="chart-surface"></div>
-            </section>
+            <div class="dashboard-secondary-grid">
+              <div class="dashboard-main-column">
+                <section class="panel dashboard-balance-panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Balance mensual</h2>
+                      <p>Cruce simple entre gasto total, cobro neto y diferencia del mes.</p>
+                    </div>
+                  </div>
+                  <div id="dashboardBalanceChart" class="chart-surface"></div>
+                </section>
 
-            <section class="panel dashboard-side-panel">
-              <div class="panel-head">
-                <div>
-                  <h2>Atención inmediata</h2>
-                  <p>Incidencias que conviene revisar sin romper la portada financiera.</p>
-                </div>
+                <section class="panel dashboard-spend-panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Concentración del gasto</h2>
+                      <p>Dónde se está yendo el dinero: proveedores y materiales.</p>
+                    </div>
+                    <div class="segmented-control">
+                      <button type="button" class="ghost is-active" data-dashboard-spend-view="suppliers">Proveedores</button>
+                      <button type="button" class="ghost" data-dashboard-spend-view="materials">Materiales</button>
+                    </div>
+                  </div>
+                  <div id="dashboardSpendList" class="list compact"></div>
+                </section>
               </div>
-              <div id="dashboardOpsList" class="list compact"></div>
-            </section>
 
-            <section class="panel dashboard-category-panel">
-              <div class="panel-head">
-                <div>
-                  <h2>Reparto del gasto</h2>
-                  <p>Distribución por categoría de factura para ver qué bloque pesa más.</p>
-                </div>
-              </div>
-              <div id="dashboardCategoryChart" class="chart-surface chart-surface-small"></div>
-            </section>
+              <div class="dashboard-side-column">
+                <section class="panel dashboard-side-panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Atención inmediata</h2>
+                      <p>Incidencias que conviene revisar sin romper la portada financiera.</p>
+                    </div>
+                  </div>
+                  <div id="dashboardOpsList" class="list compact"></div>
+                </section>
 
-            <section class="panel dashboard-income-mix-panel">
-              <div class="panel-head">
-                <div>
-                  <h2>Canales de cobro</h2>
-                  <p>Composición actual de cobros entre Shopify, Etsy y Bizum.</p>
-                </div>
-              </div>
-              <div id="dashboardIncomeMixChart" class="chart-surface chart-surface-small"></div>
-            </section>
+                <div class="dashboard-mini-grid">
+                  <section class="panel dashboard-category-panel">
+                    <div class="panel-head">
+                      <div>
+                        <h2>Reparto del gasto</h2>
+                        <p>Distribución por categoría para ver qué bloque pesa más.</p>
+                      </div>
+                    </div>
+                    <div id="dashboardCategoryChart" class="chart-surface chart-surface-small"></div>
+                  </section>
 
-            <section class="panel dashboard-spend-panel">
-              <div class="panel-head">
-                <div>
-                  <h2>Concentracion del gasto</h2>
-                  <p>Donde se esta yendo el dinero: proveedores y materiales.</p>
-                </div>
-                <div class="segmented-control">
-                  <button type="button" class="ghost is-active" data-dashboard-spend-view="suppliers">Proveedores</button>
-                  <button type="button" class="ghost" data-dashboard-spend-view="materials">Materiales</button>
+                  <section class="panel dashboard-income-mix-panel">
+                    <div class="panel-head">
+                      <div>
+                        <h2>Canales de cobro</h2>
+                        <p>Composición actual de cobros entre Shopify, Etsy y Bizum.</p>
+                      </div>
+                    </div>
+                    <div id="dashboardIncomeMixChart" class="chart-surface chart-surface-small"></div>
+                  </section>
                 </div>
               </div>
-              <div id="dashboardSpendList" class="list compact"></div>
-            </section>
+            </div>
           </div>
         </section>
 
@@ -551,7 +560,6 @@
                 <label>Vista inicial de cobros en dashboard
                   <select name="dashboard_income_monthly_view">
                     <option value="cobros">Cobrado neto</option>
-                    <option value="fees">Fees</option>
                     <option value="channel_shopify">Shopify</option>
                     <option value="channel_etsy">Etsy</option>
                     <option value="channel_bizum">Bizum</option>

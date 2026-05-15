@@ -263,23 +263,28 @@ main {
 
 .dashboard-layout {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-template-areas:
-    "expense expense expense expense expense expense expense income income income income income"
-    "balance balance balance balance balance balance balance side side side side side"
-    "category category category category category category income-mix income-mix income-mix income-mix income-mix income-mix"
-    "spend spend spend spend spend spend spend spend spend spend spend spend";
+  gap: 16px;
+}
+
+.dashboard-primary-grid,
+.dashboard-secondary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, .9fr);
   gap: 16px;
   align-items: start;
 }
 
-.dashboard-expense-panel { grid-area: expense; }
-.dashboard-income-panel { grid-area: income; }
-.dashboard-balance-panel { grid-area: balance; }
-.dashboard-side-panel { grid-area: side; }
-.dashboard-category-panel { grid-area: category; }
-.dashboard-income-mix-panel { grid-area: income-mix; }
-.dashboard-spend-panel { grid-area: spend; }
+.dashboard-main-column,
+.dashboard-side-column,
+.dashboard-mini-grid {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.dashboard-mini-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 
 .panel {
   padding: 16px;
@@ -376,7 +381,7 @@ main {
 }
 
 .dashboard-kpi-card {
-  min-height: 108px;
+  min-height: 88px;
 }
 
 .invoice-list {
@@ -403,7 +408,7 @@ main {
 
 .chart-surface {
   width: 100%;
-  min-height: 260px;
+  min-height: 232px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: linear-gradient(180deg, #ffffff 0%, #f7faf9 100%);
@@ -443,8 +448,13 @@ main {
 }
 
 .dashboard-side-panel .ops-list,
-.dashboard-spend-panel .rank-list {
+.dashboard-spend-panel .rank-list,
+.dashboard-mini-grid {
   align-content: start;
+}
+
+.dashboard-spend-panel .rank-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .ops-item,
@@ -473,6 +483,22 @@ main {
 .dashboard-side-panel .ops-item,
 .dashboard-spend-panel .rank-item {
   min-height: 72px;
+}
+
+.dashboard-side-panel .ops-item {
+  min-height: 76px;
+}
+
+.dashboard-side-panel .ops-list {
+  grid-template-columns: 1fr;
+}
+
+.dashboard-side-panel .ops-item strong {
+  margin-bottom: 2px;
+}
+
+.dashboard-side-panel .ops-item p {
+  line-height: 1.4;
 }
 
 .ops-item p,
@@ -1064,21 +1090,13 @@ textarea {
   }
 
   .dashboard-layout,
+  .dashboard-primary-grid,
+  .dashboard-secondary-grid,
+  .dashboard-mini-grid,
   .split,
   .form-grid.two,
   .form-grid.three {
     grid-template-columns: 1fr;
-  }
-
-  .dashboard-layout {
-    grid-template-areas:
-      "expense"
-      "income"
-      "balance"
-      "side"
-      "category"
-      "income-mix"
-      "spend";
   }
 
   .form-grid.four,
@@ -1102,7 +1120,11 @@ textarea {
   }
 
   .dashboard-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-spend-panel .rank-list {
+    grid-template-columns: 1fr;
   }
 
   .row {
@@ -1162,7 +1184,7 @@ textarea {
   }
 
   .dashboard-kpis {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .product {
@@ -1174,5 +1196,9 @@ textarea {
     width: 100%;
     height: auto;
     aspect-ratio: 1.4;
+  }
+
+  .dashboard-kpis {
+    grid-template-columns: 1fr;
   }
 }
