@@ -78,6 +78,7 @@ async function run() {
 
     const summary = await request("GET", "/api/summary");
     assert(summary.db_path.endsWith("mua_ops_test.sqlite"), "Summary should use the test database");
+    assert(typeof summary.payouts === "number", "Summary should include payout count");
 
     const initialDashboard = await request("GET", "/api/dashboard/finance");
     assert(initialDashboard.kpis, "Dashboard finance should include KPIs");
@@ -89,12 +90,62 @@ async function run() {
 
     const settings = await request("GET", "/api/settings");
     assert(settings.dashboard_monthly_view === "total", "Settings should expose default dashboard monthly view");
+    assert(settings.dashboard_income_monthly_view === "cobros", "Settings should expose default income dashboard view");
     const updatedSettings = await request("PATCH", "/api/settings", {
       dashboard_monthly_view: "marketing",
-      default_invoice_status: "posted"
+      dashboard_income_monthly_view: "channel_shopify",
+      default_invoice_status: "posted",
+      default_payout_channel: "bizum",
+      dashboard_color_bizum: "#c18a3a"
     });
     assert(updatedSettings.dashboard_monthly_view === "marketing", "Settings should be editable");
+    assert(updatedSettings.dashboard_income_monthly_view === "channel_shopify", "Settings should persist income dashboard defaults");
     assert(updatedSettings.default_invoice_status === "posted", "Settings should persist invoice defaults");
+    assert(updatedSettings.default_payout_channel === "bizum", "Settings should persist payout defaults");
+
+    const shopifyImport = await request("POST", "/api/import/payouts/shopify", {});
+    assert(shopifyImport.rows_total > 0, "Shopify payouts import should read rows");
+    assert(shopifyImport.rows_created > 0, "Shopify payouts import should create payouts");
+
+    const etsyImport = await request("POST", "/api/import/payouts/etsy", {});
+    assert(etsyImport.rows_total > 0, "Etsy payouts import should read rows");
+    assert(etsyImport.rows_created > 0, "Etsy payouts import should create deposits");
+
+    const secondShopifyImport = await request("POST", "/api/import/payouts/shopify", {});
+    assert(secondShopifyImport.rows_created === 0, "Shopify payouts reimport should be idempotent");
+
+    const incomeSummary = await request("GET", "/api/income/summary");
+    assert(incomeSummary.payout_count > 0, "Income summary should include imported payouts");
+    assert(incomeSummary.total_net_amount > 0, "Income summary should aggregate net payouts");
+
+    const payoutImports = await request("GET", "/api/income/imports");
+    assert(payoutImports.length >= 2, "Income imports should track payout imports");
+
+    const payouts = await request("GET", "/api/channel-payouts");
+    assert(payouts.some((row) => row.channel === "shopify"), "Channel payouts should include Shopify rows");
+    assert(payouts.some((row) => row.channel === "etsy"), "Channel payouts should include Etsy rows");
+
+    const manualPayout = await request("POST", "/api/channel-payouts", {
+      channel: "bizum",
+      payout_date: "2026-03-31",
+      status: "paid",
+      currency: "EUR",
+      gross_amount: 100,
+      fees_amount: 0,
+      net_amount: 100,
+      notes: "Manual payout test"
+    });
+    assert(manualPayout.id, "Manual payout should be created");
+    assert(manualPayout.channel === "bizum", "Manual payout should allow Bizum channel");
+    const editedPayout = await request("PATCH", `/api/channel-payouts/${manualPayout.id}`, {
+      notes: "Manual payout edited",
+      bank_reference: "TESTBANK001"
+    });
+    assert(editedPayout.bank_reference === "TESTBANK001", "Payout should be editable");
+    const archivedPayout = await request("DELETE", `/api/channel-payouts/${manualPayout.id}`);
+    assert(archivedPayout.is_deleted === 1, "Payout should be archivable");
+    const restoredPayout = await request("POST", `/api/channel-payouts/${manualPayout.id}/restore`);
+    assert(restoredPayout.is_deleted === 0, "Payout should be restorable");
 
     const supplier = await request("POST", "/api/suppliers", {
       name: "Test Supplier",
@@ -200,6 +251,11 @@ async function run() {
     const dashboard = await request("GET", "/api/dashboard/finance");
     assert(dashboard.kpis.total_expense > 0, "Dashboard finance should aggregate invoice totals");
     assert(dashboard.kpis.materials_expense > 0, "Dashboard finance should aggregate material spend");
+    assert(dashboard.kpis.total_net_received > 0, "Dashboard finance should aggregate payout income");
+    assert(Array.isArray(dashboard.income_channels), "Dashboard finance should expose income by channel");
+    assert(dashboard.monthly_breakdown.series.cobros.some((value) => value >= 0), "Dashboard finance should expose income monthly series");
+    assert(Array.isArray(dashboard.monthly_breakdown.series.balance), "Dashboard finance should expose monthly balance");
+    assert(dashboard.income_channels.some((row) => row.channel === "bizum"), "Dashboard finance should expose Bizum channel");
     assert(dashboard.top_suppliers.some((row) => row.supplier_name === "Test Supplier"), "Dashboard should include supplier concentration");
     assert(dashboard.monthly_breakdown.series.materiales.some((value) => value > 0), "Dashboard breakdown should include category spend by month");
 
@@ -207,6 +263,9 @@ async function run() {
     assert(audit.some((row) => row.action === "create"), "Audit log should include invoice creation");
     assert(audit.some((row) => row.action === "archive"), "Audit log should include invoice archive");
     assert(audit.some((row) => row.action === "restore"), "Audit log should include invoice restore");
+    const payoutAudit = await request("GET", `/api/audit-log?entity=channel_payout&id=${manualPayout.id}`);
+    assert(payoutAudit.some((row) => row.action === "create"), "Audit log should include payout creation");
+    assert(payoutAudit.some((row) => row.action === "update"), "Audit log should include payout update");
 
     console.log("Mua Ops API test passed");
   } finally {

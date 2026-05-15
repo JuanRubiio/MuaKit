@@ -18,6 +18,7 @@
       <nav class="tabs tabs-main">
         <button class="tab active" data-view="dashboard">Dashboard</button>
         <button class="tab" data-view="invoices">Facturas</button>
+        <button class="tab" data-view="income">Ingresos</button>
         <button class="tab" data-view="materials">Materiales</button>
         <button class="tab" data-view="suppliers">Proveedores</button>
         <button class="tab" data-view="costs">Costes</button>
@@ -42,20 +43,47 @@
         <section id="dashboard" class="view active">
           <div id="dashboardCards" class="dashboard-kpis"></div>
           <div class="dashboard-layout">
-            <section class="panel dashboard-trend-panel">
+            <section class="panel dashboard-expense-panel">
               <div class="panel-head">
                 <div>
-                  <h2 id="dashboardTrendTitle">Evolucion del gasto</h2>
-                  <p id="dashboardTrendText">Ritmo mensual del gasto para seguir la evolucion del negocio.</p>
+                  <h2 id="dashboardExpenseTitle">Gastos mensuales</h2>
+                  <p id="dashboardExpenseText">Lectura mensual del gasto operativo por bloque principal.</p>
                 </div>
                 <div class="segmented-control">
-                  <button type="button" class="ghost is-active" data-dashboard-trend-view="total">Total</button>
-                  <button type="button" class="ghost" data-dashboard-trend-view="materiales">Materiales</button>
-                  <button type="button" class="ghost" data-dashboard-trend-view="marketing">Marketing</button>
-                  <button type="button" class="ghost" data-dashboard-trend-view="envios">Envíos</button>
+                  <button type="button" class="ghost is-active" data-dashboard-expense-trend-view="total">Total</button>
+                  <button type="button" class="ghost" data-dashboard-expense-trend-view="materiales">Materiales</button>
+                  <button type="button" class="ghost" data-dashboard-expense-trend-view="marketing">Marketing</button>
+                  <button type="button" class="ghost" data-dashboard-expense-trend-view="envios">Envíos</button>
                 </div>
               </div>
-              <div id="dashboardTrendChart" class="chart-surface"></div>
+              <div id="dashboardExpenseChart" class="chart-surface"></div>
+            </section>
+
+            <section class="panel dashboard-income-panel">
+              <div class="panel-head">
+                <div>
+                  <h2 id="dashboardIncomeTitle">Cobros mensuales</h2>
+                  <p id="dashboardIncomeText">Seguimiento del cobro neto, fees y peso por canal.</p>
+                </div>
+                <div class="segmented-control">
+                  <button type="button" class="ghost is-active" data-dashboard-income-trend-view="cobros">Cobrado neto</button>
+                  <button type="button" class="ghost" data-dashboard-income-trend-view="fees">Fees</button>
+                  <button type="button" class="ghost" data-dashboard-income-trend-view="channel_shopify">Shopify</button>
+                  <button type="button" class="ghost" data-dashboard-income-trend-view="channel_etsy">Etsy</button>
+                  <button type="button" class="ghost" data-dashboard-income-trend-view="channel_bizum">Bizum</button>
+                </div>
+              </div>
+              <div id="dashboardIncomeChart" class="chart-surface"></div>
+            </section>
+
+            <section class="panel dashboard-balance-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Balance mensual</h2>
+                  <p>Cruce simple entre gasto total, cobro neto y diferencia del mes.</p>
+                </div>
+              </div>
+              <div id="dashboardBalanceChart" class="chart-surface"></div>
             </section>
 
             <section class="panel dashboard-side-panel">
@@ -72,10 +100,20 @@
               <div class="panel-head">
                 <div>
                   <h2>Reparto del gasto</h2>
-                  <p>Distribucion por categoria de factura.</p>
+                  <p>Distribución por categoría de factura para ver qué bloque pesa más.</p>
                 </div>
               </div>
               <div id="dashboardCategoryChart" class="chart-surface chart-surface-small"></div>
+            </section>
+
+            <section class="panel dashboard-income-mix-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Canales de cobro</h2>
+                  <p>Composición actual de cobros entre Shopify, Etsy y Bizum.</p>
+                </div>
+              </div>
+              <div id="dashboardIncomeMixChart" class="chart-surface chart-surface-small"></div>
             </section>
 
             <section class="panel dashboard-spend-panel">
@@ -186,6 +224,89 @@
             </form>
 
             <section id="invoiceDetailPanel" class="panel invoice-module hidden"></section>
+          </div>
+        </section>
+
+        <section id="income" class="view">
+          <div class="entity-page">
+            <div id="incomeSummaryCards" class="dashboard-kpis"></div>
+
+            <section class="panel entity-list-panel">
+              <div class="panel-head invoice-head">
+                <div>
+                  <h2>Cobros</h2>
+                  <p id="incomeResultText">Seguimiento de cobros por canal.</p>
+                </div>
+                <div class="row-actions">
+                  <button type="button" data-new-payout>Nuevo cobro</button>
+                </div>
+              </div>
+              <div class="filter-grid">
+                <label>Buscar<input id="payoutSearch" type="search" placeholder="Canal, referencia, fichero"></label>
+                <label>Canal
+                  <select id="payoutChannelFilter">
+                    <option value="">Todos</option>
+                    <option value="shopify">Shopify</option>
+                    <option value="etsy">Etsy</option>
+                    <option value="bizum">Bizum</option>
+                  </select>
+                </label>
+                <label>Estado<select id="payoutStatusFilter"></select></label>
+                <label>Desde<input id="payoutFromFilter" type="date"></label>
+                <label>Hasta<input id="payoutToFilter" type="date"></label>
+                <label>Orden
+                  <select id="payoutSort">
+                    <option value="date_desc">Fecha reciente</option>
+                    <option value="date_asc">Fecha antigua</option>
+                    <option value="net_desc">Mayor neto</option>
+                    <option value="net_asc">Menor neto</option>
+                    <option value="fees_desc">Mayor fee</option>
+                    <option value="channel_asc">Canal A-Z</option>
+                  </select>
+                </label>
+                <label class="check"><input id="payoutsDeleted" type="checkbox"> Archivados</label>
+              </div>
+              <div id="payoutList" class="invoice-list table-list"></div>
+            </section>
+
+            <form id="payoutForm" class="panel entity-module hidden">
+              <div class="panel-head">
+                <div>
+                  <h2 id="payoutFormTitle">Nuevo cobro</h2>
+                  <p>Alta manual de cobros netos por canal.</p>
+                </div>
+                <button type="button" class="ghost" data-close-payout-panels>Cerrar</button>
+              </div>
+              <input type="hidden" name="id">
+              <div class="form-grid four">
+                <label>Canal
+                  <select name="channel">
+                    <option value="shopify">Shopify</option>
+                    <option value="etsy">Etsy</option>
+                    <option value="bizum">Bizum</option>
+                  </select>
+                </label>
+                <label>Fecha<input name="payout_date" type="date" required></label>
+                <label>Estado<select name="status"></select></label>
+                <label>Moneda<input name="currency" value="EUR"></label>
+              </div>
+              <div class="form-grid three">
+                <label>Bruto<input name="gross_amount" inputmode="decimal"></label>
+                <label>Fees<input name="fees_amount" inputmode="decimal"></label>
+                <label>Neto<input name="net_amount" inputmode="decimal" required></label>
+              </div>
+              <div class="form-grid three">
+                <label>Referencia banco<input name="bank_reference"></label>
+                <label>Cuenta banco<input name="bank_account_hint"></label>
+                <label>Notas<textarea name="notes" rows="1"></textarea></label>
+              </div>
+              <div class="row-actions">
+                <button type="submit">Guardar cobro</button>
+                <button type="button" class="ghost" data-reset-form="payoutForm">Limpiar</button>
+              </div>
+            </form>
+
+            <section id="payoutDetailPanel" class="panel entity-module hidden"></section>
           </div>
         </section>
 
@@ -414,17 +535,61 @@
                     <option value="envios">Envíos</option>
                   </select>
                 </label>
+                <label>Vista inicial de cobros en dashboard
+                  <select name="dashboard_income_monthly_view">
+                    <option value="cobros">Cobrado neto</option>
+                    <option value="fees">Fees</option>
+                    <option value="channel_shopify">Shopify</option>
+                    <option value="channel_etsy">Etsy</option>
+                    <option value="channel_bizum">Bizum</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-grid two">
                 <label>Umbral base de stock bajo<input name="low_stock_default" inputmode="decimal"></label>
+                <div class="inline-note">
+                  La configuración queda preparada para crecer hacia reglas más finas de ingresos, inventario y alertas.
+                </div>
               </div>
               <div class="form-grid four">
+                <label>Canal payout por defecto
+                  <select name="default_payout_channel">
+                    <option value="shopify">Shopify</option>
+                    <option value="etsy">Etsy</option>
+                    <option value="bizum">Bizum</option>
+                  </select>
+                </label>
+                <label>Estado payout por defecto
+                  <select name="default_payout_status"></select>
+                </label>
                 <label>Color total<input name="dashboard_color_total" type="color"></label>
                 <label>Color materiales<input name="dashboard_color_materiales" type="color"></label>
                 <label>Color marketing<input name="dashboard_color_marketing" type="color"></label>
                 <label>Color envíos<input name="dashboard_color_envios" type="color"></label>
               </div>
-              <div class="inline-note">
-                Esta sección es una base pensada para crecer hacia preferencias del equipo, alertas, reglas de inventario, paletas visuales y criterios de dashboard sin tocar código.
+              <div class="form-grid four">
+                <label>Color cobros<input name="dashboard_color_cobros" type="color"></label>
+                <label>Color fees<input name="dashboard_color_fees" type="color"></label>
+                <label>Color Shopify<input name="dashboard_color_shopify" type="color"></label>
+                <label>Color Etsy<input name="dashboard_color_etsy" type="color"></label>
               </div>
+              <div class="form-grid two">
+                <label>Color Bizum<input name="dashboard_color_bizum" type="color"></label>
+                <div></div>
+              </div>
+              <section class="panel inset-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Importación de cobros</h2>
+                    <p>Los ficheros de Shopify y Etsy se gestionan aquí para no mezclar importaciones con la operativa manual.</p>
+                  </div>
+                  <div class="row-actions">
+                    <button type="button" data-import-shopify-payouts>Importar Shopify</button>
+                    <button type="button" class="ghost" data-import-etsy-payouts>Importar Etsy</button>
+                  </div>
+                </div>
+                <div id="payoutImportList" class="list"></div>
+              </section>
               <div class="row-actions">
                 <button type="submit">Guardar configuración</button>
               </div>

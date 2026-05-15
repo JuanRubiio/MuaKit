@@ -2,14 +2,19 @@
   suppliers: [],
   materials: [],
   invoices: [],
+  payouts: [],
+  incomeSummary: null,
+  incomeImports: [],
   costs: [],
   kits: [],
   settings: null,
   dashboardFinance: null,
   dashboardSpendView: "suppliers",
-  dashboardTrendView: "total",
+  dashboardExpenseTrendView: "total",
+  dashboardIncomeTrendView: "cobros",
   dashboardCharts: {},
   selectedInvoiceId: null,
+  selectedPayoutId: null,
   invoiceLineFormOpen: false
 };
 
@@ -22,17 +27,41 @@ const STATUS_LABELS = {
   paid: "Pagada",
   archived: "Archivada"
 };
-const DASHBOARD_TREND_LABELS = {
+const PAYOUT_STATUSES = ["in_transit", "paid", "executed"];
+const PAYOUT_STATUS_LABELS = {
+  in_transit: "En tránsito",
+  paid: "Pagado",
+  executed: "Ejecutado",
+  completed: "Completada"
+};
+const CHANNEL_LABELS = {
+  shopify: "Shopify",
+  etsy: "Etsy",
+  bizum: "Bizum"
+};
+const DASHBOARD_EXPENSE_LABELS = {
   total: "Gasto total",
   materiales: "Materiales",
   marketing: "Marketing",
   envios: "Envíos"
 };
+const DASHBOARD_INCOME_LABELS = {
+  cobros: "Cobrado neto",
+  fees: "Fees",
+  channel_shopify: "Shopify",
+  channel_etsy: "Etsy",
+  channel_bizum: "Bizum"
+};
 const DASHBOARD_TREND_COLORS = {
   total: "#166b5e",
   materiales: "#9f7234",
   marketing: "#b85d72",
-  envios: "#4f6d93"
+  envios: "#4f6d93",
+  cobros: "#166b5e",
+  fees: "#b85d72",
+  channel_shopify: "#166b5e",
+  channel_etsy: "#9f7234",
+  channel_bizum: "#c18a3a"
 };
 const MATERIAL_HIERARCHY = [
   { key: "usage_type", label: "Uso", empty: "Todos", materialOnly: false },
@@ -95,7 +124,15 @@ function chartColors() {
     total: settings.dashboard_color_total || DASHBOARD_TREND_COLORS.total,
     materiales: settings.dashboard_color_materiales || DASHBOARD_TREND_COLORS.materiales,
     marketing: settings.dashboard_color_marketing || DASHBOARD_TREND_COLORS.marketing,
-    envios: settings.dashboard_color_envios || DASHBOARD_TREND_COLORS.envios
+    envios: settings.dashboard_color_envios || DASHBOARD_TREND_COLORS.envios,
+    cobros: settings.dashboard_color_cobros || DASHBOARD_TREND_COLORS.cobros,
+    fees: settings.dashboard_color_fees || DASHBOARD_TREND_COLORS.fees,
+    shopify: settings.dashboard_color_shopify || "#166b5e",
+    etsy: settings.dashboard_color_etsy || "#9f7234",
+    bizum: settings.dashboard_color_bizum || "#c18a3a",
+    channel_shopify: settings.dashboard_color_shopify || "#166b5e",
+    channel_etsy: settings.dashboard_color_etsy || "#9f7234",
+    channel_bizum: settings.dashboard_color_bizum || "#c18a3a"
   };
 }
 
@@ -130,12 +167,21 @@ function resetForm(id) {
   if (id === "supplierForm") $("#supplierFormTitle").textContent = "Nuevo proveedor";
   if (id === "invoiceForm") $("#invoiceFormTitle").textContent = "Nueva factura";
   if (id === "kitForm") $("#kitFormTitle").textContent = "Nuevo kit";
+  if (id === "payoutForm") $("#payoutFormTitle").textContent = "Nuevo cobro";
   if (id === "lineForm") {
     $("#lineFormTitle").textContent = "Nueva línea";
     form.elements.invoice_id.value = state.selectedInvoiceId || "";
     form.elements.affects_stock.checked = true;
     updateLinePreview();
   }
+}
+
+function payoutStatusLabel(value) {
+  return PAYOUT_STATUS_LABELS[value] || value;
+}
+
+function channelLabel(value) {
+  return CHANNEL_LABELS[value] || value;
 }
 
 function closeInvoicePanels() {
@@ -227,6 +273,13 @@ function closeKitPanels() {
   $("#kitDetailPanel")?.classList.add("hidden");
 }
 
+function closePayoutPanels() {
+  $("#payoutForm")?.classList.add("hidden");
+  $("#payoutDetailPanel")?.classList.add("hidden");
+  state.selectedPayoutId = null;
+  renderPayouts();
+}
+
 function showKitEditor(kit = null, keepDetail = false) {
   const form = $("#kitForm");
   if (!keepDetail) $("#kitDetailPanel")?.classList.add("hidden");
@@ -237,6 +290,25 @@ function showKitEditor(kit = null, keepDetail = false) {
     $("#kitFormTitle").textContent = `Editar kit #${kit.id}`;
   } else {
     $("#kitFormTitle").textContent = "Nuevo kit";
+  }
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function showPayoutEditor(payout = null, keepDetail = false) {
+  const form = $("#payoutForm");
+  if (!keepDetail) $("#payoutDetailPanel")?.classList.add("hidden");
+  form.classList.remove("hidden");
+  resetForm("payoutForm");
+  if (payout) {
+    setForm(form, payout);
+    $("#payoutFormTitle").textContent = `Editar cobro #${payout.id}`;
+  } else {
+    $("#payoutFormTitle").textContent = "Nuevo cobro";
+    if (state.settings) {
+      if (form.elements.channel) form.elements.channel.value = state.settings.default_payout_channel || "shopify";
+      if (form.elements.status) form.elements.status.value = state.settings.default_payout_status || "paid";
+      if (form.elements.currency) form.elements.currency.value = state.settings.currency || "EUR";
+    }
   }
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -412,7 +484,7 @@ function sortRows(rows, sort, handlers) {
 
 async function loadSummary() {
   const s = await api("/api/summary");
-  $("#summaryText").textContent = `${s.materials} materiales · ${s.suppliers} proveedores · ${s.invoices} facturas · ${s.documents} documentos`;
+  $("#summaryText").textContent = `${s.materials} materiales · ${s.suppliers} proveedores · ${s.invoices} facturas · ${s.payouts || 0} cobros · ${s.documents} documentos`;
 }
 
 async function loadDashboardFinance() {
@@ -422,7 +494,8 @@ async function loadDashboardFinance() {
 
 async function loadSettings() {
   state.settings = await api("/api/settings");
-  state.dashboardTrendView = state.settings.dashboard_monthly_view || "total";
+  state.dashboardExpenseTrendView = state.settings.dashboard_monthly_view || "total";
+  state.dashboardIncomeTrendView = state.settings.dashboard_income_monthly_view || "cobros";
   renderSettings();
 }
 
@@ -437,32 +510,47 @@ function dashboardChart(id) {
   return chart;
 }
 
+function compactMonths(months = []) {
+  return months.map((month) => {
+    const [year, rawMonth] = String(month || "").split("-");
+    if (!year || !rawMonth) return month;
+    return `${rawMonth}/${year.slice(2)}`;
+  });
+}
+
 function renderDashboardCharts() {
   if (!$("#dashboard")?.classList.contains("active")) return;
   const finance = state.dashboardFinance;
   if (!finance || !window.echarts) return;
-  const trendKey = state.dashboardTrendView || "total";
+  const expenseKey = state.dashboardExpenseTrendView || "total";
+  const incomeKey = state.dashboardIncomeTrendView || "cobros";
   const colors = chartColors();
-  const trendColor = colors[trendKey] || colors.total;
-  const trendLabel = DASHBOARD_TREND_LABELS[trendKey] || DASHBOARD_TREND_LABELS.total;
   const months = finance.monthly_breakdown?.months?.length ? finance.monthly_breakdown.months : finance.monthly_spend.map((row) => row.month);
-  const trendValues = finance.monthly_breakdown?.series?.[trendKey]?.length
-    ? finance.monthly_breakdown.series[trendKey]
+  const monthLabels = compactMonths(months);
+  const expenseValues = finance.monthly_breakdown?.series?.[expenseKey]?.length
+    ? finance.monthly_breakdown.series[expenseKey]
     : finance.monthly_spend.map((row) => row.total);
+  const incomeValues = finance.monthly_breakdown?.series?.[incomeKey]?.length
+    ? finance.monthly_breakdown.series[incomeKey]
+    : finance.monthly_breakdown?.series?.cobros || [];
+  const balanceValues = finance.monthly_breakdown?.series?.balance || months.map((_, index) => number(finance.monthly_breakdown?.series?.cobros?.[index]) - number(finance.monthly_breakdown?.series?.total?.[index]));
 
-  const trendChart = dashboardChart("dashboardTrendChart");
+  const expenseChart = dashboardChart("dashboardExpenseChart");
+  const incomeChart = dashboardChart("dashboardIncomeChart");
+  const balanceChart = dashboardChart("dashboardBalanceChart");
   const categoryChart = dashboardChart("dashboardCategoryChart");
-  if (!trendChart || !categoryChart) return;
+  const incomeMixChart = dashboardChart("dashboardIncomeMixChart");
+  if (!expenseChart || !incomeChart || !balanceChart || !categoryChart || !incomeMixChart) return;
 
-  trendChart.setOption({
+  expenseChart.setOption({
     animationDuration: 400,
     grid: { left: 50, right: 18, top: 28, bottom: 32 },
     tooltip: { trigger: "axis", valueFormatter: (value) => euro.format(Number(value || 0)) },
-    color: [trendColor],
+    color: [colors[expenseKey] || colors.total],
     xAxis: {
       type: "category",
       boundaryGap: false,
-      data: months,
+      data: monthLabels,
       axisLine: { lineStyle: { color: "#c9bfb5" } },
       axisLabel: { color: "#766e68" }
     },
@@ -472,26 +560,104 @@ function renderDashboardCharts() {
       splitLine: { lineStyle: { color: "#ede7df" } }
     },
     series: [{
-      name: trendLabel,
-      data: trendValues,
+      name: DASHBOARD_EXPENSE_LABELS[expenseKey] || DASHBOARD_EXPENSE_LABELS.total,
+      data: expenseValues,
       type: "line",
       smooth: true,
       symbol: "circle",
       symbolSize: 8,
-      lineStyle: { width: 3, color: trendColor },
-      itemStyle: { color: trendColor },
+      lineStyle: { width: 3, color: colors[expenseKey] || colors.total },
+      itemStyle: { color: colors[expenseKey] || colors.total },
       areaStyle: {
         color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: `${trendColor}33` },
-          { offset: 1, color: `${trendColor}08` }
+          { offset: 0, color: `${(colors[expenseKey] || colors.total)}33` },
+          { offset: 1, color: `${(colors[expenseKey] || colors.total)}08` }
         ])
       }
     }]
   }, true);
 
+  incomeChart.setOption({
+    animationDuration: 400,
+    grid: { left: 50, right: 18, top: 28, bottom: 32 },
+    tooltip: { trigger: "axis", valueFormatter: (value) => euro.format(Number(value || 0)) },
+    color: [colors[incomeKey] || colors.cobros],
+    xAxis: {
+      type: "category",
+      boundaryGap: false,
+      data: monthLabels,
+      axisLine: { lineStyle: { color: "#c9bfb5" } },
+      axisLabel: { color: "#766e68" }
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
+      splitLine: { lineStyle: { color: "#ede7df" } }
+    },
+    series: [{
+      name: DASHBOARD_INCOME_LABELS[incomeKey] || DASHBOARD_INCOME_LABELS.cobros,
+      data: incomeValues,
+      type: "line",
+      smooth: true,
+      symbol: "circle",
+      symbolSize: 7,
+      lineStyle: { width: 3, color: colors[incomeKey] || colors.cobros },
+      itemStyle: { color: colors[incomeKey] || colors.cobros },
+      areaStyle: {
+        color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: `${(colors[incomeKey] || colors.cobros)}33` },
+          { offset: 1, color: `${(colors[incomeKey] || colors.cobros)}08` }
+        ])
+      }
+    }]
+  }, true);
+
+  balanceChart.setOption({
+    animationDuration: 400,
+    grid: { left: 54, right: 24, top: 26, bottom: 34 },
+    tooltip: { trigger: "axis", valueFormatter: (value) => euro.format(Number(value || 0)) },
+    legend: { top: 0, textStyle: { color: "#766e68" } },
+    xAxis: {
+      type: "category",
+      data: monthLabels,
+      axisLine: { lineStyle: { color: "#c9bfb5" } },
+      axisLabel: { color: "#766e68" }
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
+      splitLine: { lineStyle: { color: "#ede7df" } }
+    },
+    series: [
+      {
+        name: "Gasto",
+        type: "bar",
+        barMaxWidth: 22,
+        itemStyle: { color: colors.total, borderRadius: [6, 6, 0, 0] },
+        data: finance.monthly_breakdown?.series?.total || []
+      },
+      {
+        name: "Cobro neto",
+        type: "bar",
+        barMaxWidth: 22,
+        itemStyle: { color: colors.cobros, borderRadius: [6, 6, 0, 0] },
+        data: finance.monthly_breakdown?.series?.cobros || []
+      },
+      {
+        name: "Balance",
+        type: "line",
+        smooth: true,
+        symbolSize: 7,
+        lineStyle: { width: 3, color: colors.channel_bizum || "#c18a3a" },
+        itemStyle: { color: colors.channel_bizum || "#c18a3a" },
+        data: balanceValues
+      }
+    ]
+  }, true);
+
   categoryChart.setOption({
     animationDuration: 400,
-    color: [colors.total, colors.materiales, colors.marketing, colors.envios, "#7c746c", "#dcc8ad"],
+    color: [colors.materiales, colors.marketing, colors.envios, colors.total, "#7c746c", "#dcc8ad"],
     tooltip: { trigger: "item", valueFormatter: (value) => euro.format(Number(value || 0)) },
     legend: { bottom: 0, textStyle: { color: "#766e68" } },
     series: [{
@@ -504,6 +670,24 @@ function renderDashboardCharts() {
       data: finance.category_spend.map((row) => ({ name: row.category, value: row.total }))
     }]
   }, true);
+
+  incomeMixChart.setOption({
+    animationDuration: 400,
+    color: [colors.shopify, colors.etsy, colors.bizum, colors.cobros],
+    tooltip: { trigger: "item", valueFormatter: (value) => euro.format(Number(value || 0)) },
+    legend: { bottom: 0, textStyle: { color: "#766e68" } },
+    series: [{
+      type: "pie",
+      radius: ["48%", "74%"],
+      center: ["50%", "44%"],
+      avoidLabelOverlap: true,
+      itemStyle: { borderRadius: 8, borderColor: "#fff", borderWidth: 2 },
+      label: { color: "#171412", formatter: ({ name, percent }) => `${name}\n${percent}%` },
+      data: finance.income_channels
+        .map((row) => ({ name: channelLabel(row.channel), value: row.net_amount }))
+        .filter((row) => number(row.value) > 0)
+    }]
+  }, true);
 }
 
 function renderDashboard() {
@@ -511,16 +695,23 @@ function renderDashboard() {
   if (!finance) return;
 
   const k = finance.kpis;
-  const trendLabel = DASHBOARD_TREND_LABELS[state.dashboardTrendView] || DASHBOARD_TREND_LABELS.total;
-  $("#dashboardTrendTitle").textContent = `Evolución mensual · ${trendLabel}`;
-  $("#dashboardTrendText").textContent = `Lectura mensual de ${trendLabel.toLocaleLowerCase("es")} con una paleta alineada con la interfaz.`;
+  const expenseLabel = DASHBOARD_EXPENSE_LABELS[state.dashboardExpenseTrendView] || DASHBOARD_EXPENSE_LABELS.total;
+  const incomeLabel = DASHBOARD_INCOME_LABELS[state.dashboardIncomeTrendView] || DASHBOARD_INCOME_LABELS.cobros;
+  $("#dashboardExpenseTitle").textContent = `Gastos mensuales · ${expenseLabel}`;
+  $("#dashboardExpenseText").textContent = `Lectura mensual de ${expenseLabel.toLocaleLowerCase("es")} para seguir el peso real de los gastos.`;
+  $("#dashboardIncomeTitle").textContent = `Cobros mensuales · ${incomeLabel}`;
+  $("#dashboardIncomeText").textContent = `Seguimiento de ${incomeLabel.toLocaleLowerCase("es")} con la misma paleta del resto de la app.`;
   $("#dashboardCards").innerHTML = [
     ["Gasto total", euro.format(k.total_expense), `${k.invoice_count} facturas activas`],
-    ["Mes actual", euro.format(k.current_month_expense), "Seguimiento mensual"],
+    ["Cobrado neto", euro.format(k.total_net_received || 0), `${k.payout_count || 0} cobros activos`],
+    ["Mes actual gasto", euro.format(k.current_month_expense), "Seguimiento mensual"],
+    ["Mes actual cobrado", euro.format(k.current_month_net_received || 0), "Cobros del mes"],
+    ["Balance del mes", euro.format(k.current_month_balance || 0), "Cobros menos gasto"],
+    ["Fees del mes", euro.format(k.current_month_fees_received || 0), "Coste de cobro"],
     ["Borrador", k.draft_invoice_count, "Pendientes de cerrar"],
+    ["Cobros pendientes", k.pending_payout_count || 0, "Pendientes o en tránsito"],
     ["Materiales", euro.format(k.materials_expense), "Coste de compras"],
-    ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia"],
-    ["Envíos", euro.format(k.shipping_expense), "Coste logístico"]
+    ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia"]
   ].map(([label, value, hint]) => `
     <article class="card dashboard-kpi-card">
       <span>${label}</span>
@@ -531,6 +722,15 @@ function renderDashboard() {
 
   const operational = finance.operational;
   const opsRows = [
+    {
+      label: "Cobros pendientes",
+      count: operational.pending_payouts.length,
+      hint: operational.pending_payouts[0]
+        ? `${channelLabel(operational.pending_payouts[0].channel)} · ${text(operational.pending_payouts[0].payout_date)}`
+        : "Todos los cobros están ejecutados",
+      action: "income",
+      tone: operational.pending_payouts.length ? "warn" : "ok"
+    },
     {
       label: "Facturas en borrador",
       count: operational.draft_invoices.length,
@@ -562,6 +762,15 @@ function renderDashboard() {
         : "No hay kits pendientes",
       action: "kits",
       tone: operational.incomplete_kits.length ? "warn" : "ok"
+    },
+    {
+      label: "Importaciones de cobros",
+      count: operational.recent_payout_imports.length,
+      hint: operational.recent_payout_imports[0]
+        ? `${channelLabel(operational.recent_payout_imports[0].channel)} · ${text(operational.recent_payout_imports[0].source_file)}`
+        : "Todavía no hay importaciones de cobros",
+      action: "income",
+      tone: operational.recent_payout_imports.length ? "ok" : "warn"
     }
   ];
   $("#dashboardOpsList").innerHTML = `<div class="ops-list">${opsRows.map((item) => `
@@ -594,14 +803,169 @@ function renderDashboard() {
   requestAnimationFrame(() => renderDashboardCharts());
 }
 
+async function loadIncome() {
+  const includeDeleted = $("#payoutsDeleted")?.checked ? 1 : 0;
+  const [summary, payouts, imports] = await Promise.all([
+    api("/api/income/summary"),
+    api(`/api/channel-payouts?include_deleted=${includeDeleted}`),
+    api("/api/income/imports")
+  ]);
+  state.incomeSummary = summary;
+  state.payouts = payouts;
+  state.incomeImports = imports;
+  renderIncome();
+}
+
+function renderIncome() {
+  const summary = state.incomeSummary;
+  if (!summary) return;
+  $("#incomeSummaryCards").innerHTML = [
+    ["Cobrado neto", euro.format(number(summary.total_net_amount)), `${summary.payout_count || 0} cobros`],
+    ["Bruto", euro.format(number(summary.total_gross_amount)), "Importe antes de fees"],
+    ["Fees", euro.format(number(summary.total_fees_amount)), "Coste acumulado de cobro"],
+    ["Mes actual", euro.format(number(summary.current_month_net_amount)), "Neto cobrado del mes"],
+    ["Fees mes", euro.format(number(summary.current_month_fees_amount)), "Fees del mes"],
+    ["Pendientes", summary.pending_count || 0, summary.last_payout_date ? `Último cobro ${text(summary.last_payout_date)}` : "Sin cobros todavía"]
+  ].map(([label, value, hint]) => `
+    <article class="card dashboard-kpi-card">
+      <span>${label}</span>
+      <strong>${value}</strong>
+      <small>${hint}</small>
+    </article>
+  `).join("");
+  renderPayouts();
+  renderIncomeImports();
+}
+
+function renderPayouts() {
+  let rows = [...state.payouts];
+  rows = applyTextSearch(rows, $("#payoutSearch")?.value, ["channel", "bank_reference", "raw_source_file", "notes"]);
+  const channel = $("#payoutChannelFilter")?.value;
+  const status = $("#payoutStatusFilter")?.value;
+  const from = $("#payoutFromFilter")?.value;
+  const to = $("#payoutToFilter")?.value;
+  if (channel) rows = rows.filter((row) => row.channel === channel);
+  if (status) rows = rows.filter((row) => row.status === status);
+  if (from) rows = rows.filter((row) => String(row.payout_date || "") >= from);
+  if (to) rows = rows.filter((row) => String(row.payout_date || "") <= to);
+  rows = sortRows(rows, $("#payoutSort")?.value, {
+    date_asc: (a, b) => String(a.payout_date).localeCompare(String(b.payout_date)),
+    net_desc: (a, b) => number(b.net_amount) - number(a.net_amount),
+    net_asc: (a, b) => number(a.net_amount) - number(b.net_amount),
+    fees_desc: (a, b) => number(b.fees_amount) - number(a.fees_amount),
+    channel_asc: (a, b) => lower(a.channel).localeCompare(lower(b.channel)) || String(b.payout_date).localeCompare(String(a.payout_date)),
+    default: (a, b) => String(b.payout_date).localeCompare(String(a.payout_date))
+  });
+  $("#incomeResultText").textContent = `${rows.length} cobros visibles.`;
+  $("#payoutList").innerHTML = rows.map((payout) => `
+    <article class="invoice-card ${payout.is_deleted ? "deleted" : ""} ${state.selectedPayoutId == payout.id ? "active" : ""}">
+      <button type="button" class="invoice-open" data-open-payout="${payout.id}">
+        <span>
+          <strong>${channelLabel(payout.channel)}</strong>
+          <div class="meta">${text(payout.payout_date)}${payout.bank_reference ? ` · ${text(payout.bank_reference)}` : ""}</div>
+        </span>
+        <span class="amount">${euro.format(number(payout.net_amount))}</span>
+      </button>
+      <div class="tags">
+        ${badge(channelLabel(payout.channel), payout.channel === "bizum" ? "ok" : "")}
+        ${badge(payoutStatusLabel(payout.status), ["paid", "executed"].includes(payout.status) ? "ok" : "warn")}
+        ${badge(`Bruto ${euro.format(number(payout.gross_amount))}`)}
+        ${badge(`Fees ${euro.format(number(payout.fees_amount))}`)}
+      </div>
+      <div class="row-actions">
+        <button data-open-payout="${payout.id}" type="button">Ver</button>
+        ${payout.is_deleted ? `<button data-restore-payout="${payout.id}" type="button">Restaurar</button>` : `<button class="ghost danger-text" data-delete-payout="${payout.id}" type="button">Archivar</button>`}
+      </div>
+    </article>
+  `).join("") || `<div class="empty-state">No hay cobros con esos filtros.</div>`;
+}
+
+function renderIncomeImports() {
+  $("#payoutImportList").innerHTML = state.incomeImports.map((row) => `
+    <article class="row">
+      <div class="row-main">
+        <strong>${channelLabel(row.channel)} · ${text(row.source_file)}</strong>
+        <div class="meta">${text(row.created_at)} · ${row.rows_total} filas · ${row.rows_created} nuevas · ${row.rows_updated} actualizadas · ${row.rows_skipped} sin cambios</div>
+        ${row.notes ? `<p>${text(row.notes)}</p>` : ""}
+      </div>
+      <div class="tags">${badge(payoutStatusLabel(row.status), row.status === "completed" ? "ok" : "warn")}</div>
+    </article>
+  `).join("") || `<div class="empty-state">Todavía no hay importaciones de cobros.</div>`;
+}
+
+async function openPayout(id) {
+  const payout = state.payouts.find((row) => row.id == id) || await api(`/api/channel-payouts/${id}`);
+  if (!payout) return;
+  $("#payoutForm")?.classList.add("hidden");
+  state.selectedPayoutId = payout.id;
+  const panel = $("#payoutDetailPanel");
+  panel.classList.remove("hidden");
+  panel.innerHTML = `
+    <div class="selected-invoice">
+      <div class="panel-head">
+        <div>
+          <h2>${channelLabel(payout.channel)} · ${text(payout.payout_date)}</h2>
+          <p>${euro.format(number(payout.net_amount))} netos · ${payout.bank_reference ? text(payout.bank_reference) : "sin referencia bancaria"}</p>
+        </div>
+        <div class="row-actions">
+          <button type="button" data-edit-payout-details="${payout.id}">Editar cobro</button>
+          <button type="button" class="ghost" data-close-payout-panels>Cerrar</button>
+        </div>
+      </div>
+      <div class="tags">
+        ${badge(channelLabel(payout.channel))}
+        ${badge(payoutStatusLabel(payout.status), ["paid", "executed"].includes(payout.status) ? "ok" : "warn")}
+        ${badge(payout.currency || "EUR")}
+        ${payout.channel === "etsy" ? badge("Depósito neto", "warn") : ""}
+        ${payout.channel === "bizum" ? badge("Cobro directo", "ok") : ""}
+      </div>
+    </div>
+    <div class="form-grid three">
+      <div class="inline-note">Bruto: <strong>${euro.format(number(payout.gross_amount))}</strong></div>
+      <div class="inline-note">Fees: <strong>${euro.format(number(payout.fees_amount))}</strong></div>
+      <div class="inline-note">Neto: <strong>${euro.format(number(payout.net_amount))}</strong></div>
+    </div>
+    <div class="form-grid three">
+      <div class="inline-note">Estado: <strong>${text(payoutStatusLabel(payout.status))}</strong></div>
+      <div class="inline-note">Cuenta banco: <strong>${text(payout.bank_account_hint || "-")}</strong></div>
+      <div class="inline-note">Referencia: <strong>${text(payout.bank_reference || "-")}</strong></div>
+    </div>
+    <div class="line-list">
+      <article class="line-card">
+        <div class="row-main">
+          <strong>Origen</strong>
+          <div class="meta">${text(payout.raw_source_file || "Creado manualmente")}</div>
+          ${payout.external_id ? `<div class="meta">ID externo · ${text(payout.external_id)}</div>` : ""}
+          ${payout.notes ? `<p>${text(payout.notes)}</p>` : ""}
+        </div>
+      </article>
+    </div>
+  `;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  renderPayouts();
+}
+
 function renderSettings() {
   const form = $("#settingsForm");
   if (!form || !state.settings) return;
   setForm(form, state.settings);
+  const colors = chartColors();
+  if (form.elements.dashboard_color_total) form.elements.dashboard_color_total.value = state.settings.dashboard_color_total || colors.total;
+  if (form.elements.dashboard_color_materiales) form.elements.dashboard_color_materiales.value = state.settings.dashboard_color_materiales || colors.materiales;
+  if (form.elements.dashboard_color_marketing) form.elements.dashboard_color_marketing.value = state.settings.dashboard_color_marketing || colors.marketing;
+  if (form.elements.dashboard_color_envios) form.elements.dashboard_color_envios.value = state.settings.dashboard_color_envios || colors.envios;
+  if (form.elements.dashboard_color_cobros) form.elements.dashboard_color_cobros.value = state.settings.dashboard_color_cobros || colors.cobros;
+  if (form.elements.dashboard_color_fees) form.elements.dashboard_color_fees.value = state.settings.dashboard_color_fees || colors.fees;
+  if (form.elements.dashboard_color_shopify) form.elements.dashboard_color_shopify.value = state.settings.dashboard_color_shopify || colors.shopify;
+  if (form.elements.dashboard_color_etsy) form.elements.dashboard_color_etsy.value = state.settings.dashboard_color_etsy || colors.etsy;
+  if (form.elements.dashboard_color_bizum) form.elements.dashboard_color_bizum.value = state.settings.dashboard_color_bizum || colors.bizum;
   $("#brandName").textContent = state.settings.company_name || "Mua Ops";
   document.title = state.settings.company_name || "Mua Ops";
-  $$("[data-dashboard-trend-view]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.dashboardTrendView === state.dashboardTrendView);
+  $$("[data-dashboard-expense-trend-view]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.dashboardExpenseTrendView === state.dashboardExpenseTrendView);
+  });
+  $$("[data-dashboard-income-trend-view]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.dashboardIncomeTrendView === state.dashboardIncomeTrendView);
   });
 }
 
@@ -1113,12 +1477,51 @@ async function saveKitItem(event) {
   toast("Material añadido al kit");
 }
 
+function sanitizePayoutData(data = {}) {
+  return {
+    id: data.id,
+    channel: data.channel,
+    payout_date: data.payout_date,
+    status: data.status,
+    currency: data.currency,
+    gross_amount: data.gross_amount,
+    fees_amount: data.fees_amount,
+    net_amount: data.net_amount,
+    bank_reference: data.bank_reference,
+    bank_account_hint: data.bank_account_hint,
+    notes: data.notes
+  };
+}
+
+async function savePayout(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = sanitizePayoutData(formObject(form));
+  const id = data.id;
+  delete data.id;
+  const saved = await api(id ? `/api/channel-payouts/${id}` : "/api/channel-payouts", {
+    method: id ? "PATCH" : "POST",
+    body: JSON.stringify(data)
+  });
+  await Promise.all([loadIncome(), loadSummary(), loadDashboardFinance()]);
+  await openPayout(saved.id);
+  toast("Cobro guardado");
+}
+
+async function runPayoutImport(channel) {
+  const route = channel === "etsy" ? "/api/import/payouts/etsy" : "/api/import/payouts/shopify";
+  const result = await api(route, { method: "POST", body: "{}" });
+  await Promise.all([loadIncome(), loadSummary(), loadDashboardFinance()]);
+  toast(`${channelLabel(channel)} importado · ${result.rows_created || 0} nuevas, ${result.rows_updated || 0} actualizadas`);
+}
+
 async function saveSettings(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = formObject(form);
   state.settings = await api("/api/settings", { method: "PATCH", body: JSON.stringify(data) });
-  state.dashboardTrendView = state.settings.dashboard_monthly_view || "total";
+  state.dashboardExpenseTrendView = state.settings.dashboard_monthly_view || "total";
+  state.dashboardIncomeTrendView = state.settings.dashboard_income_monthly_view || "cobros";
   renderSettings();
   if (state.dashboardFinance) renderDashboard();
   toast("Configuración guardada");
@@ -1176,6 +1579,11 @@ async function archiveOrRestore(path, message) {
       closeInvoicePanels();
     });
   }
+  if (state.selectedPayoutId) {
+    await openPayout(state.selectedPayoutId).catch(() => {
+      closePayoutPanels();
+    });
+  }
   toast(message);
 }
 
@@ -1199,12 +1607,25 @@ function populateStaticFilters() {
     <option value="posted">Contabilizada</option>
     <option value="paid">Pagada</option>
     <option value="archived">Archivada</option>`;
+  $("#payoutStatusFilter").innerHTML = `<option value="">Todos</option>${PAYOUT_STATUSES.map((value) => `<option value="${value}">${payoutStatusLabel(value)}</option>`).join("")}`;
+  $$('select[name="status"]').forEach((select) => {
+    if (select.closest("#payoutForm")) {
+      const selected = select.value;
+      select.innerHTML = PAYOUT_STATUSES.map((value) => `<option value="${value}" ${selected === value ? "selected" : ""}>${payoutStatusLabel(value)}</option>`).join("");
+    }
+  });
+  const defaultPayoutStatus = $('select[name="default_payout_status"]');
+  if (defaultPayoutStatus) {
+    const selected = defaultPayoutStatus.value;
+    defaultPayoutStatus.innerHTML = PAYOUT_STATUSES.map((value) => `<option value="${value}" ${selected === value ? "selected" : ""}>${payoutStatusLabel(value)}</option>`).join("");
+  }
 }
 
 async function refreshAll() {
   await loadSummary();
   await loadSettings();
   await loadDashboardFinance();
+  await loadIncome();
   await loadSuppliers();
   await loadMaterials();
   await loadInvoices();
@@ -1234,14 +1655,24 @@ function bindEvents() {
         $$("[data-dashboard-spend-view]").forEach((button) => button.classList.toggle("is-active", button.dataset.dashboardSpendView === state.dashboardSpendView));
         renderDashboard();
       }
-      if (t.dataset.dashboardTrendView) {
-        state.dashboardTrendView = t.dataset.dashboardTrendView;
-        if (state.settings) state.settings.dashboard_monthly_view = state.dashboardTrendView;
+      if (t.dataset.dashboardExpenseTrendView) {
+        state.dashboardExpenseTrendView = t.dataset.dashboardExpenseTrendView;
+        if (state.settings) state.settings.dashboard_monthly_view = state.dashboardExpenseTrendView;
+        renderSettings();
+        renderDashboard();
+      }
+      if (t.dataset.dashboardIncomeTrendView) {
+        state.dashboardIncomeTrendView = t.dataset.dashboardIncomeTrendView;
+        if (state.settings) state.settings.dashboard_income_monthly_view = state.dashboardIncomeTrendView;
         renderSettings();
         renderDashboard();
       }
       if (t.dataset.newInvoice !== undefined) showInvoiceEditor();
       if (t.dataset.closeInvoicePanels !== undefined) closeInvoicePanels();
+      if (t.dataset.newPayout !== undefined) showPayoutEditor();
+      if (t.dataset.closePayoutPanels !== undefined) closePayoutPanels();
+      if (t.dataset.importShopifyPayouts !== undefined) await runPayoutImport("shopify");
+      if (t.dataset.importEtsyPayouts !== undefined) await runPayoutImport("etsy");
       if (t.dataset.newMaterial !== undefined) showMaterialEditor();
       if (t.dataset.closeMaterialPanels !== undefined) closeMaterialPanels();
       if (t.dataset.newSupplier !== undefined) showSupplierEditor();
@@ -1260,6 +1691,14 @@ function bindEvents() {
       if (t.dataset.viewInvoice) {
         setActiveView("invoices");
         await openInvoiceWorkspace(t.dataset.viewInvoice);
+      }
+      if (t.dataset.openPayout) {
+        setActiveView("income");
+        await openPayout(t.dataset.openPayout);
+      }
+      if (t.dataset.editPayoutDetails) {
+        const payout = await api(`/api/channel-payouts/${t.dataset.editPayoutDetails}`);
+        showPayoutEditor(payout, true);
       }
       if (t.dataset.saveLine !== undefined) {
         const form = $("#lineForm");
@@ -1282,6 +1721,8 @@ function bindEvents() {
       if (t.dataset.restoreMaterial) await archiveOrRestore(`/api/materials/${t.dataset.restoreMaterial}/restore`, "Material restaurado");
       if (t.dataset.deleteSupplier) await archiveOrRestore(`/api/suppliers/${t.dataset.deleteSupplier}`, "Proveedor archivado");
       if (t.dataset.restoreSupplier) await archiveOrRestore(`/api/suppliers/${t.dataset.restoreSupplier}/restore`, "Proveedor restaurado");
+      if (t.dataset.deletePayout) await archiveOrRestore(`/api/channel-payouts/${t.dataset.deletePayout}`, "Cobro archivado");
+      if (t.dataset.restorePayout) await archiveOrRestore(`/api/channel-payouts/${t.dataset.restorePayout}/restore`, "Cobro restaurado");
       if (t.dataset.openKit) await openKitWorkspace(t.dataset.openKit);
       if (t.dataset.closeKitDetail !== undefined) $("#kitDetailPanel")?.classList.add("hidden");
       if (t.dataset.toggleKitComplete) {
@@ -1347,6 +1788,7 @@ function bindEvents() {
   $("#supplierForm").addEventListener("submit", saveSupplier);
   $("#invoiceForm").addEventListener("submit", saveInvoice);
   $("#kitForm").addEventListener("submit", saveKit);
+  $("#payoutForm").addEventListener("submit", savePayout);
   $("#settingsForm").addEventListener("submit", saveSettings);
   document.body.addEventListener("submit", (event) => {
     if (event.target.id !== "lineForm") return;
@@ -1386,6 +1828,12 @@ function bindEvents() {
     ["#invoiceFromFilter", renderInvoices],
     ["#invoiceToFilter", renderInvoices],
     ["#invoiceSort", renderInvoices],
+    ["#payoutSearch", renderPayouts],
+    ["#payoutChannelFilter", renderPayouts],
+    ["#payoutStatusFilter", renderPayouts],
+    ["#payoutFromFilter", renderPayouts],
+    ["#payoutToFilter", renderPayouts],
+    ["#payoutSort", renderPayouts],
     ["#costSearch", renderCosts],
     ["#costCategoryFilter", renderCosts],
     ["#costSort", renderCosts],
@@ -1400,6 +1848,7 @@ function bindEvents() {
   $("#materialsDeleted").addEventListener("change", loadMaterials);
   $("#suppliersDeleted").addEventListener("change", loadSuppliers);
   $("#invoicesDeleted").addEventListener("change", loadInvoices);
+  $("#payoutsDeleted").addEventListener("change", loadIncome);
   $("#auditSearch").addEventListener("click", loadAudit);
 
   window.addEventListener("resize", debounce(() => {

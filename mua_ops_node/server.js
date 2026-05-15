@@ -14,18 +14,28 @@ const WORKSPACE_PRODUCTS_CSV = path.join(ROOT, "shopify", "inventario", "product
 const DOWNLOAD_PRODUCTS_CSV = "C:\\Users\\Portatil\\Downloads\\products_export_1.csv";
 const PRODUCTS_CSV = process.env.MUA_OPS_PRODUCTS_CSV || (fs.existsSync(WORKSPACE_PRODUCTS_CSV) ? WORKSPACE_PRODUCTS_CSV : DOWNLOAD_PRODUCTS_CSV);
 const INVENTORY_CSV = process.env.MUA_OPS_INVENTORY_CSV || path.join(ROOT, "shopify", "inventario", "inventory_export_1.csv");
+const SHOPIFY_PAYOUTS_CSV = process.env.MUA_OPS_SHOPIFY_PAYOUTS_CSV || path.join(ROOT, "shopify", "pagos", "payouts_export_1.csv");
+const ETSY_PAYOUTS_DIR = process.env.MUA_OPS_ETSY_PAYOUTS_DIR || path.join(ROOT, "etsy", "pagos");
 const ACTOR = "local_user";
 const DEFAULT_SETTINGS = {
   company_name: "Mua Ops",
   currency: "EUR",
   dashboard_monthly_view: "total",
+  dashboard_income_monthly_view: "cobros",
   low_stock_default: "5",
   default_invoice_status: "draft",
   default_invoice_category: "materiales",
+  default_payout_channel: "shopify",
+  default_payout_status: "paid",
   dashboard_color_total: "#166b5e",
   dashboard_color_materiales: "#9f7234",
   dashboard_color_marketing: "#b85d72",
-  dashboard_color_envios: "#4f6d93"
+  dashboard_color_envios: "#4f6d93",
+  dashboard_color_cobros: "#166b5e",
+  dashboard_color_fees: "#b85d72",
+  dashboard_color_shopify: "#166b5e",
+  dashboard_color_etsy: "#9f7234",
+  dashboard_color_bizum: "#c18a3a"
 };
 
 let SQL;
@@ -49,6 +59,7 @@ async function openDb() {
   migrate();
   backfillMaterialHierarchy();
   seedSuppliers();
+  seedSalesChannels();
   seedSettings();
   if (fs.existsSync(PRODUCTS_CSV)) {
     importShopify(PRODUCTS_CSV, INVENTORY_CSV);
@@ -253,6 +264,53 @@ function migrate() {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS sales_channels (
+      code TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS channel_payouts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel TEXT NOT NULL REFERENCES sales_channels(code),
+      external_id TEXT NOT NULL,
+      payout_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      currency TEXT NOT NULL DEFAULT 'EUR',
+      gross_amount REAL NOT NULL DEFAULT 0,
+      refunds_amount REAL NOT NULL DEFAULT 0,
+      adjustments_amount REAL NOT NULL DEFAULT 0,
+      advances_amount REAL NOT NULL DEFAULT 0,
+      reserves_amount REAL NOT NULL DEFAULT 0,
+      fees_amount REAL NOT NULL DEFAULT 0,
+      tax_withheld_amount REAL NOT NULL DEFAULT 0,
+      retried_amount REAL NOT NULL DEFAULT 0,
+      net_amount REAL NOT NULL DEFAULT 0,
+      bank_reference TEXT DEFAULT '',
+      bank_account_hint TEXT DEFAULT '',
+      raw_source_file TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      is_deleted INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(channel, external_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS channel_payout_imports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel TEXT NOT NULL REFERENCES sales_channels(code),
+      source_file TEXT NOT NULL,
+      rows_total INTEGER NOT NULL DEFAULT 0,
+      rows_created INTEGER NOT NULL DEFAULT 0,
+      rows_updated INTEGER NOT NULL DEFAULT 0,
+      rows_skipped INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'completed',
+      notes TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS kit_recipes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -283,6 +341,10 @@ function migrate() {
   ensureColumn("materials", "base_material", "TEXT DEFAULT ''");
   ensureColumn("materials", "finish", "TEXT DEFAULT ''");
   ensureColumn("kit_recipes", "is_complete", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("channel_payouts", "advances_amount", "REAL NOT NULL DEFAULT 0");
+  ensureColumn("channel_payouts", "reserves_amount", "REAL NOT NULL DEFAULT 0");
+  ensureColumn("channel_payouts", "retried_amount", "REAL NOT NULL DEFAULT 0");
+  ensureColumn("channel_payouts", "bank_account_hint", "TEXT DEFAULT ''");
 }
 
 function exec(sql, params = {}) {
@@ -370,6 +432,20 @@ function seedSuppliers() {
   }
 }
 
+function seedSalesChannels() {
+  const defaults = [
+    ["shopify", "Shopify"],
+    ["etsy", "Etsy"],
+    ["bizum", "Bizum"]
+  ];
+  for (const [code, label] of defaults) {
+    exec(
+      `INSERT OR IGNORE INTO sales_channels (code, label, is_active) VALUES ($code, $label, 1)`,
+      { code, label }
+    );
+  }
+}
+
 function parseCsv(text) {
   const rows = [];
   let row = [];
@@ -420,6 +496,43 @@ function n(value, fallback = 0) {
 function optionalN(value) {
   if (value === null || value === undefined || String(value).trim() === "") return null;
   return n(value);
+}
+
+function parseEnglishDate(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function payoutPayload(row) {
+  return {
+    ...row,
+    bank_reference: row.bank_reference || "",
+    bank_account_hint: row.bank_account_hint || "",
+    raw_source_file: row.raw_source_file || "",
+    notes: row.notes || ""
+  };
+}
+
+function payoutStatusLabel(value) {
+  const labels = {
+    pending: "Pendiente",
+    paid: "Pagado",
+    executed: "Ejecutado",
+    in_transit: "En tránsito",
+    failed: "Fallido",
+    canceled: "Cancelado"
+  };
+  return labels[value] || value;
+}
+
+function normalizePayoutStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["in_transit", "paid", "executed"].includes(normalized)) return normalized;
+  if (normalized === "completed") return "executed";
+  if (!normalized) return "paid";
+  return "paid";
 }
 
 function guessCategory(title) {
@@ -842,8 +955,221 @@ function activeInvoicesWithMeta() {
   );
 }
 
+function activePayouts() {
+  return query(
+    `SELECT p.*, c.label AS channel_label
+     FROM channel_payouts p
+     LEFT JOIN sales_channels c ON c.code = p.channel
+     WHERE p.is_deleted = 0
+     ORDER BY p.payout_date DESC, p.id DESC`
+  ).map(payoutPayload);
+}
+
+function payoutImportHistory() {
+  return query(
+    `SELECT i.*, c.label AS channel_label
+     FROM channel_payout_imports i
+     LEFT JOIN sales_channels c ON c.code = i.channel
+     ORDER BY i.created_at DESC, i.id DESC
+     LIMIT 20`
+  );
+}
+
+function incomeSummary() {
+  const payouts = activePayouts();
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const monthRows = payouts.filter((row) => String(row.payout_date || "").slice(0, 7) === currentMonth);
+  return {
+    payout_count: payouts.length,
+    total_net_amount: payouts.reduce((sum, row) => sum + n(row.net_amount), 0),
+    total_gross_amount: payouts.reduce((sum, row) => sum + n(row.gross_amount), 0),
+    total_fees_amount: payouts.reduce((sum, row) => sum + n(row.fees_amount), 0),
+    current_month_net_amount: monthRows.reduce((sum, row) => sum + n(row.net_amount), 0),
+    current_month_fees_amount: monthRows.reduce((sum, row) => sum + n(row.fees_amount), 0),
+    pending_count: payouts.filter((row) => !["paid", "executed"].includes(String(row.status || ""))).length,
+    last_payout_date: payouts[0]?.payout_date || null,
+    channels: Array.from(
+      payouts.reduce((map, row) => {
+        const key = row.channel;
+        const bucket = map.get(key) || { channel: key, net_amount: 0, gross_amount: 0, fees_amount: 0, payout_count: 0 };
+        bucket.net_amount += n(row.net_amount);
+        bucket.gross_amount += n(row.gross_amount);
+        bucket.fees_amount += n(row.fees_amount);
+        bucket.payout_count += 1;
+        map.set(key, bucket);
+        return map;
+      }, new Map()).values()
+    )
+  };
+}
+
+function normalizePayoutBody(body = {}) {
+  const channel = String(body.channel || "shopify").trim().toLowerCase();
+  const grossAmount = n(body.gross_amount);
+  const netAmount = n(body.net_amount);
+  return {
+    channel,
+    external_id: String(body.external_id || "").trim(),
+    payout_date: String(body.payout_date || "").trim(),
+    status: normalizePayoutStatus(body.status || "paid"),
+    currency: String(body.currency || "EUR").trim().toUpperCase(),
+    gross_amount: grossAmount || (channel === "bizum" ? netAmount : 0),
+    refunds_amount: n(body.refunds_amount),
+    adjustments_amount: n(body.adjustments_amount),
+    advances_amount: n(body.advances_amount),
+    reserves_amount: n(body.reserves_amount),
+    fees_amount: n(body.fees_amount),
+    tax_withheld_amount: n(body.tax_withheld_amount),
+    retried_amount: n(body.retried_amount),
+    net_amount: netAmount || grossAmount,
+    bank_reference: String(body.bank_reference || "").trim(),
+    bank_account_hint: String(body.bank_account_hint || "").trim(),
+    raw_source_file: String(body.raw_source_file || "").trim(),
+    notes: String(body.notes || "").trim()
+  };
+}
+
+function upsertChannelPayout(payload, source = "manual") {
+  const normalized = normalizePayoutBody(payload);
+  const existing = one(
+    `SELECT * FROM channel_payouts WHERE channel=$channel AND external_id=$external_id`,
+    { channel: normalized.channel, external_id: normalized.external_id }
+  );
+  if (!existing) {
+    const id = insert(
+      `INSERT INTO channel_payouts (
+        channel, external_id, payout_date, status, currency,
+        gross_amount, refunds_amount, adjustments_amount, advances_amount, reserves_amount,
+        fees_amount, tax_withheld_amount, retried_amount, net_amount,
+        bank_reference, bank_account_hint, raw_source_file, notes
+      ) VALUES (
+        $channel, $external_id, $payout_date, $status, $currency,
+        $gross_amount, $refunds_amount, $adjustments_amount, $advances_amount, $reserves_amount,
+        $fees_amount, $tax_withheld_amount, $retried_amount, $net_amount,
+        $bank_reference, $bank_account_hint, $raw_source_file, $notes
+      )`,
+      normalized
+    );
+    const after = payoutPayload(one("SELECT * FROM channel_payouts WHERE id=$id", { id }));
+    audit("channel_payout", id, source === "manual" ? "create" : "import_create", null, after);
+    return { row: after, created: true, updated: false, skipped: false };
+  }
+
+  const same = [
+    "payout_date", "status", "currency", "gross_amount", "refunds_amount", "adjustments_amount",
+    "advances_amount", "reserves_amount", "fees_amount", "tax_withheld_amount", "retried_amount",
+    "net_amount", "bank_reference", "bank_account_hint", "raw_source_file", "notes"
+  ].every((key) => String(existing[key] ?? "") === String(normalized[key] ?? ""));
+  if (same) return { row: payoutPayload(existing), created: false, updated: false, skipped: true };
+
+  exec(
+    `UPDATE channel_payouts SET ${nowPatch("channel_payouts", [
+      "payout_date", "status", "currency", "gross_amount", "refunds_amount", "adjustments_amount",
+      "advances_amount", "reserves_amount", "fees_amount", "tax_withheld_amount", "retried_amount",
+      "net_amount", "bank_reference", "bank_account_hint", "raw_source_file", "notes"
+    ])} WHERE id=$id`,
+    { id: existing.id, ...normalized }
+  );
+  const after = payoutPayload(one("SELECT * FROM channel_payouts WHERE id=$id", { id: existing.id }));
+  audit("channel_payout", existing.id, source === "manual" ? "update" : "import_update", existing, after);
+  return { row: after, created: false, updated: true, skipped: false };
+}
+
+function recordPayoutImport(channel, sourceFile, stats, notes = "") {
+  insert(
+    `INSERT INTO channel_payout_imports (channel, source_file, rows_total, rows_created, rows_updated, rows_skipped, status, notes)
+     VALUES ($channel, $source_file, $rows_total, $rows_created, $rows_updated, $rows_skipped, $status, $notes)`,
+    {
+      channel,
+      source_file: sourceFile,
+      rows_total: stats.rows_total || 0,
+      rows_created: stats.rows_created || 0,
+      rows_updated: stats.rows_updated || 0,
+      rows_skipped: stats.rows_skipped || 0,
+      status: stats.status || "completed",
+      notes
+    }
+  );
+}
+
+function importShopifyPayouts(filePath = SHOPIFY_PAYOUTS_CSV) {
+  if (!fs.existsSync(filePath)) throw new Error(`No existe el CSV de payouts de Shopify: ${filePath}`);
+  const rows = parseCsv(fs.readFileSync(filePath, "utf8"));
+  const stats = { rows_total: rows.length, rows_created: 0, rows_updated: 0, rows_skipped: 0, status: "completed" };
+  for (const row of rows) {
+    const payload = {
+      channel: "shopify",
+      external_id: `shopify|${row["Payout Date"]}|${row.Total}|${row["Bank Reference"] || "sin-referencia"}`,
+      payout_date: row["Payout Date"],
+      status: normalizePayoutStatus(row.Status || "paid"),
+      currency: row.Currency || "EUR",
+      gross_amount: n(row.Charges),
+      refunds_amount: n(row.Refunds),
+      adjustments_amount: n(row.Adjustments),
+      advances_amount: n(row.Advances),
+      reserves_amount: n(row["Reserved Funds"]),
+      fees_amount: n(row.Fees),
+      tax_withheld_amount: n(row["Marketplace Sales Tax"]),
+      retried_amount: n(row["Retried Amount"]),
+      net_amount: n(row.Total),
+      bank_reference: row["Bank Reference"] || "",
+      raw_source_file: path.relative(ROOT, filePath)
+    };
+    const result = upsertChannelPayout(payload, "import");
+    if (result.created) stats.rows_created += 1;
+    else if (result.updated) stats.rows_updated += 1;
+    else stats.rows_skipped += 1;
+  }
+  recordPayoutImport("shopify", path.relative(ROOT, filePath), stats);
+  saveDb();
+  return stats;
+}
+
+function importEtsyPayouts(directory = ETSY_PAYOUTS_DIR) {
+  if (!fs.existsSync(directory)) throw new Error(`No existe la carpeta de depósitos de Etsy: ${directory}`);
+  const files = fs.readdirSync(directory).filter((name) => /^EtsyDeposits.*\.csv$/i.test(name)).sort();
+  const stats = { rows_total: 0, rows_created: 0, rows_updated: 0, rows_skipped: 0, status: "completed" };
+  for (const file of files) {
+    const fullPath = path.join(directory, file);
+    const rows = parseCsv(fs.readFileSync(fullPath, "utf8"));
+    stats.rows_total += rows.length;
+    for (const row of rows) {
+      const payoutDate = parseEnglishDate(row.Date);
+      const payload = {
+        channel: "etsy",
+        external_id: `etsy|${payoutDate}|${row.Amount}|${row["Bank Account Ending Digits"] || ""}`,
+        payout_date: payoutDate,
+        status: normalizePayoutStatus(row.Status || "executed"),
+        currency: row.Currency || "EUR",
+        gross_amount: n(row.Amount),
+        refunds_amount: 0,
+        adjustments_amount: 0,
+        advances_amount: 0,
+        reserves_amount: 0,
+        fees_amount: 0,
+        tax_withheld_amount: 0,
+        retried_amount: 0,
+        net_amount: n(row.Amount),
+        bank_reference: "",
+        bank_account_hint: String(row["Bank Account Ending Digits"] || "").trim(),
+        raw_source_file: path.relative(ROOT, fullPath)
+      };
+      const result = upsertChannelPayout(payload, "import");
+      if (result.created) stats.rows_created += 1;
+      else if (result.updated) stats.rows_updated += 1;
+      else stats.rows_skipped += 1;
+    }
+  }
+  recordPayoutImport("etsy", path.relative(ROOT, directory), stats, `${files.length} ficheros procesados`);
+  saveDb();
+  return { ...stats, files_processed: files.length };
+}
+
 function dashboardFinance() {
   const invoices = activeInvoicesWithMeta();
+  const payouts = activePayouts();
+  const income = incomeSummary();
+  const payoutImports = payoutImportHistory();
   const costs = materialCosts();
   const kits = kitRecipes();
   const currentMonth = new Date().toISOString().slice(0, 7);
@@ -875,10 +1201,19 @@ function dashboardFinance() {
     bucket[invoice.category] = (bucket[invoice.category] || 0) + n(invoice.total);
     monthlyBreakdownMap.set(key, bucket);
   }
-  const monthlySpend = Array.from(monthlyMap.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
+  for (const payout of payouts) {
+    const key = String(payout.payout_date || "").slice(0, 7);
+    if (!key) continue;
+    const bucket = monthlyBreakdownMap.get(key) || { total: 0 };
+    bucket.cobros = (bucket.cobros || 0) + n(payout.net_amount);
+    bucket.fees = (bucket.fees || 0) + n(payout.fees_amount);
+    bucket[`channel_${payout.channel}`] = (bucket[`channel_${payout.channel}`] || 0) + n(payout.net_amount);
+    monthlyBreakdownMap.set(key, bucket);
+  }
+  const monthlySpend = Array.from(monthlyBreakdownMap.keys())
+    .sort((a, b) => a.localeCompare(b))
     .slice(-12)
-    .map(([month, total]) => ({ month, total }));
+    .map((month) => ({ month, total: n(monthlyMap.get(month)) }));
   const monthlySpendMonths = monthlySpend.map((row) => row.month);
   const monthlyBreakdown = {
     months: monthlySpendMonths,
@@ -887,9 +1222,15 @@ function dashboardFinance() {
       materiales: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.materiales)),
       marketing: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.marketing)),
       envios: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.envios)),
+      cobros: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.cobros)),
+      fees: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.fees)),
+      balance: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.cobros) - n(monthlyBreakdownMap.get(month)?.total)),
       servicios: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.servicios)),
       software: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.software)),
-      otros: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.otros))
+      otros: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.otros)),
+      channel_shopify: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.channel_shopify)),
+      channel_etsy: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.channel_etsy)),
+      channel_bizum: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.channel_bizum))
     }
   };
 
@@ -958,6 +1299,16 @@ function dashboardFinance() {
       known_cost: n(kit.known_cost)
     }));
 
+  const incomeChannels = income.channels
+    .map((row) => ({
+      channel: row.channel,
+      net_amount: n(row.net_amount),
+      gross_amount: n(row.gross_amount),
+      fees_amount: n(row.fees_amount),
+      payout_count: Number(row.payout_count || 0)
+    }))
+    .sort((a, b) => b.net_amount - a.net_amount);
+
   return {
     kpis: {
       total_expense: totalExpense,
@@ -966,11 +1317,19 @@ function dashboardFinance() {
       materials_expense: n(categorySpend.find((row) => row.category === "materiales")?.total),
       marketing_expense: n(categorySpend.find((row) => row.category === "marketing")?.total),
       shipping_expense: n(categorySpend.find((row) => row.category === "envios")?.total),
-      invoice_count: invoices.length
+      invoice_count: invoices.length,
+      total_net_received: n(income.total_net_amount),
+      current_month_net_received: n(income.current_month_net_amount),
+      current_month_fees_received: n(income.current_month_fees_amount),
+      payout_count: Number(income.payout_count || 0),
+      pending_payout_count: Number(income.pending_count || 0),
+      current_month_balance: n(income.current_month_net_amount) - currentMonthExpense
     },
     monthly_spend: monthlySpend,
     monthly_breakdown: monthlyBreakdown,
     category_spend: categorySpend.filter((row) => row.total > 0 || row.count > 0),
+    income,
+    income_channels: incomeChannels,
     latest_invoices: invoices.slice(0, 6).map((invoice) => ({
       id: invoice.id,
       supplier_name: invoice.supplier_name,
@@ -988,6 +1347,27 @@ function dashboardFinance() {
         invoice_number: invoice.invoice_number,
         invoice_date: invoice.invoice_date,
         total: n(invoice.total)
+      })),
+      pending_payouts: payouts
+        .filter((row) => !["paid", "executed"].includes(String(row.status || "")))
+        .slice(0, 6)
+        .map((row) => ({
+          id: row.id,
+          channel: row.channel,
+          payout_date: row.payout_date,
+          status: row.status,
+          net_amount: n(row.net_amount)
+        })),
+      recent_payout_imports: payoutImports.slice(0, 4).map((row) => ({
+        id: row.id,
+        channel: row.channel,
+        source_file: row.source_file,
+        rows_total: Number(row.rows_total || 0),
+        rows_created: Number(row.rows_created || 0),
+        rows_updated: Number(row.rows_updated || 0),
+        rows_skipped: Number(row.rows_skipped || 0),
+        status: row.status,
+        created_at: row.created_at
       })),
       materials_without_image: materialsWithoutImage,
       materials_without_cost: materialsWithoutCost,
@@ -1011,6 +1391,7 @@ function createApp() {
       shopify_products: tableCount("shopify_products"),
       suppliers: query("SELECT COUNT(*) AS c FROM suppliers WHERE is_deleted=0")[0].c,
       invoices: query("SELECT COUNT(*) AS c FROM invoices WHERE is_deleted=0")[0].c,
+      payouts: query("SELECT COUNT(*) AS c FROM channel_payouts WHERE is_deleted=0")[0].c,
       documents: query("SELECT COUNT(*) AS c FROM documents WHERE is_deleted=0")[0].c,
       db_path: DB_FILE
     });
@@ -1022,6 +1403,86 @@ function createApp() {
 
   app.patch("/api/settings", (req, res) => {
     res.json(updateSettings(req.body || {}));
+  });
+
+  app.get("/api/income/summary", (req, res) => {
+    res.json(incomeSummary());
+  });
+
+  app.get("/api/income/imports", (req, res) => {
+    res.json(payoutImportHistory());
+  });
+
+  app.get("/api/channel-payouts", (req, res) => {
+    const includeDeleted = req.query.include_deleted === "1";
+    const rows = query(
+      `SELECT p.*, c.label AS channel_label
+       FROM channel_payouts p
+       LEFT JOIN sales_channels c ON c.code = p.channel
+       WHERE ($includeDeleted=1 OR p.is_deleted=0)
+       ORDER BY p.is_deleted, p.payout_date DESC, p.id DESC`,
+      { includeDeleted: includeDeleted ? 1 : 0 }
+    );
+    res.json(rows.map(payoutPayload));
+  });
+
+  app.get("/api/channel-payouts/:id", (req, res) => {
+    const row = one(
+      `SELECT p.*, c.label AS channel_label
+       FROM channel_payouts p
+       LEFT JOIN sales_channels c ON c.code = p.channel
+       WHERE p.id=$id`,
+      { id: req.params.id }
+    );
+    if (!row) return res.status(404).json({ error: "Payout no encontrado" });
+    res.json(payoutPayload(row));
+  });
+
+  app.post("/api/channel-payouts", (req, res) => {
+    const payload = normalizePayoutBody(req.body || {});
+    if (!payload.external_id) {
+      payload.external_id = `manual|${payload.channel}|${payload.payout_date}|${payload.net_amount}|${Date.now()}`;
+    }
+    const result = upsertChannelPayout(payload, "manual");
+    saveDb();
+    res.json(result.row);
+  });
+
+  app.patch("/api/channel-payouts/:id", (req, res) => {
+    const before = one("SELECT * FROM channel_payouts WHERE id=$id", { id: req.params.id });
+    if (!before) return res.status(404).json({ error: "Payout no encontrado" });
+    const fields = [
+      "channel", "external_id", "payout_date", "status", "currency", "gross_amount", "refunds_amount",
+      "adjustments_amount", "advances_amount", "reserves_amount", "fees_amount", "tax_withheld_amount",
+      "retried_amount", "net_amount", "bank_reference", "bank_account_hint", "raw_source_file", "notes"
+    ].filter((field) => Object.prototype.hasOwnProperty.call(req.body, field));
+    if (!fields.length) return res.json(payoutPayload(before));
+    const params = { id: req.params.id };
+    for (const field of fields) {
+      if (["gross_amount", "refunds_amount", "adjustments_amount", "advances_amount", "reserves_amount", "fees_amount", "tax_withheld_amount", "retried_amount", "net_amount"].includes(field)) {
+        params[field] = n(req.body[field]);
+      } else if (field === "external_id") {
+        params[field] = String(req.body[field] || before.external_id || `manual|${before.channel}|${before.payout_date}|${before.net_amount}`).trim();
+      } else {
+        params[field] = req.body[field] === "" ? null : req.body[field];
+      }
+    }
+    exec(`UPDATE channel_payouts SET ${nowPatch("channel_payouts", fields)} WHERE id=$id`, params);
+    const after = payoutPayload(one("SELECT * FROM channel_payouts WHERE id=$id", { id: req.params.id }));
+    audit("channel_payout", Number(req.params.id), "update", before, after);
+    saveDb();
+    res.json(after);
+  });
+
+  app.delete("/api/channel-payouts/:id", (req, res) => softDelete("channel_payouts", "channel_payout", req.params.id, res));
+  app.post("/api/channel-payouts/:id/restore", (req, res) => restore("channel_payouts", "channel_payout", req.params.id, res));
+
+  app.post("/api/import/payouts/shopify", (req, res) => {
+    res.json(importShopifyPayouts());
+  });
+
+  app.post("/api/import/payouts/etsy", (req, res) => {
+    res.json(importEtsyPayouts());
   });
 
   app.get("/api/materials", (req, res) => {

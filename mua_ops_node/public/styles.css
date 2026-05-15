@@ -258,22 +258,27 @@ main {
 }
 
 .dashboard-kpis {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .dashboard-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   grid-template-areas:
-    "trend side"
-    "category spend";
+    "expense expense expense expense expense expense expense income income income income income"
+    "balance balance balance balance balance balance balance side side side side side"
+    "category category category category category category income-mix income-mix income-mix income-mix income-mix income-mix"
+    "spend spend spend spend spend spend spend spend spend spend spend spend";
   gap: 16px;
   align-items: start;
 }
 
-.dashboard-trend-panel { grid-area: trend; }
+.dashboard-expense-panel { grid-area: expense; }
+.dashboard-income-panel { grid-area: income; }
+.dashboard-balance-panel { grid-area: balance; }
 .dashboard-side-panel { grid-area: side; }
 .dashboard-category-panel { grid-area: category; }
+.dashboard-income-mix-panel { grid-area: income-mix; }
 .dashboard-spend-panel { grid-area: spend; }
 
 .panel {
@@ -323,6 +328,10 @@ main {
 .invoice-page > .invoice-list-panel,
 .entity-page > .entity-list-panel {
   order: 2;
+}
+
+.entity-page > .entity-support-panel {
+  order: 3;
 }
 
 .invoice-module,
@@ -394,23 +403,25 @@ main {
 
 .chart-surface {
   width: 100%;
-  min-height: 280px;
+  min-height: 260px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: linear-gradient(180deg, #ffffff 0%, #f7faf9 100%);
 }
 
 .chart-surface-small {
-  min-height: 240px;
+  min-height: 220px;
 }
 
 .segmented-control {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface-soft);
+  justify-content: flex-end;
 }
 
 .segmented-control button {
@@ -538,8 +549,19 @@ textarea {
   grid-template-columns: 1fr 1fr;
 }
 
+.form-grid.three {
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+}
+
 .form-grid.four {
   grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+.inset-panel {
+  padding: 14px;
+  background: var(--surface-soft);
+  border-style: dashed;
+  box-shadow: none;
 }
 
 .numbers {
@@ -1043,16 +1065,20 @@ textarea {
 
   .dashboard-layout,
   .split,
-  .form-grid.two {
+  .form-grid.two,
+  .form-grid.three {
     grid-template-columns: 1fr;
   }
 
   .dashboard-layout {
     grid-template-areas:
-      "trend"
+      "expense"
+      "income"
+      "balance"
+      "side"
       "category"
-      "spend"
-      "side";
+      "income-mix"
+      "spend";
   }
 
   .form-grid.four,
