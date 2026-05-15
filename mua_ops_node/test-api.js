@@ -331,6 +331,32 @@ async function run() {
     const restoredPayout = await request("POST", `/api/channel-payouts/${manualPayout.id}/restore`);
     assert(restoredPayout.is_deleted === 0, "Payout should be restorable");
 
+    const duplicateSeed = await request("POST", "/api/channel-payouts", {
+      channel: "shopify",
+      external_id: "shopify|2026-05-20|441.06|csv-ref",
+      payout_date: "2026-05-20",
+      status: "paid",
+      currency: "EUR",
+      gross_amount: 452.36,
+      fees_amount: 11.30,
+      net_amount: 441.06,
+      bank_reference: "csv-ref",
+      notes: "Seeded from CSV-style import"
+    });
+    const duplicateUpdate = await request("POST", "/api/channel-payouts", {
+      channel: "shopify",
+      external_id: "gid://shopify/ShopifyPaymentsPayout/999",
+      payout_date: "2026-05-20",
+      status: "paid",
+      currency: "EUR",
+      gross_amount: 452.36,
+      fees_amount: 11.30,
+      net_amount: 441.06,
+      notes: "Updated from API sync"
+    });
+    assert(duplicateUpdate.id === duplicateSeed.id, "Equivalent Shopify payouts should deduplicate across sources");
+    assert(duplicateUpdate.external_id === "gid://shopify/ShopifyPaymentsPayout/999", "API payout id should replace fallback CSV-style id when matched");
+
     const supplier = await request("POST", "/api/suppliers", {
       name: "Test Supplier",
       category: "materiales",

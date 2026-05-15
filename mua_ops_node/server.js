@@ -102,6 +102,9 @@ function materialPayload(row) {
   return {
     ...row,
     image_url_override: row.image_url_override || "",
+    shopify_inventory_qty: optionalN(row.shopify_inventory_qty),
+    shopify_available_qty: optionalN(row.shopify_available_qty),
+    effective_stock_qty: optionalN(row.effective_stock_qty),
     usage_type: row.usage_type || "",
     family: row.family || "",
     subfamily: row.subfamily || "",
@@ -1732,12 +1735,51 @@ function normalizePayoutBody(body = {}) {
   };
 }
 
+function sameMoney(a, b, epsilon = 0.005) {
+  return Math.abs(n(a) - n(b)) <= epsilon;
+}
+
+function payoutExternalIdPriority(value) {
+  const id = String(value || "").trim();
+  if (!id) return 0;
+  if (id.startsWith("gid://shopify/ShopifyPaymentsPayout/")) return 3;
+  if (id.startsWith("shopify|")) return 2;
+  if (id.startsWith("manual|")) return 1;
+  return 1;
+}
+
+function findSimilarPayout(normalized) {
+  if (!normalized?.channel || !normalized?.payout_date) return null;
+  const candidates = query(
+    `SELECT * FROM channel_payouts
+     WHERE channel=$channel
+       AND payout_date=$payout_date
+       AND is_deleted=0`,
+    { channel: normalized.channel, payout_date: normalized.payout_date }
+  );
+  return candidates.find((row) =>
+    sameMoney(row.net_amount, normalized.net_amount)
+    && sameMoney(row.gross_amount, normalized.gross_amount)
+    && sameMoney(row.fees_amount, normalized.fees_amount)
+  ) || null;
+}
+
 function upsertChannelPayout(payload, source = "manual") {
   const normalized = normalizePayoutBody(payload);
-  const existing = one(
+  const exact = one(
     `SELECT * FROM channel_payouts WHERE channel=$channel AND external_id=$external_id`,
     { channel: normalized.channel, external_id: normalized.external_id }
   );
+  const existing = exact || findSimilarPayout(normalized);
+  const nextValues = existing ? {
+    ...normalized,
+    external_id: payoutExternalIdPriority(normalized.external_id) >= payoutExternalIdPriority(existing.external_id)
+      ? normalized.external_id
+      : existing.external_id,
+    bank_reference: normalized.bank_reference || existing.bank_reference || "",
+    bank_account_hint: normalized.bank_account_hint || existing.bank_account_hint || "",
+    raw_source_file: normalized.raw_source_file || existing.raw_source_file || ""
+  } : normalized;
   if (!existing) {
     const id = insert(
       `INSERT INTO channel_payouts (
@@ -1751,7 +1793,7 @@ function upsertChannelPayout(payload, source = "manual") {
         $fees_amount, $tax_withheld_amount, $retried_amount, $net_amount,
         $bank_reference, $bank_account_hint, $raw_source_file, $notes
       )`,
-      normalized
+      nextValues
     );
     const after = payoutPayload(one("SELECT * FROM channel_payouts WHERE id=$id", { id }));
     audit("channel_payout", id, source === "manual" ? "create" : "import_create", null, after);
@@ -1759,19 +1801,19 @@ function upsertChannelPayout(payload, source = "manual") {
   }
 
   const same = [
-    "payout_date", "status", "currency", "gross_amount", "refunds_amount", "adjustments_amount",
+    "external_id", "payout_date", "status", "currency", "gross_amount", "refunds_amount", "adjustments_amount",
     "advances_amount", "reserves_amount", "fees_amount", "tax_withheld_amount", "retried_amount",
     "net_amount", "bank_reference", "bank_account_hint", "raw_source_file", "notes"
-  ].every((key) => String(existing[key] ?? "") === String(normalized[key] ?? ""));
+  ].every((key) => String(existing[key] ?? "") === String(nextValues[key] ?? ""));
   if (same) return { row: payoutPayload(existing), created: false, updated: false, skipped: true };
 
   exec(
     `UPDATE channel_payouts SET ${nowPatch("channel_payouts", [
-      "payout_date", "status", "currency", "gross_amount", "refunds_amount", "adjustments_amount",
+      "external_id", "payout_date", "status", "currency", "gross_amount", "refunds_amount", "adjustments_amount",
       "advances_amount", "reserves_amount", "fees_amount", "tax_withheld_amount", "retried_amount",
       "net_amount", "bank_reference", "bank_account_hint", "raw_source_file", "notes"
     ])} WHERE id=$id`,
-    { id: existing.id, ...normalized }
+    { id: existing.id, ...nextValues }
   );
   const after = payoutPayload(one("SELECT * FROM channel_payouts WHERE id=$id", { id: existing.id }));
   audit("channel_payout", existing.id, source === "manual" ? "update" : "import_update", existing, after);
@@ -2280,6 +2322,21 @@ function createApp() {
                 ORDER BY sp.shopify_available_qty DESC, sp.id
                 LIMIT 1
               )) AS image_url,
+              COALESCE((
+                SELECT SUM(COALESCE(sp.shopify_inventory_qty, 0))
+                FROM shopify_products sp
+                WHERE sp.material_id = m.id
+              ), 0) AS shopify_inventory_qty,
+              COALESCE((
+                SELECT SUM(COALESCE(sp.shopify_available_qty, 0))
+                FROM shopify_products sp
+                WHERE sp.material_id = m.id
+              ), 0) AS shopify_available_qty,
+              COALESCE((
+                SELECT SUM(COALESCE(sp.shopify_available_qty, 0))
+                FROM shopify_products sp
+                WHERE sp.material_id = m.id
+              ), 0) AS effective_stock_qty,
               (
                 SELECT COUNT(*)
                 FROM shopify_products sp2
