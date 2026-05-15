@@ -1,0 +1,1440 @@
+﻿const state = {
+  suppliers: [],
+  materials: [],
+  invoices: [],
+  costs: [],
+  kits: [],
+  settings: null,
+  dashboardFinance: null,
+  dashboardSpendView: "suppliers",
+  dashboardTrendView: "total",
+  dashboardCharts: {},
+  selectedInvoiceId: null,
+  invoiceLineFormOpen: false
+};
+
+const CATEGORIES = ["kit", "joya", "cadena", "topping", "packaging", "consumible", "servicio", "material"];
+const INVOICE_CATEGORIES = ["materiales", "envios", "marketing", "software", "servicios", "otros"];
+const STATUSES = ["draft", "posted", "paid", "archived"];
+const STATUS_LABELS = {
+  draft: "Borrador",
+  posted: "Contabilizada",
+  paid: "Pagada",
+  archived: "Archivada"
+};
+const DASHBOARD_TREND_LABELS = {
+  total: "Gasto total",
+  materiales: "Materiales",
+  marketing: "Marketing",
+  envios: "Envíos"
+};
+const DASHBOARD_TREND_COLORS = {
+  total: "#166b5e",
+  materiales: "#9f7234",
+  marketing: "#b85d72",
+  envios: "#4f6d93"
+};
+const MATERIAL_HIERARCHY = [
+  { key: "usage_type", label: "Uso", empty: "Todos", materialOnly: false },
+  { key: "family", label: "Familia", empty: "Todas", materialOnly: false },
+  { key: "subfamily", label: "Subfamilia", empty: "Todas", materialOnly: false },
+  { key: "variant", label: "Variante", empty: "Todas", materialOnly: false },
+  { key: "base_material", label: "Material", empty: "Todos", materialOnly: false },
+  { key: "finish", label: "Acabado", empty: "Todos", materialOnly: false }
+];
+const euro = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
+
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+async function api(path, options = {}) {
+  const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+function clientLog(action, context = {}, level = "info") {
+  fetch("/api/client-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, context, level })
+  }).catch(() => {});
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function text(value, fallback = "") {
+  const raw = value ?? fallback;
+  return escapeHtml(raw === "" ? fallback : raw);
+}
+
+function lower(value) {
+  return String(value ?? "").toLocaleLowerCase("es");
+}
+
+function number(value) {
+  const raw = String(value ?? "").trim();
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function chartColors() {
+  const settings = state.settings || {};
+  return {
+    total: settings.dashboard_color_total || DASHBOARD_TREND_COLORS.total,
+    materiales: settings.dashboard_color_materiales || DASHBOARD_TREND_COLORS.materiales,
+    marketing: settings.dashboard_color_marketing || DASHBOARD_TREND_COLORS.marketing,
+    envios: settings.dashboard_color_envios || DASHBOARD_TREND_COLORS.envios
+  };
+}
+
+function toast(message) {
+  const node = $("#toast");
+  node.textContent = message;
+  node.classList.add("visible");
+  setTimeout(() => node.classList.remove("visible"), 2400);
+}
+
+function formObject(form) {
+  return Object.fromEntries(new FormData(form).entries());
+}
+
+function setForm(form, data) {
+  for (const element of Array.from(form.elements)) {
+    if (!element.name) continue;
+    if (element.type === "checkbox") {
+      element.checked = Boolean(data[element.name]);
+    } else {
+      element.value = data[element.name] ?? "";
+    }
+  }
+}
+
+function resetForm(id) {
+  const form = document.getElementById(id);
+  if (!form) return;
+  form.reset();
+  form.querySelectorAll("input[type=hidden]").forEach((input) => input.value = "");
+  if (id === "materialForm") $("#materialFormTitle").textContent = "Nuevo material";
+  if (id === "supplierForm") $("#supplierFormTitle").textContent = "Nuevo proveedor";
+  if (id === "invoiceForm") $("#invoiceFormTitle").textContent = "Nueva factura";
+  if (id === "kitForm") $("#kitFormTitle").textContent = "Nuevo kit";
+  if (id === "lineForm") {
+    $("#lineFormTitle").textContent = "Nueva línea";
+    form.elements.invoice_id.value = state.selectedInvoiceId || "";
+    form.elements.affects_stock.checked = true;
+    updateLinePreview();
+  }
+}
+
+function closeInvoicePanels() {
+  $("#invoiceForm")?.classList.add("hidden");
+  $("#invoiceDetailPanel")?.classList.add("hidden");
+  state.selectedInvoiceId = null;
+  state.invoiceLineFormOpen = false;
+  renderInvoices();
+}
+
+function showInvoiceEditor(invoice = null, keepDetail = false) {
+  const form = $("#invoiceForm");
+  if (!keepDetail) $("#invoiceDetailPanel")?.classList.add("hidden");
+  form.classList.remove("hidden");
+  resetForm("invoiceForm");
+  if (invoice) {
+    setForm(form, invoice);
+    $("#invoiceFormTitle").textContent = `Editar factura #${invoice.id}`;
+  } else {
+    $("#invoiceFormTitle").textContent = "Nueva factura";
+    if (state.settings) {
+      if (form.elements.status) form.elements.status.value = state.settings.default_invoice_status || "draft";
+      if (form.elements.category) form.elements.category.value = state.settings.default_invoice_category || "materiales";
+    }
+  }
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeMaterialPanels() {
+  $("#materialForm")?.classList.add("hidden");
+}
+
+function showMaterialEditor(material = null) {
+  const form = $("#materialForm");
+  const preview = $("#materialFormPreview");
+  form.classList.remove("hidden");
+  resetForm("materialForm");
+  if (material) {
+    setForm(form, material);
+    $("#materialFormTitle").textContent = `Editar material #${material.id}`;
+    const imageUrl = material.image_url || material.image_url_override || "";
+    if (preview) {
+      if (imageUrl) {
+        preview.classList.remove("hidden");
+        preview.innerHTML = `
+          <div class="material-mini-thumb">${img(imageUrl)}</div>
+          <div>
+            <strong>${text(material.name)}</strong>
+            <div class="tags">
+              ${material.category ? badge(material.category) : ""}
+              ${hierarchyParts(material).map((value) => badge(value)).join("")}
+            </div>
+          </div>
+        `;
+      } else {
+        preview.classList.add("hidden");
+        preview.innerHTML = "";
+      }
+    }
+  } else {
+    $("#materialFormTitle").textContent = "Nuevo material";
+    if (preview) {
+      preview.classList.add("hidden");
+      preview.innerHTML = "";
+    }
+  }
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeSupplierPanels() {
+  $("#supplierForm")?.classList.add("hidden");
+}
+
+function showSupplierEditor(supplier = null) {
+  const form = $("#supplierForm");
+  form.classList.remove("hidden");
+  resetForm("supplierForm");
+  if (supplier) {
+    setForm(form, supplier);
+    $("#supplierFormTitle").textContent = `Editar proveedor #${supplier.id}`;
+  } else {
+    $("#supplierFormTitle").textContent = "Nuevo proveedor";
+  }
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeKitPanels() {
+  $("#kitForm")?.classList.add("hidden");
+  $("#kitDetailPanel")?.classList.add("hidden");
+}
+
+function showKitEditor(kit = null, keepDetail = false) {
+  const form = $("#kitForm");
+  if (!keepDetail) $("#kitDetailPanel")?.classList.add("hidden");
+  form.classList.remove("hidden");
+  resetForm("kitForm");
+  if (kit) {
+    setForm(form, kit);
+    $("#kitFormTitle").textContent = `Editar kit #${kit.id}`;
+  } else {
+    $("#kitFormTitle").textContent = "Nuevo kit";
+  }
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function optionList(values, selected = "", first = "") {
+  const firstOption = first ? `<option value="">${escapeHtml(first)}</option>` : "";
+  return `${firstOption}${values.map((value) => `<option value="${escapeHtml(value)}" ${String(value) === String(selected) ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}`;
+}
+
+function supplierOptions(selected = "", first = "Sin proveedor") {
+  const active = state.suppliers.filter((supplier) => !supplier.is_deleted);
+  return `<option value="">${escapeHtml(first)}</option>${active.map((supplier) => `
+    <option value="${supplier.id}" ${String(supplier.id) === String(selected) ? "selected" : ""}>${text(supplier.name)}</option>
+  `).join("")}`;
+}
+
+function materialOptions(selected = "", first = "Sin material") {
+  const active = state.materials.filter((material) => !material.is_deleted);
+  return `<option value="">${escapeHtml(first)}</option>${active.map((material) => `
+    <option value="${material.id}" ${String(material.id) === String(selected) ? "selected" : ""}>${text(material.name)} · ${text(material.category)}</option>
+  `).join("")}`;
+}
+
+function docLink(row) {
+  if (!row.document_stored_name) return "";
+  return `<a class="doc-link" href="/uploads/${encodeURIComponent(row.document_stored_name)}" target="_blank" rel="noreferrer">Adjunto</a>`;
+}
+
+function filteredMaterialOptions(selected = "", first = "Sin material", source = activeMaterials()) {
+  return `<option value="">${escapeHtml(first)}</option>${source.map((material) => `
+    <option value="${material.id}" ${String(material.id) === String(selected) ? "selected" : ""}>${text(material.name)}${hierarchySummary(material) ? ` · ${text(hierarchySummary(material))}` : ""}</option>
+  `).join("")}`;
+}
+
+function img(url) {
+  return url ? `<img src="${escapeHtml(url)}" loading="lazy" alt="">` : `<div class="image-empty"></div>`;
+}
+
+function badge(value, tone = "") {
+  return `<span class="badge ${tone}">${text(value)}</span>`;
+}
+
+function statusLabel(value) {
+  return STATUS_LABELS[value] || value;
+}
+
+function isMaterialInvoiceCategory(category) {
+  return category === "materiales";
+}
+
+function hierarchyParts(material) {
+  return MATERIAL_HIERARCHY
+    .map((field) => material?.[field.key])
+    .filter((value) => String(value || "").trim() !== "");
+}
+
+function hierarchySummary(material) {
+  return hierarchyParts(material).join(" · ");
+}
+
+function activeMaterials() {
+  return state.materials.filter((material) => !material.is_deleted);
+}
+
+function materialsMatching(filters = {}) {
+  return activeMaterials().filter((material) => MATERIAL_HIERARCHY.every((field) => {
+    const wanted = String(filters[field.key] || "").trim();
+    if (!wanted) return true;
+    return String(material[field.key] || "").trim() === wanted;
+  }));
+}
+
+function hierarchyValueOptions(key, filters = {}) {
+  const scopedFilters = { ...filters };
+  delete scopedFilters[key];
+  return Array.from(new Set(
+    materialsMatching(scopedFilters)
+      .map((material) => String(material[key] || "").trim())
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function materialPickerMarkup({ context, required = true, includePreview = true }) {
+  return `
+    <div class="hierarchy-grid">
+      ${MATERIAL_HIERARCHY.map((field) => `
+        <label>${field.label}
+          <select name="${context}_${field.key}">
+            <option value="">${field.empty}</option>
+          </select>
+        </label>
+      `).join("")}
+    </div>
+    <label>Material<select name="material_id" ${required ? "required" : ""}></select></label>
+    ${includePreview ? `<div class="selected-material-card hidden" data-material-preview="${context}"></div>` : ""}
+  `;
+}
+
+function syncMaterialPicker(form, context, { required = true } = {}) {
+  if (!form) return;
+  const filters = Object.fromEntries(MATERIAL_HIERARCHY.map((field) => [field.key, form.elements[`${context}_${field.key}`]?.value || ""]));
+  for (const field of MATERIAL_HIERARCHY) {
+    const select = form.elements[`${context}_${field.key}`];
+    if (!select) continue;
+    const options = hierarchyValueOptions(field.key, filters);
+    const current = select.value;
+    select.innerHTML = optionList(options, current, field.empty);
+    if (current && !options.includes(current)) select.value = "";
+  }
+  const narrowedFilters = Object.fromEntries(MATERIAL_HIERARCHY.map((field) => [field.key, form.elements[`${context}_${field.key}`]?.value || ""]));
+  const materialSelect = form.elements.material_id;
+  if (!materialSelect) return;
+  const selectedMaterialId = materialSelect.value;
+  const matches = materialsMatching(narrowedFilters);
+  materialSelect.innerHTML = filteredMaterialOptions(selectedMaterialId, required ? "Selecciona material" : "Sin material", matches);
+  if (selectedMaterialId && !matches.some((material) => String(material.id) === String(selectedMaterialId))) {
+    materialSelect.value = "";
+  }
+  const selected = activeMaterials().find((material) => String(material.id) === String(materialSelect.value));
+  const preview = form.querySelector(`[data-material-preview="${context}"]`);
+  if (!preview) return;
+  if (!selected) {
+    preview.classList.add("hidden");
+    preview.innerHTML = "";
+    return;
+  }
+  preview.classList.remove("hidden");
+  preview.innerHTML = `
+    <div class="material-mini-thumb">${img(selected.image_url)}</div>
+    <div>
+      <strong>${text(selected.name)}</strong>
+      <div class="tags">
+        ${selected.category ? badge(selected.category) : ""}
+        ${hierarchyParts(selected).map((value) => badge(value)).join("")}
+      </div>
+      ${selected.notes ? `<p>${text(selected.notes)}</p>` : ""}
+    </div>
+  `;
+}
+
+function lineFormTotals(form) {
+  const packageCount = number(form.elements.package_count?.value || 1);
+  const unitsPerPackage = number(form.elements.units_per_package?.value || 1);
+  const totalUnits = packageCount * unitsPerPackage;
+  const pricePerPackage = form.elements.price_per_package?.value === "" ? null : number(form.elements.price_per_package?.value);
+  const lineTotal = pricePerPackage === null ? 0 : pricePerPackage * packageCount;
+  const unitCost = totalUnits > 0 ? lineTotal / totalUnits : 0;
+  return { totalUnits, lineTotal, unitCost };
+}
+
+function updateLinePreview() {
+  const form = $("#lineForm");
+  if (!form) return;
+  const preview = $("#linePreview");
+  if (!preview) return;
+  const totals = lineFormTotals(form);
+  preview.querySelector("[data-preview-units]").textContent = totals.totalUnits.toLocaleString("es-ES");
+  preview.querySelector("[data-preview-line-total]").textContent = euro.format(totals.lineTotal);
+  preview.querySelector("[data-preview-unit]").textContent = euro.format(totals.unitCost);
+}
+
+function applyTextSearch(rows, query, fields) {
+  const q = lower(query).trim();
+  if (!q) return rows;
+  return rows.filter((row) => fields.some((field) => lower(row[field]).includes(q)));
+}
+
+function sortRows(rows, sort, handlers) {
+  const copy = [...rows];
+  const handler = handlers[sort] || handlers.default;
+  return handler ? copy.sort(handler) : copy;
+}
+
+async function loadSummary() {
+  const s = await api("/api/summary");
+  $("#summaryText").textContent = `${s.materials} materiales · ${s.suppliers} proveedores · ${s.invoices} facturas · ${s.documents} documentos`;
+}
+
+async function loadDashboardFinance() {
+  state.dashboardFinance = await api("/api/dashboard/finance");
+  renderDashboard();
+}
+
+async function loadSettings() {
+  state.settings = await api("/api/settings");
+  state.dashboardTrendView = state.settings.dashboard_monthly_view || "total";
+  renderSettings();
+}
+
+function dashboardChart(id) {
+  if (!window.echarts) return null;
+  const node = document.getElementById(id);
+  if (!node) return null;
+  const existing = state.dashboardCharts[id];
+  if (existing) return existing;
+  const chart = window.echarts.init(node, null, { renderer: "canvas" });
+  state.dashboardCharts[id] = chart;
+  return chart;
+}
+
+function renderDashboardCharts() {
+  if (!$("#dashboard")?.classList.contains("active")) return;
+  const finance = state.dashboardFinance;
+  if (!finance || !window.echarts) return;
+  const trendKey = state.dashboardTrendView || "total";
+  const colors = chartColors();
+  const trendColor = colors[trendKey] || colors.total;
+  const trendLabel = DASHBOARD_TREND_LABELS[trendKey] || DASHBOARD_TREND_LABELS.total;
+  const months = finance.monthly_breakdown?.months?.length ? finance.monthly_breakdown.months : finance.monthly_spend.map((row) => row.month);
+  const trendValues = finance.monthly_breakdown?.series?.[trendKey]?.length
+    ? finance.monthly_breakdown.series[trendKey]
+    : finance.monthly_spend.map((row) => row.total);
+
+  const trendChart = dashboardChart("dashboardTrendChart");
+  const categoryChart = dashboardChart("dashboardCategoryChart");
+  if (!trendChart || !categoryChart) return;
+
+  trendChart.setOption({
+    animationDuration: 400,
+    grid: { left: 50, right: 18, top: 28, bottom: 32 },
+    tooltip: { trigger: "axis", valueFormatter: (value) => euro.format(Number(value || 0)) },
+    color: [trendColor],
+    xAxis: {
+      type: "category",
+      boundaryGap: false,
+      data: months,
+      axisLine: { lineStyle: { color: "#c9bfb5" } },
+      axisLabel: { color: "#766e68" }
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
+      splitLine: { lineStyle: { color: "#ede7df" } }
+    },
+    series: [{
+      name: trendLabel,
+      data: trendValues,
+      type: "line",
+      smooth: true,
+      symbol: "circle",
+      symbolSize: 8,
+      lineStyle: { width: 3, color: trendColor },
+      itemStyle: { color: trendColor },
+      areaStyle: {
+        color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: `${trendColor}33` },
+          { offset: 1, color: `${trendColor}08` }
+        ])
+      }
+    }]
+  }, true);
+
+  categoryChart.setOption({
+    animationDuration: 400,
+    color: [colors.total, colors.materiales, colors.marketing, colors.envios, "#7c746c", "#dcc8ad"],
+    tooltip: { trigger: "item", valueFormatter: (value) => euro.format(Number(value || 0)) },
+    legend: { bottom: 0, textStyle: { color: "#766e68" } },
+    series: [{
+      type: "pie",
+      radius: ["48%", "74%"],
+      center: ["50%", "44%"],
+      avoidLabelOverlap: true,
+      itemStyle: { borderRadius: 8, borderColor: "#fff", borderWidth: 2 },
+      label: { color: "#171412", formatter: ({ name, percent }) => `${name}\n${percent}%` },
+      data: finance.category_spend.map((row) => ({ name: row.category, value: row.total }))
+    }]
+  }, true);
+}
+
+function renderDashboard() {
+  const finance = state.dashboardFinance;
+  if (!finance) return;
+
+  const k = finance.kpis;
+  const trendLabel = DASHBOARD_TREND_LABELS[state.dashboardTrendView] || DASHBOARD_TREND_LABELS.total;
+  $("#dashboardTrendTitle").textContent = `Evolución mensual · ${trendLabel}`;
+  $("#dashboardTrendText").textContent = `Lectura mensual de ${trendLabel.toLocaleLowerCase("es")} con una paleta alineada con la interfaz.`;
+  $("#dashboardCards").innerHTML = [
+    ["Gasto total", euro.format(k.total_expense), `${k.invoice_count} facturas activas`],
+    ["Mes actual", euro.format(k.current_month_expense), "Seguimiento mensual"],
+    ["Borrador", k.draft_invoice_count, "Pendientes de cerrar"],
+    ["Materiales", euro.format(k.materials_expense), "Coste de compras"],
+    ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia"],
+    ["Envíos", euro.format(k.shipping_expense), "Coste logístico"]
+  ].map(([label, value, hint]) => `
+    <article class="card dashboard-kpi-card">
+      <span>${label}</span>
+      <strong>${value}</strong>
+      <small>${hint}</small>
+    </article>
+  `).join("");
+
+  const operational = finance.operational;
+  const opsRows = [
+    {
+      label: "Facturas en borrador",
+      count: operational.draft_invoices.length,
+      hint: operational.draft_invoices[0]
+        ? `${text(operational.draft_invoices[0].supplier_name, "Sin proveedor")} · ${text(operational.draft_invoices[0].invoice_date)}`
+        : "No quedan facturas en borrador",
+      action: "invoices",
+      tone: operational.draft_invoices.length ? "warn" : "ok"
+    },
+    {
+      label: "Materiales sin imagen",
+      count: operational.materials_without_image.length,
+      hint: operational.materials_without_image[0] ? text(operational.materials_without_image[0].name) : "Catálogo visual al día",
+      action: "materials",
+      tone: operational.materials_without_image.length ? "warn" : "ok"
+    },
+    {
+      label: "Materiales sin coste",
+      count: operational.materials_without_cost.length,
+      hint: operational.materials_without_cost[0] ? text(operational.materials_without_cost[0].name) : "Compras con coste medio resuelto",
+      action: "costs",
+      tone: operational.materials_without_cost.length ? "warn" : "ok"
+    },
+    {
+      label: "Kits incompletos",
+      count: operational.incomplete_kits.length,
+      hint: operational.incomplete_kits[0]
+        ? `${text(operational.incomplete_kits[0].name)}${operational.incomplete_kits[0].version ? ` · ${text(operational.incomplete_kits[0].version)}` : ""}`
+        : "No hay kits pendientes",
+      action: "kits",
+      tone: operational.incomplete_kits.length ? "warn" : "ok"
+    }
+  ];
+  $("#dashboardOpsList").innerHTML = `<div class="ops-list">${opsRows.map((item) => `
+    <button type="button" class="ops-item" data-jump-view="${item.action}">
+      <span>
+        <strong>${item.label}</strong>
+        <p>${item.hint}</p>
+      </span>
+      <span>
+        <span class="amount">${item.count}</span>
+        ${badge(item.tone === "warn" ? "revisar" : "ok", item.tone)}
+      </span>
+    </button>
+  `).join("")}</div>`;
+
+  const spendRows = state.dashboardSpendView === "materials" ? finance.top_materials : finance.top_suppliers;
+  $("#dashboardSpendList").innerHTML = `<div class="rank-list">${spendRows.map((row) => `
+    <div class="rank-item">
+      <span>
+        <strong>${text(row.name || row.supplier_name)}</strong>
+        <small>${state.dashboardSpendView === "materials" ? `${text(row.category)} · ${row.purchase_lots || 0} lotes` : `${row.invoice_count || 0} facturas imputadas`}</small>
+      </span>
+      <span>
+        <span class="amount">${euro.format(number(row.total_spend))}</span>
+        ${state.dashboardSpendView === "materials" ? badge(row.weighted_avg_unit_cost_inc_vat == null ? "sin coste" : euro.format(number(row.weighted_avg_unit_cost_inc_vat)), "ok") : ""}
+      </span>
+    </div>
+  `).join("") || `<div class="empty-state small">Todavía no hay gasto suficiente para este ranking.</div>`}</div>`;
+
+  requestAnimationFrame(() => renderDashboardCharts());
+}
+
+function renderSettings() {
+  const form = $("#settingsForm");
+  if (!form || !state.settings) return;
+  setForm(form, state.settings);
+  $("#brandName").textContent = state.settings.company_name || "Mua Ops";
+  document.title = state.settings.company_name || "Mua Ops";
+  $$("[data-dashboard-trend-view]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.dashboardTrendView === state.dashboardTrendView);
+  });
+}
+
+async function loadSuppliers() {
+  const includeDeleted = $("#suppliersDeleted")?.checked ? 1 : 0;
+  state.suppliers = await api(`/api/suppliers?include_deleted=${includeDeleted}`);
+  refreshSupplierSelects();
+  renderSuppliers();
+}
+
+function refreshSupplierSelects() {
+  $$("select[name=preferred_supplier_id], select[name=supplier_id]").forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = supplierOptions(selected);
+  });
+  $("#invoiceSupplierFilter").innerHTML = supplierOptions($("#invoiceSupplierFilter").value, "Todos");
+  $("#materialSupplierFilter").innerHTML = supplierOptions($("#materialSupplierFilter").value, "Todos");
+}
+
+function renderSuppliers() {
+  let rows = [...state.suppliers];
+  rows = applyTextSearch(rows, $("#supplierSearch")?.value, ["name", "category", "website", "notes"]);
+  const category = lower($("#supplierCategoryFilter")?.value).trim();
+  if (category) rows = rows.filter((supplier) => lower(supplier.category).includes(category));
+  rows = sortRows(rows, $("#supplierSort")?.value, {
+    category_asc: (a, b) => lower(a.category).localeCompare(lower(b.category)) || lower(a.name).localeCompare(lower(b.name)),
+    lead_asc: (a, b) => number(a.lead_time_days) - number(b.lead_time_days),
+    default: (a, b) => lower(a.name).localeCompare(lower(b.name)),
+    name_asc: (a, b) => lower(a.name).localeCompare(lower(b.name))
+  });
+  $("#supplierResultText").textContent = `${rows.length} proveedores visibles.`;
+  $("#supplierList").innerHTML = rows.map((supplier) => `
+    <article class="row ${supplier.is_deleted ? "deleted" : ""}">
+      <div class="row-main">
+        <strong>${text(supplier.name)}</strong>
+        <div class="meta">${text(supplier.category, "Sin categoría")} ${supplier.lead_time_days ? `· ${supplier.lead_time_days} días` : ""}</div>
+        ${supplier.website ? `<a class="subtle-link" href="${text(supplier.website)}" target="_blank" rel="noreferrer">${text(supplier.website)}</a>` : ""}
+        ${supplier.notes ? `<p>${text(supplier.notes)}</p>` : ""}
+      </div>
+      <div class="row-actions">
+        <button data-view-supplier="${supplier.id}" type="button" class="ghost">Ver</button>
+        ${supplier.is_deleted ? `<button data-restore-supplier="${supplier.id}" type="button">Restaurar</button>` : `<button class="ghost" data-delete-supplier="${supplier.id}" type="button">Archivar</button>`}
+      </div>
+    </article>
+  `).join("") || `<div class="empty-state">No hay proveedores con esos filtros.</div>`;
+}
+
+async function loadMaterials() {
+  const includeDeleted = $("#materialsDeleted")?.checked ? 1 : 0;
+  state.materials = await api(`/api/materials?include_deleted=${includeDeleted}`);
+  refreshMaterialSelects();
+  renderMaterials();
+}
+
+function refreshMaterialSelects() {
+  $$("select[name=material_id]").forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = materialOptions(selected);
+  });
+}
+
+function renderMaterials() {
+  let rows = [...state.materials];
+  rows = applyTextSearch(rows, $("#materialSearch")?.value, ["name", "category", "notes", "preferred_supplier_name", "usage_type", "family", "subfamily", "variant", "base_material", "finish"]);
+  const category = $("#materialCategoryFilter")?.value;
+  const supplier = $("#materialSupplierFilter")?.value;
+  if (category) rows = rows.filter((material) => material.category === category);
+  if (supplier) rows = rows.filter((material) => String(material.preferred_supplier_id || "") === String(supplier));
+  rows = sortRows(rows, $("#materialSort")?.value, {
+    category_asc: (a, b) => lower(a.category).localeCompare(lower(b.category)) || lower(a.name).localeCompare(lower(b.name)),
+    stock_asc: (a, b) => number(a.manual_stock) - number(b.manual_stock),
+    stock_desc: (a, b) => number(b.manual_stock) - number(a.manual_stock),
+    default: (a, b) => lower(a.name).localeCompare(lower(b.name)),
+    name_asc: (a, b) => lower(a.name).localeCompare(lower(b.name))
+  });
+  $("#materialResultText").textContent = `${rows.length} materiales visibles.`;
+  $("#materialList").innerHTML = rows.map((material) => `
+    <article class="row material-row ${material.is_deleted ? "deleted" : ""}">
+      <div class="material-thumb">${img(material.image_url)}</div>
+      <div class="row-main">
+        <strong>${text(material.name)}</strong>
+        <div class="tags">
+          ${badge(material.category)}
+          ${badge(material.unit_label || "ud")}
+          ${badge(material.preferred_supplier_name || "sin proveedor")}
+          ${material.linked_product_count ? badge(`${material.linked_product_count} imagen`, "ok") : badge("sin imagen", "warn")}
+          ${material.usage_type ? badge(material.usage_type) : ""}
+          ${material.family ? badge(material.family) : ""}
+          ${material.subfamily ? badge(material.subfamily) : ""}
+          ${material.variant ? badge(material.variant) : ""}
+          ${material.base_material ? badge(material.base_material) : ""}
+          ${material.finish ? badge(material.finish) : ""}
+        </div>
+        <div class="meta">Stock ${material.manual_stock ?? "-"} · Reposición ${material.reorder_point ?? "-"} · Objetivo ${material.target_stock ?? "-"}</div>
+        ${material.notes ? `<p>${text(material.notes)}</p>` : ""}
+      </div>
+      <div class="row-actions">
+        <button data-view-material="${material.id}" type="button" class="ghost">Ver</button>
+        ${material.is_deleted ? `<button data-restore-material="${material.id}" type="button">Restaurar</button>` : `<button class="ghost" data-delete-material="${material.id}" type="button">Archivar</button>`}
+      </div>
+    </article>
+  `).join("") || `<div class="empty-state">No hay materiales con esos filtros.</div>`;
+}
+
+async function loadInvoices() {
+  const include = $("#invoicesDeleted")?.checked ? 1 : 0;
+  state.invoices = await api(`/api/invoices?include_deleted=${include}`);
+  renderInvoices();
+}
+
+function renderInvoices() {
+  let rows = [...state.invoices];
+  rows = applyTextSearch(rows, $("#invoiceSearch")?.value, ["supplier_name", "invoice_number", "category", "status", "notes", "document_name"]);
+  const supplier = $("#invoiceSupplierFilter")?.value;
+  const category = $("#invoiceCategoryFilter")?.value;
+  const status = $("#invoiceStatusFilter")?.value;
+  const lineFilter = $("#invoiceLineFilter")?.value;
+  const from = $("#invoiceFromFilter")?.value;
+  const to = $("#invoiceToFilter")?.value;
+  if (supplier) rows = rows.filter((invoice) => String(invoice.supplier_id || "") === String(supplier));
+  if (category) rows = rows.filter((invoice) => invoice.category === category);
+  if (status) rows = rows.filter((invoice) => invoice.status === status);
+  if (lineFilter === "with") rows = rows.filter((invoice) => number(invoice.line_count) > 0);
+  if (lineFilter === "without") rows = rows.filter((invoice) => number(invoice.line_count) === 0);
+  if (from) rows = rows.filter((invoice) => String(invoice.invoice_date) >= from);
+  if (to) rows = rows.filter((invoice) => String(invoice.invoice_date) <= to);
+  rows = sortRows(rows, $("#invoiceSort")?.value, {
+    date_asc: (a, b) => String(a.invoice_date).localeCompare(String(b.invoice_date)) || a.id - b.id,
+    total_desc: (a, b) => number(b.total) - number(a.total),
+    total_asc: (a, b) => number(a.total) - number(b.total),
+    supplier_asc: (a, b) => lower(a.supplier_name).localeCompare(lower(b.supplier_name)),
+    lines_asc: (a, b) => number(a.line_count) - number(b.line_count) || String(b.invoice_date).localeCompare(String(a.invoice_date)),
+    default: (a, b) => String(b.invoice_date).localeCompare(String(a.invoice_date)) || b.id - a.id,
+    date_desc: (a, b) => String(b.invoice_date).localeCompare(String(a.invoice_date)) || b.id - a.id
+  });
+  $("#invoiceResultText").textContent = `${rows.length} facturas visibles.`;
+  $("#invoiceList").innerHTML = rows.map((invoice) => {
+    const active = String(invoice.id) === String(state.selectedInvoiceId) ? "active" : "";
+    const lineTone = invoice.line_count ? "ok" : "warn";
+    return `
+      <article class="invoice-card ${active} ${invoice.is_deleted ? "deleted" : ""}">
+        <button type="button" class="invoice-open" data-view-invoice="${invoice.id}">
+          <span>
+            <strong>${text(invoice.supplier_name, "Sin proveedor")}</strong>
+            <small>${text(invoice.invoice_date)} · ${text(invoice.invoice_number, "sin número")}</small>
+          </span>
+          <span class="amount">${euro.format(number(invoice.total))}</span>
+        </button>
+        <div class="tags">
+          ${badge(invoice.category)}
+          ${badge(statusLabel(invoice.status), invoice.status === "draft" ? "warn" : "ok")}
+          ${badge(`${invoice.line_count || 0} líneas`, lineTone)}
+          ${docLink(invoice)}
+        </div>
+        ${invoice.notes ? `<p>${text(invoice.notes)}</p>` : ""}
+        <div class="row-actions slim">
+          <button data-view-invoice="${invoice.id}" type="button">Ver</button>
+          <button data-duplicate-invoice="${invoice.id}" type="button" class="ghost">Duplicar</button>
+          ${invoice.is_deleted ? `<button data-restore-invoice="${invoice.id}" type="button">Restaurar</button>` : `<button class="ghost danger-text" data-delete-invoice="${invoice.id}" type="button">Archivar</button>`}
+        </div>
+      </article>
+    `;
+  }).join("") || `<div class="empty-state">No hay facturas con esos filtros.</div>`;
+}
+
+async function openInvoice(id, options = {}) {
+  state.selectedInvoiceId = id;
+  state.invoiceLineFormOpen = Boolean(options.openForm);
+  const detail = await api(`/api/invoices/${id}`);
+  const materialInvoice = isMaterialInvoiceCategory(detail.invoice.category);
+  const activeLineCount = detail.lines.filter((line) => !line.is_deleted).length;
+  renderInvoices();
+  const panel = $("#invoiceDetailPanel");
+  panel.classList.remove("hidden");
+  panel.innerHTML = `
+    <div class="selected-invoice">
+      <div class="panel-head">
+        <div>
+          <h2>${text(detail.invoice.supplier_name, "Factura sin proveedor")}</h2>
+          <p>${text(detail.invoice.invoice_date)} · ${text(detail.invoice.invoice_number, "sin número")} · ${euro.format(number(detail.invoice.total))}</p>
+        </div>
+        <div class="row-actions">
+          ${docLink(detail.invoice)}
+          <button type="button" class="ghost" data-edit-invoice-details="${detail.invoice.id}">Editar factura</button>
+          <button type="button" data-open-line-form="${detail.invoice.id}">Nueva línea</button>
+          <button type="button" class="ghost" data-close-invoice-detail>Cerrar</button>
+        </div>
+      </div>
+      <div class="tags">
+        ${badge(detail.invoice.category)}
+        ${badge(statusLabel(detail.invoice.status), detail.invoice.status === "draft" ? "warn" : "ok")}
+        ${badge(`${activeLineCount} líneas`, detail.lines.length ? "ok" : "warn")}
+      </div>
+      ${detail.invoice.notes ? `<p>${text(detail.invoice.notes)}</p>` : ""}
+    </div>
+
+    <form id="lineForm" class="line-form ${state.invoiceLineFormOpen ? "" : "hidden"}">
+      <div class="panel-head compact-head">
+        <div>
+          <h2 id="lineFormTitle">Nueva línea</h2>
+          <p>Introduce paquetes, unidades y precio.</p>
+        </div>
+        <button type="button" class="ghost" data-close-line-form>Cerrar</button>
+      </div>
+      <input type="hidden" name="id">
+      <input type="hidden" name="invoice_id" value="${detail.invoice.id}">
+      <input type="hidden" name="invoice_category" value="${text(detail.invoice.category)}">
+      ${materialInvoice
+        ? materialPickerMarkup({ context: "line", required: true, includePreview: true })
+        : `<input type="hidden" name="material_id" value="">
+           <div class="inline-note">Esta factura es de ${text(detail.invoice.category)}. Las líneas se registran sin material del catálogo.</div>`}
+      <label>Descripción (opcional)<input name="description" placeholder="Ej. 4 paquetes x 5 cadenas"></label>
+      <div class="numbers">
+        <label>Paquetes<input name="package_count" inputmode="decimal" value="1"></label>
+        <label>Ud/paquete<input name="units_per_package" inputmode="decimal" value="1"></label>
+        <label>Precio/paquete<input name="price_per_package" inputmode="decimal"></label>
+      </div>
+      ${materialInvoice
+        ? `<label class="check"><input name="affects_stock" type="checkbox" checked> Afecta a stock</label>`
+        : `<input type="hidden" name="affects_stock" value="0">`}
+      <label>Notas<textarea name="notes" rows="2"></textarea></label>
+      <div id="linePreview" class="calc-preview">
+        <span><small>Unidades</small><strong data-preview-units>1</strong></span>
+        <span><small>Total línea</small><strong data-preview-line-total>0,00 EUR</strong></span>
+        <span><small>Coste unitario</small><strong data-preview-unit>0,00 EUR</strong></span>
+      </div>
+      <div class="row-actions">
+        <button type="button" data-save-line>Guardar línea</button>
+        <button type="button" class="ghost" data-reset-form="lineForm">Limpiar</button>
+      </div>
+    </form>
+
+    <div class="line-list">
+      ${detail.lines.map((line) => `
+        <article class="line-card ${line.is_deleted ? "deleted" : ""}">
+          <div class="line-card-main ${line.material_image_url ? "with-image" : ""}">
+            ${line.material_image_url ? `<div class="material-mini-thumb">${img(line.material_image_url)}</div>` : ""}
+            <div>
+              <strong>${text(line.material_name, "Sin material")}</strong>
+              <div class="meta">${line.package_count} paquetes · ${line.units_per_package} ud/paquete · ${line.total_units} ud · ${euro.format(number(line.price_per_package))} / paquete · ${euro.format(number(line.unit_price))} / ud · total ${euro.format(number(line.line_total))}</div>
+              ${hierarchySummary({
+                usage_type: line.material_usage_type,
+                family: line.material_family,
+                subfamily: line.material_subfamily,
+                variant: line.material_variant,
+                base_material: line.material_base_material,
+                finish: line.material_finish
+              }) ? `<div class="meta">${text(hierarchySummary({
+                usage_type: line.material_usage_type,
+                family: line.material_family,
+                subfamily: line.material_subfamily,
+                variant: line.material_variant,
+                base_material: line.material_base_material,
+                finish: line.material_finish
+              }))}</div>` : ""}
+              ${line.description ? `<p>${text(line.description)}</p>` : ""}
+            </div>
+          </div>
+          <div class="row-actions slim">
+            <button data-edit-line="${line.id}" type="button">Editar</button>
+            <button data-duplicate-line="${line.id}" type="button" class="ghost">Duplicar</button>
+            ${line.is_deleted ? `<button data-restore-line="${line.id}" type="button">Restaurar</button>` : `<button class="ghost danger-text" data-delete-line="${line.id}" type="button">Archivar</button>`}
+          </div>
+        </article>
+      `).join("") || `<div class="empty-state small">Esta factura todavía no tiene líneas.</div>`}
+    </div>
+  `;
+  bindLineForm();
+  if (state.invoiceLineFormOpen) updateLinePreview();
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function openInvoiceWorkspace(id) {
+  $("#invoiceForm")?.classList.add("hidden");
+  await openInvoice(id, { openForm: false });
+}
+
+function bindLineForm() {
+  const form = $("#lineForm");
+  if (!form) return;
+  if (isMaterialInvoiceCategory(form.elements.invoice_category?.value || "")) {
+    syncMaterialPicker(form, "line", { required: true });
+  }
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    saveLineForm(form).catch((error) => {
+      clientLog("line_submit_error", { message: error.message, source: "direct_submit" }, "error");
+      toast(error.message);
+    });
+  });
+}
+
+async function loadCosts() {
+  state.costs = await api("/api/costs/materials");
+  renderCosts();
+}
+
+function renderCosts() {
+  let rows = [...state.costs];
+  rows = applyTextSearch(rows, $("#costSearch")?.value, ["name", "category", "preferred_supplier_name", "main_supplier_name"]);
+  const category = $("#costCategoryFilter")?.value;
+  if (category) rows = rows.filter((row) => row.category === category);
+  if ($("#costOnlyWithPurchases")?.checked) rows = rows.filter((row) => number(row.purchase_lots) > 0);
+  rows = sortRows(rows, $("#costSort")?.value, {
+    avg_desc: (a, b) => number(b.weighted_avg_unit_cost_inc_vat) - number(a.weighted_avg_unit_cost_inc_vat),
+    name_asc: (a, b) => lower(a.name).localeCompare(lower(b.name)),
+    lots_desc: (a, b) => number(b.purchase_lots) - number(a.purchase_lots),
+    default: (a, b) => number(b.total_spend) - number(a.total_spend),
+    spend_desc: (a, b) => number(b.total_spend) - number(a.total_spend)
+  });
+  $("#costResultText").textContent = `${rows.length} materiales visibles.`;
+  $("#costTable").innerHTML = `
+    <div class="cost-row header"><span>Material</span><span>Categoría</span><span>Proveedor</span><span>Coste medio</span><span>Último coste</span><span>Gasto</span><span>Lotes</span></div>
+    ${rows.map((row) => `
+      <div class="cost-row">
+        <strong data-label="Material">${text(row.name)}</strong>
+        <span data-label="Categoría">${text(row.category)}</span>
+        <span data-label="Proveedor">${text(row.main_supplier_name || row.preferred_supplier_name || "")}</span>
+        <span data-label="Coste medio">${row.weighted_avg_unit_cost_inc_vat == null ? "-" : euro.format(number(row.weighted_avg_unit_cost_inc_vat))}</span>
+        <span data-label="Último coste">${row.last_unit_cost_inc_vat == null ? "-" : euro.format(number(row.last_unit_cost_inc_vat))}</span>
+        <span data-label="Gasto">${euro.format(number(row.total_spend))}</span>
+        <span data-label="Lotes">${row.purchase_lots || 0}</span>
+      </div>
+    `).join("")}
+  `;
+}
+
+async function loadKits() {
+  state.kits = await api("/api/kit-recipes");
+  renderKits();
+}
+
+function renderKits() {
+  const list = $("#kitList");
+  if (!list) return;
+  $("#kitResultText").textContent = `${state.kits.length} versiones definidas.`;
+  list.innerHTML = state.kits.map((kit) => `
+    <article class="row">
+      <div class="row-main">
+        <strong>${text(kit.name)} ${kit.version ? `· ${text(kit.version)}` : ""}</strong>
+        <div class="meta">${kit.item_count} materiales · coste conocido ${euro.format(number(kit.known_cost))} · ${kit.missing_cost_items} sin coste</div>
+        ${badge(kit.is_complete ? "completo" : "en curso", kit.is_complete ? "ok" : "warn")} ${kit.notes ? `<p>${text(kit.notes)}</p>` : ""}
+      </div>
+      <div class="row-actions">
+        <button data-open-kit="${kit.id}" type="button">Ver</button>
+        <button data-delete-kit="${kit.id}" type="button" class="ghost danger-text">Archivar</button>
+      </div>
+    </article>
+  `).join("") || `<div class="empty-state">No hay composiciones de kit todavía.</div>`;
+}
+
+async function openKit(id) {
+  const kit = state.kits.find((item) => item.id == id) || (await api("/api/kit-recipes")).find((item) => item.id == id);
+  if (!kit) return;
+  $("#kitForm")?.classList.add("hidden");
+  const panel = $("#kitDetailPanel");
+  panel.classList.remove("hidden");
+  panel.innerHTML = `
+    <div class="selected-invoice">
+      <div class="panel-head">
+        <div>
+          <h2>${text(kit.name)}${kit.version ? ` · ${text(kit.version)}` : ""}</h2>
+          <p>${kit.item_count} materiales · coste medio conocido ${euro.format(number(kit.known_cost))}</p>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="ghost" data-toggle-kit-complete="${kit.id}" data-kit-complete="${kit.is_complete ? 1 : 0}">${kit.is_complete ? "Marcar incompleto" : "Marcar completo"}</button>
+          <button type="button" class="ghost" data-close-kit-detail>Cerrar</button>
+        </div>
+      </div>
+      <div class="tags">
+        ${badge(kit.is_complete ? "completo" : "en curso", kit.is_complete ? "ok" : "warn")}
+      </div>
+    </div>
+    ${kit.is_complete ? `<div class="inline-note">Este kit está marcado como completo. Si necesitas cambiar su composición, vuelve a marcarlo como incompleto.</div>` : `
+    <form id="kitItemForm" class="line-form">
+      <input type="hidden" name="id">
+      <input type="hidden" name="recipe_id" value="${kit.id}">
+      <div class="form-grid four">
+        <div class="form-span-full">${materialPickerMarkup({ context: "kit", required: true, includePreview: true })}</div>
+        <label>Cantidad por kit<input name="quantity" inputmode="decimal" value="1"></label>
+        <label>Notas<input name="notes"></label>
+      </div>
+      <div class="row-actions">
+        <button type="button" data-save-kit-item>Añadir material</button>
+        <button type="button" class="ghost" data-reset-form="kitItemForm">Limpiar</button>
+      </div>
+    </form>`}
+    <div class="line-list">
+      ${kit.items.map((item) => `
+        <article class="line-card">
+          <div class="line-card-main ${item.material_image_url ? "with-image" : ""}">
+            ${item.material_image_url ? `<div class="material-mini-thumb">${img(item.material_image_url)}</div>` : ""}
+            <div>
+              <strong>${text(item.material_name, "Sin material")}</strong>
+              <div class="meta">${item.quantity} ${text(item.material_category || "")} · coste ud ${item.unit_cost == null ? "-" : euro.format(number(item.unit_cost))} · total ${item.total_cost == null ? "-" : euro.format(number(item.total_cost))}</div>
+              ${hierarchySummary({
+                usage_type: item.material_usage_type,
+                family: item.material_family,
+                subfamily: item.material_subfamily,
+                variant: item.material_variant,
+                base_material: item.material_base_material,
+                finish: item.material_finish
+              }) ? `<div class="meta">${text(hierarchySummary({
+                usage_type: item.material_usage_type,
+                family: item.material_family,
+                subfamily: item.material_subfamily,
+                variant: item.material_variant,
+                base_material: item.material_base_material,
+                finish: item.material_finish
+              }))}</div>` : ""}
+              ${item.notes ? `<p>${text(item.notes)}</p>` : ""}
+            </div>
+          </div>
+          <div class="row-actions slim">
+            ${kit.is_complete ? "" : `<button data-delete-kit-item="${item.id}" data-kit-id="${kit.id}" type="button" class="ghost danger-text">Archivar</button>`}
+          </div>
+        </article>
+      `).join("") || `<div class="empty-state small">Este kit todavía no tiene materiales.</div>`}
+    </div>
+  `;
+  bindKitItemForm();
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function openKitWorkspace(id) {
+  const kit = state.kits.find((item) => item.id == id) || (await api("/api/kit-recipes")).find((item) => item.id == id);
+  if (!kit) return;
+  showKitEditor(kit, true);
+  await openKit(id);
+}
+
+function bindKitItemForm() {
+  const form = $("#kitItemForm");
+  if (!form) return;
+  syncMaterialPicker(form, "kit", { required: true });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    saveKitItem(event).catch((error) => toast(error.message));
+  });
+}
+
+async function loadAudit() {
+  const entity = encodeURIComponent($("#auditEntity").value || "");
+  const id = encodeURIComponent($("#auditId").value || "");
+  const rows = await api(`/api/audit-log?entity=${entity}&id=${id}`);
+  $("#auditList").innerHTML = rows.map((row) => `
+    <article class="row">
+      <div class="row-main">
+        <strong>${text(row.entity_type)} #${row.entity_id} · ${text(row.action)}</strong>
+        <div class="meta">${text(row.created_at)} · ${text(row.actor)}</div>
+      </div>
+    </article>
+  `).join("") || `<div class="empty-state">No hay cambios con esos filtros.</div>`;
+}
+
+async function saveMaterial(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = formObject(form);
+  const id = data.id;
+  delete data.id;
+  const saved = await api(id ? `/api/materials/${id}` : "/api/materials", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
+  await Promise.all([loadMaterials(), loadSummary(), loadDashboardFinance()]);
+  const current = state.materials.find((item) => item.id == saved.id) || saved;
+  showMaterialEditor(current);
+  toast("Material guardado");
+}
+
+async function saveSupplier(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = formObject(form);
+  const id = data.id;
+  delete data.id;
+  const saved = await api(id ? `/api/suppliers/${id}` : "/api/suppliers", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
+  await Promise.all([loadSuppliers(), loadSummary(), loadDashboardFinance()]);
+  const current = state.suppliers.find((item) => item.id == saved.id) || saved;
+  showSupplierEditor(current);
+  toast("Proveedor guardado");
+}
+
+async function saveKit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = formObject(form);
+  const id = data.id;
+  delete data.id;
+  const saved = await api(id ? `/api/kit-recipes/${id}` : "/api/kit-recipes", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
+  await Promise.all([loadKits(), loadDashboardFinance()]);
+  const current = state.kits.find((item) => item.id == saved.id) || saved;
+  showKitEditor(current);
+  await openKit(saved.id);
+  toast("Kit guardado");
+}
+
+async function saveKitItem(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = formObject(form);
+  if (!data.material_id) throw new Error("Selecciona un material del kit");
+  if (!String(data.quantity || "").trim()) throw new Error("Indica la cantidad por kit");
+  const recipeId = data.recipe_id;
+  delete data.recipe_id;
+  await api(`/api/kit-recipes/${recipeId}/items`, { method: "POST", body: JSON.stringify(data) });
+  await Promise.all([loadKits(), loadDashboardFinance()]);
+  await openKit(recipeId);
+  toast("Material añadido al kit");
+}
+
+async function saveSettings(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = formObject(form);
+  state.settings = await api("/api/settings", { method: "PATCH", body: JSON.stringify(data) });
+  state.dashboardTrendView = state.settings.dashboard_monthly_view || "total";
+  renderSettings();
+  if (state.dashboardFinance) renderDashboard();
+  toast("Configuración guardada");
+}
+
+async function uploadDocumentIfNeeded() {
+  const file = $("#documentFile").files[0];
+  if (!file) return $("#invoiceForm input[name=document_id]").value || "";
+  const formData = new FormData();
+  formData.append("document", file);
+  formData.append("related_entity", "invoice");
+  const response = await fetch("/api/documents", { method: "POST", body: formData });
+  if (!response.ok) throw new Error("No se pudo subir el documento");
+  const doc = await response.json();
+  return doc.id;
+}
+
+async function saveInvoice(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = formObject(form);
+  const id = data.id;
+  data.document_id = await uploadDocumentIfNeeded();
+  delete data.id;
+  const saved = await api(id ? `/api/invoices/${id}` : "/api/invoices", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
+  $("#documentFile").value = "";
+  await Promise.all([loadInvoices(), loadSummary(), loadDashboardFinance()]);
+  await openInvoiceWorkspace(saved.id);
+  toast("Factura guardada");
+}
+
+async function saveLineForm(form) {
+  const data = formObject(form);
+    if (isMaterialInvoiceCategory(form.elements.invoice_category?.value || "") && !data.material_id) {
+    throw new Error("Selecciona el material exacto antes de guardar la línea");
+  }
+  data.affects_stock = form.elements.affects_stock?.type === "checkbox" ? form.elements.affects_stock.checked : false;
+  const id = data.id;
+  const invoiceId = data.invoice_id || state.selectedInvoiceId;
+  clientLog("line_submit_start", { id, invoiceId, data });
+  delete data.id;
+  delete data.invoice_id;
+  await api(id ? `/api/invoices/${invoiceId}/lines/${id}` : `/api/invoices/${invoiceId}/lines`, { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
+  await Promise.all([loadInvoices(), loadCosts(), loadSummary(), loadDashboardFinance()]);
+  await openInvoice(invoiceId);
+  clientLog("line_submit_success", { id, invoiceId });
+  toast("Línea guardada");
+}
+
+async function archiveOrRestore(path, message) {
+  await api(path, { method: path.includes("restore") ? "POST" : "DELETE" });
+  await refreshAll();
+  if (state.selectedInvoiceId) {
+    await openInvoice(state.selectedInvoiceId).catch(() => {
+      closeInvoicePanels();
+    });
+  }
+  toast(message);
+}
+
+function populateStaticFilters() {
+  $$("select[name=category]").forEach((select) => {
+    if (select.closest("#invoiceForm")) return;
+    select.innerHTML = optionList(CATEGORIES, select.value);
+  });
+  $$("select[name=status]").forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = `<option value="draft" ${selected === "draft" ? "selected" : ""}>Borrador</option>
+      <option value="posted" ${selected === "posted" ? "selected" : ""}>Contabilizada</option>
+      <option value="paid" ${selected === "paid" ? "selected" : ""}>Pagada</option>
+      <option value="archived" ${selected === "archived" ? "selected" : ""}>Archivada</option>`;
+  });
+  $("#materialCategoryFilter").innerHTML = optionList(CATEGORIES, "", "Todas");
+  $("#costCategoryFilter").innerHTML = optionList(CATEGORIES, "", "Todas");
+  $("#invoiceCategoryFilter").innerHTML = optionList(INVOICE_CATEGORIES, "", "Todas");
+  $("#invoiceStatusFilter").innerHTML = `<option value="">Todos</option>
+    <option value="draft">Borrador</option>
+    <option value="posted">Contabilizada</option>
+    <option value="paid">Pagada</option>
+    <option value="archived">Archivada</option>`;
+}
+
+async function refreshAll() {
+  await loadSummary();
+  await loadSettings();
+  await loadDashboardFinance();
+  await loadSuppliers();
+  await loadMaterials();
+  await loadInvoices();
+  await loadCosts();
+  await loadKits();
+}
+
+function setActiveView(view) {
+  $$(".tab,.view").forEach((el) => el.classList.remove("active"));
+  $(`.tab[data-view="${view}"]`)?.classList.add("active");
+  $(`#${view}`)?.classList.add("active");
+  const title = $(`.tab[data-view="${view}"]`)?.textContent || "Mua Ops";
+  $("#pageTitle").textContent = title;
+  if (view === "audit") loadAudit().catch((error) => toast(error.message));
+  if (view === "dashboard") requestAnimationFrame(() => renderDashboardCharts());
+}
+
+function bindEvents() {
+  $$(".tab").forEach((tab) => tab.addEventListener("click", () => setActiveView(tab.dataset.view)));
+  document.body.addEventListener("click", async (event) => {
+    const t = event.target.closest("button");
+    if (!t) return;
+    try {
+      if (t.dataset.jumpView) setActiveView(t.dataset.jumpView);
+      if (t.dataset.dashboardSpendView) {
+        state.dashboardSpendView = t.dataset.dashboardSpendView;
+        $$("[data-dashboard-spend-view]").forEach((button) => button.classList.toggle("is-active", button.dataset.dashboardSpendView === state.dashboardSpendView));
+        renderDashboard();
+      }
+      if (t.dataset.dashboardTrendView) {
+        state.dashboardTrendView = t.dataset.dashboardTrendView;
+        if (state.settings) state.settings.dashboard_monthly_view = state.dashboardTrendView;
+        renderSettings();
+        renderDashboard();
+      }
+      if (t.dataset.newInvoice !== undefined) showInvoiceEditor();
+      if (t.dataset.closeInvoicePanels !== undefined) closeInvoicePanels();
+      if (t.dataset.newMaterial !== undefined) showMaterialEditor();
+      if (t.dataset.closeMaterialPanels !== undefined) closeMaterialPanels();
+      if (t.dataset.newSupplier !== undefined) showSupplierEditor();
+      if (t.dataset.closeSupplierPanels !== undefined) closeSupplierPanels();
+      if (t.dataset.newKit !== undefined) showKitEditor();
+      if (t.dataset.closeKitPanels !== undefined) closeKitPanels();
+      if (t.dataset.resetForm) resetForm(t.dataset.resetForm);
+      if (t.dataset.viewSupplier) {
+        const item = state.suppliers.find((s) => s.id == t.dataset.viewSupplier);
+        showSupplierEditor(item);
+      }
+      if (t.dataset.viewMaterial) {
+        const item = state.materials.find((m) => m.id == t.dataset.viewMaterial);
+        showMaterialEditor(item);
+      }
+      if (t.dataset.viewInvoice) {
+        setActiveView("invoices");
+        await openInvoiceWorkspace(t.dataset.viewInvoice);
+      }
+      if (t.dataset.saveLine !== undefined) {
+        const form = $("#lineForm");
+        if (!form) throw new Error("No se encontró el formulario de línea");
+        await saveLineForm(form);
+      }
+      if (t.dataset.openLineForm) await openInvoice(state.selectedInvoiceId, { openForm: true });
+      if (t.dataset.closeLineForm !== undefined) await openInvoice(state.selectedInvoiceId, { openForm: false });
+      if (t.dataset.closeInvoiceDetail !== undefined) closeInvoicePanels();
+      if (t.dataset.editInvoiceDetails) {
+        const detail = await api(`/api/invoices/${t.dataset.editInvoiceDetails}`);
+        showInvoiceEditor(detail.invoice, true);
+      }
+      if (t.dataset.saveKitItem !== undefined) {
+        const form = $("#kitItemForm");
+        if (!form) throw new Error("No se encontró el formulario del kit");
+        await saveKitItem({ preventDefault() {}, currentTarget: form });
+      }
+      if (t.dataset.deleteMaterial) await archiveOrRestore(`/api/materials/${t.dataset.deleteMaterial}`, "Material archivado");
+      if (t.dataset.restoreMaterial) await archiveOrRestore(`/api/materials/${t.dataset.restoreMaterial}/restore`, "Material restaurado");
+      if (t.dataset.deleteSupplier) await archiveOrRestore(`/api/suppliers/${t.dataset.deleteSupplier}`, "Proveedor archivado");
+      if (t.dataset.restoreSupplier) await archiveOrRestore(`/api/suppliers/${t.dataset.restoreSupplier}/restore`, "Proveedor restaurado");
+      if (t.dataset.openKit) await openKitWorkspace(t.dataset.openKit);
+      if (t.dataset.closeKitDetail !== undefined) $("#kitDetailPanel")?.classList.add("hidden");
+      if (t.dataset.toggleKitComplete) {
+        const current = Number(t.dataset.kitComplete || 0);
+        await api(`/api/kit-recipes/${t.dataset.toggleKitComplete}`, { method: "PATCH", body: JSON.stringify({ is_complete: current ? 0 : 1 }) });
+        await Promise.all([loadKits(), loadDashboardFinance()]);
+        await openKit(t.dataset.toggleKitComplete);
+        toast(current ? "Kit reabierto" : "Kit marcado como completo");
+      }
+      if (t.dataset.deleteKit) {
+        await api(`/api/kit-recipes/${t.dataset.deleteKit}`, { method: "DELETE" });
+        await Promise.all([loadKits(), loadDashboardFinance()]);
+        closeKitPanels();
+        toast("Kit archivado");
+      }
+      if (t.dataset.deleteKitItem) {
+        await api(`/api/kit-recipes/${t.dataset.kitId}/items/${t.dataset.deleteKitItem}`, { method: "DELETE" });
+        await Promise.all([loadKits(), loadDashboardFinance()]);
+        await openKit(t.dataset.kitId);
+        toast("Material archivado del kit");
+      }
+      if (t.dataset.duplicateInvoice) {
+        const invoice = await api(`/api/invoices/${t.dataset.duplicateInvoice}/duplicate`, { method: "POST", body: "{}" });
+        await Promise.all([loadInvoices(), loadSummary(), loadDashboardFinance()]);
+        await openInvoiceWorkspace(invoice.id);
+        toast("Factura duplicada");
+      }
+      if (t.dataset.deleteInvoice) await archiveOrRestore(`/api/invoices/${t.dataset.deleteInvoice}`, "Factura archivada");
+      if (t.dataset.restoreInvoice) await archiveOrRestore(`/api/invoices/${t.dataset.restoreInvoice}/restore`, "Factura restaurada");
+      if (t.dataset.editLine) {
+        const detail = await api(`/api/invoices/${state.selectedInvoiceId}`);
+        const line = detail.lines.find((item) => item.id == t.dataset.editLine);
+        await openInvoice(state.selectedInvoiceId, { openForm: true });
+        setForm($("#lineForm"), { ...line, invoice_id: state.selectedInvoiceId, affects_stock: Boolean(line.affects_stock) });
+        const material = state.materials.find((item) => item.id == line.material_id);
+        if (material) {
+          for (const field of MATERIAL_HIERARCHY) {
+            const input = $("#lineForm")?.elements[`line_${field.key}`];
+            if (input) input.value = material[field.key] || "";
+          }
+          syncMaterialPicker($("#lineForm"), "line", { required: true });
+          $("#lineForm").elements.material_id.value = String(material.id);
+          syncMaterialPicker($("#lineForm"), "line", { required: true });
+        }
+        $("#lineFormTitle").textContent = `Editar línea #${line.id}`;
+        updateLinePreview();
+      }
+      if (t.dataset.duplicateLine) {
+        await api(`/api/invoices/${state.selectedInvoiceId}/lines/${t.dataset.duplicateLine}/duplicate`, { method: "POST", body: "{}" });
+        await Promise.all([loadInvoices(), loadCosts(), loadSummary(), loadDashboardFinance()]);
+        await openInvoice(state.selectedInvoiceId);
+        toast("Línea duplicada");
+      }
+      if (t.dataset.deleteLine) await archiveOrRestore(`/api/invoices/${state.selectedInvoiceId}/lines/${t.dataset.deleteLine}`, "Línea archivada");
+      if (t.dataset.restoreLine) await archiveOrRestore(`/api/invoices/${state.selectedInvoiceId}/lines/${t.dataset.restoreLine}/restore`, "Línea restaurada");
+    } catch (error) {
+      clientLog("ui_click_error", { message: error.message, dataset: { ...t.dataset } }, "error");
+      toast(error.message);
+    }
+  });
+
+  $("#materialForm").addEventListener("submit", saveMaterial);
+  $("#supplierForm").addEventListener("submit", saveSupplier);
+  $("#invoiceForm").addEventListener("submit", saveInvoice);
+  $("#kitForm").addEventListener("submit", saveKit);
+  $("#settingsForm").addEventListener("submit", saveSettings);
+  document.body.addEventListener("submit", (event) => {
+    if (event.target.id !== "lineForm") return;
+    event.preventDefault();
+    event.stopPropagation();
+    saveLineForm(event.target).catch((error) => {
+      clientLog("line_submit_error", { message: error.message }, "error");
+      toast(error.message);
+    });
+  }, true);
+
+  document.body.addEventListener("input", (event) => {
+    if (event.target.closest("#lineForm")) updateLinePreview();
+  });
+
+  document.body.addEventListener("change", (event) => {
+    if (event.target.closest("#lineForm")) updateLinePreview();
+    if (event.target.closest("#lineForm") && event.target.name?.startsWith("line_")) syncMaterialPicker($("#lineForm"), "line", { required: true });
+    if (event.target.closest("#lineForm") && event.target.name === "material_id") syncMaterialPicker($("#lineForm"), "line", { required: true });
+    if (event.target.closest("#kitItemForm") && event.target.name?.startsWith("kit_")) syncMaterialPicker($("#kitItemForm"), "kit", { required: true });
+    if (event.target.closest("#kitItemForm") && event.target.name === "material_id") syncMaterialPicker($("#kitItemForm"), "kit", { required: true });
+  });
+
+  [
+    ["#materialSearch", renderMaterials],
+    ["#materialCategoryFilter", renderMaterials],
+    ["#materialSupplierFilter", renderMaterials],
+    ["#materialSort", renderMaterials],
+    ["#supplierSearch", renderSuppliers],
+    ["#supplierCategoryFilter", renderSuppliers],
+    ["#supplierSort", renderSuppliers],
+    ["#invoiceSearch", renderInvoices],
+    ["#invoiceSupplierFilter", renderInvoices],
+    ["#invoiceCategoryFilter", renderInvoices],
+    ["#invoiceStatusFilter", renderInvoices],
+    ["#invoiceLineFilter", renderInvoices],
+    ["#invoiceFromFilter", renderInvoices],
+    ["#invoiceToFilter", renderInvoices],
+    ["#invoiceSort", renderInvoices],
+    ["#costSearch", renderCosts],
+    ["#costCategoryFilter", renderCosts],
+    ["#costSort", renderCosts],
+    ["#costOnlyWithPurchases", renderCosts],
+  ].forEach(([selector, handler]) => {
+    const node = $(selector);
+    if (!node) return;
+    const eventName = node.tagName === "INPUT" && node.type !== "checkbox" ? "input" : "change";
+    node.addEventListener(eventName, debounce(handler, eventName === "input" ? 120 : 0));
+  });
+
+  $("#materialsDeleted").addEventListener("change", loadMaterials);
+  $("#suppliersDeleted").addEventListener("change", loadSuppliers);
+  $("#invoicesDeleted").addEventListener("change", loadInvoices);
+  $("#auditSearch").addEventListener("click", loadAudit);
+
+  window.addEventListener("resize", debounce(() => {
+    Object.values(state.dashboardCharts).forEach((chart) => {
+      if (chart && !(typeof chart.isDisposed === "function" && chart.isDisposed())) chart.resize();
+    });
+  }, 100));
+}
+
+function debounce(fn, ms) {
+  let id;
+  return (...args) => {
+    clearTimeout(id);
+    id = setTimeout(() => fn(...args), ms);
+  };
+}
+
+async function init() {
+  populateStaticFilters();
+  bindEvents();
+  api("/api/import/shopify", { method: "POST", body: "{}" }).catch((error) => clientLog("shopify_auto_import_error", { message: error.message }, "error"));
+  await refreshAll();
+  clientLog("app_init_success", { path: location.pathname });
+}
+
+window.addEventListener("error", (event) => {
+  clientLog("window_error", { message: event.message, filename: event.filename, lineno: event.lineno, colno: event.colno }, "error");
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  clientLog("unhandled_rejection", { message: event.reason?.message || String(event.reason) }, "error");
+});
+
+init().catch((error) => {
+  clientLog("app_init_error", { message: error.message }, "error");
+  toast(error.message);
+});
+

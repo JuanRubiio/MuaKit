@@ -1,0 +1,462 @@
+﻿<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mua Ops</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="/img/Logo_Mua_negro.png" alt="Mua Kit">
+        <div>
+          <strong id="brandName">Mua Ops</strong>
+          <span>Control de materiales</span>
+        </div>
+      </div>
+      <nav class="tabs tabs-main">
+        <button class="tab active" data-view="dashboard">Dashboard</button>
+        <button class="tab" data-view="invoices">Facturas</button>
+        <button class="tab" data-view="materials">Materiales</button>
+        <button class="tab" data-view="suppliers">Proveedores</button>
+        <button class="tab" data-view="costs">Costes</button>
+        <button class="tab" data-view="kits">Kits</button>
+      </nav>
+      <nav class="tabs tabs-meta">
+        <button class="tab" data-view="audit">Historial</button>
+        <button class="tab" data-view="settings">Configuración</button>
+      </nav>
+    </aside>
+
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Operaciones</p>
+          <h1 id="pageTitle">Dashboard</h1>
+          <p id="summaryText">Cargando...</p>
+        </div>
+      </header>
+
+      <main>
+        <section id="dashboard" class="view active">
+          <div id="dashboardCards" class="dashboard-kpis"></div>
+          <div class="dashboard-layout">
+            <section class="panel dashboard-trend-panel">
+              <div class="panel-head">
+                <div>
+                  <h2 id="dashboardTrendTitle">Evolucion del gasto</h2>
+                  <p id="dashboardTrendText">Ritmo mensual del gasto para seguir la evolucion del negocio.</p>
+                </div>
+                <div class="segmented-control">
+                  <button type="button" class="ghost is-active" data-dashboard-trend-view="total">Total</button>
+                  <button type="button" class="ghost" data-dashboard-trend-view="materiales">Materiales</button>
+                  <button type="button" class="ghost" data-dashboard-trend-view="marketing">Marketing</button>
+                  <button type="button" class="ghost" data-dashboard-trend-view="envios">Envíos</button>
+                </div>
+              </div>
+              <div id="dashboardTrendChart" class="chart-surface"></div>
+            </section>
+
+            <section class="panel dashboard-side-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Atención inmediata</h2>
+                  <p>Incidencias que conviene revisar sin romper la portada financiera.</p>
+                </div>
+              </div>
+              <div id="dashboardOpsList" class="list compact"></div>
+            </section>
+
+            <section class="panel dashboard-category-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Reparto del gasto</h2>
+                  <p>Distribucion por categoria de factura.</p>
+                </div>
+              </div>
+              <div id="dashboardCategoryChart" class="chart-surface chart-surface-small"></div>
+            </section>
+
+            <section class="panel dashboard-spend-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Concentracion del gasto</h2>
+                  <p>Donde se esta yendo el dinero: proveedores y materiales.</p>
+                </div>
+                <div class="segmented-control">
+                  <button type="button" class="ghost is-active" data-dashboard-spend-view="suppliers">Proveedores</button>
+                  <button type="button" class="ghost" data-dashboard-spend-view="materials">Materiales</button>
+                </div>
+              </div>
+              <div id="dashboardSpendList" class="list compact"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="invoices" class="view">
+          <div class="invoice-page">
+            <section class="panel invoice-list-panel">
+              <div class="panel-head invoice-head">
+                <div>
+                  <h2>Facturas</h2>
+                  <p id="invoiceResultText">Sin filtros.</p>
+                </div>
+                <div class="row-actions">
+                  <button type="button" data-new-invoice>Nueva factura</button>
+                </div>
+              </div>
+              <div class="filter-grid invoice-filters">
+                <label>Buscar<input id="invoiceSearch" type="search" placeholder="Proveedor, numero, notas"></label>
+                <label>Proveedor<select id="invoiceSupplierFilter"></select></label>
+                <label>Categoria<select id="invoiceCategoryFilter"></select></label>
+                <label>Estado<select id="invoiceStatusFilter"></select></label>
+                <label>Lineas
+                  <select id="invoiceLineFilter">
+                    <option value="">Todas</option>
+                    <option value="with">Con lineas</option>
+                    <option value="without">Sin lineas</option>
+                  </select>
+                </label>
+                <label>Desde<input id="invoiceFromFilter" type="date"></label>
+                <label>Hasta<input id="invoiceToFilter" type="date"></label>
+                <label>Orden
+                  <select id="invoiceSort">
+                    <option value="date_desc">Fecha reciente</option>
+                    <option value="date_asc">Fecha antigua</option>
+                    <option value="total_desc">Mayor total</option>
+                    <option value="total_asc">Menor total</option>
+                    <option value="supplier_asc">Proveedor A-Z</option>
+                    <option value="lines_asc">Pendientes primero</option>
+                  </select>
+                </label>
+                <label class="check"><input id="invoicesDeleted" type="checkbox"> Archivadas</label>
+              </div>
+              <div id="invoiceList" class="invoice-list table-list"></div>
+            </section>
+
+            <form id="invoiceForm" class="panel invoice-module hidden">
+              <div class="panel-head">
+                <div>
+                  <h2 id="invoiceFormTitle">Nueva factura</h2>
+                  <p>Datos generales y soporte documental.</p>
+                </div>
+                <button type="button" class="ghost" data-close-invoice-panels>Cerrar</button>
+              </div>
+              <input type="hidden" name="id">
+              <div class="form-grid four">
+                <label>Proveedor<select name="supplier_id"></select></label>
+                <label>Fecha<input name="invoice_date" type="date" required></label>
+                <label>Numero<input name="invoice_number"></label>
+                <label>Estado
+                  <select name="status">
+                    <option value="draft">Borrador</option>
+                    <option value="posted">Contabilizada</option>
+                    <option value="paid">Pagada</option>
+                    <option value="archived">Archivada</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-grid four">
+                <label>Categoria
+                  <select name="category">
+                    <option value="materiales">Materiales</option>
+                    <option value="envios">Envios</option>
+                    <option value="marketing">Marketing</option>
+                    <option value="software">Software</option>
+                    <option value="servicios">Servicios</option>
+                    <option value="otros">Otros</option>
+                  </select>
+                </label>
+                <label>Subtotal<input name="subtotal" inputmode="decimal"></label>
+                <label>Descuento<input name="discount" inputmode="decimal"></label>
+                <label>Total<input name="total" inputmode="decimal" required></label>
+              </div>
+              <div class="form-grid four">
+                <label>Envio<input name="shipping" inputmode="decimal"></label>
+                <label>IVA<input name="tax" inputmode="decimal"></label>
+                <label>Adjunto<input id="documentFile" type="file"></label>
+                <label>Notas<textarea name="notes" rows="1"></textarea></label>
+              </div>
+              <input type="hidden" name="document_id">
+              <div class="row-actions">
+                <button type="submit">Guardar factura</button>
+                <button type="button" class="ghost" data-reset-form="invoiceForm">Limpiar</button>
+              </div>
+            </form>
+
+            <section id="invoiceDetailPanel" class="panel invoice-module hidden"></section>
+          </div>
+        </section>
+
+        <section id="materials" class="view">
+          <div class="entity-page">
+            <section class="panel entity-list-panel">
+              <div class="panel-head invoice-head">
+                <div>
+                  <h2>Materiales</h2>
+                  <p id="materialResultText">Catalogo operativo.</p>
+                </div>
+                <div class="row-actions">
+                  <button type="button" data-new-material>Nuevo material</button>
+                </div>
+              </div>
+              <div class="filter-grid">
+                <label>Buscar<input id="materialSearch" type="search" placeholder="Nombre o nota"></label>
+                <label>Categoria<select id="materialCategoryFilter"></select></label>
+                <label>Proveedor<select id="materialSupplierFilter"></select></label>
+                <label>Orden
+                  <select id="materialSort">
+                    <option value="name_asc">Nombre A-Z</option>
+                    <option value="category_asc">Categoria</option>
+                    <option value="stock_asc">Menor stock</option>
+                    <option value="stock_desc">Mayor stock</option>
+                  </select>
+                </label>
+                <label class="check"><input id="materialsDeleted" type="checkbox"> Archivados</label>
+              </div>
+              <div id="materialList" class="list material-list"></div>
+            </section>
+
+            <form id="materialForm" class="panel entity-module hidden">
+              <div class="panel-head">
+                <div>
+                  <h2 id="materialFormTitle">Nuevo material</h2>
+                  <p>Catalogo interno usado para costes.</p>
+                </div>
+                <button type="button" class="ghost" data-close-material-panels>Cerrar</button>
+              </div>
+              <div id="materialFormPreview" class="selected-material-card hidden"></div>
+              <input type="hidden" name="id">
+              <div class="form-grid four">
+                <label>Nombre<input name="name" required></label>
+                <label>Categoria<select name="category"></select></label>
+                <label>Unidad<input name="unit_label" value="ud"></label>
+                <label>Proveedor preferente<select name="preferred_supplier_id"></select></label>
+              </div>
+              <div class="form-grid four">
+                <label>Stock real<input name="manual_stock" inputmode="decimal"></label>
+                <label>Punto reposicion<input name="reorder_point" inputmode="decimal"></label>
+                <label>Stock objetivo<input name="target_stock" inputmode="decimal"></label>
+                <label>Imagen CDN<input name="image_url_override" placeholder="https://cdn.shopify.com/..."></label>
+              </div>
+              <div class="form-grid four">
+                <label>Uso<input name="usage_type" placeholder="material_kit, packaging..."></label>
+                <label>Familia<input name="family" placeholder="joya, cadena, packaging..."></label>
+                <label>Subfamilia<input name="subfamily" placeholder="anillo, colgante..."></label>
+                <label>Variante<input name="variant" placeholder="circular, corazon..."></label>
+              </div>
+              <div class="form-grid two">
+                <label>Material base<input name="base_material" placeholder="acero, plata..."></label>
+                <label>Acabado / color<input name="finish" placeholder="dorado, plateado, banada en oro..."></label>
+              </div>
+              <label>Notas<textarea name="notes" rows="2"></textarea></label>
+              <div class="row-actions">
+                <button type="submit">Guardar material</button>
+                <button type="button" class="ghost" data-reset-form="materialForm">Limpiar</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section id="suppliers" class="view">
+          <div class="entity-page">
+            <section class="panel entity-list-panel">
+              <div class="panel-head invoice-head">
+                <div>
+                  <h2>Proveedores</h2>
+                  <p id="supplierResultText">Contactos y origen de costes.</p>
+                </div>
+                <div class="row-actions">
+                  <button type="button" data-new-supplier>Nuevo proveedor</button>
+                </div>
+              </div>
+              <div class="filter-grid">
+                <label>Buscar<input id="supplierSearch" type="search" placeholder="Proveedor, web, notas"></label>
+                <label>Categoria<input id="supplierCategoryFilter" placeholder="Categoria"></label>
+                <label>Orden
+                  <select id="supplierSort">
+                    <option value="name_asc">Nombre A-Z</option>
+                    <option value="category_asc">Categoria</option>
+                    <option value="lead_asc">Menor plazo</option>
+                  </select>
+                </label>
+                <label class="check"><input id="suppliersDeleted" type="checkbox"> Archivados</label>
+              </div>
+              <div id="supplierList" class="list"></div>
+            </section>
+
+            <form id="supplierForm" class="panel entity-module hidden">
+              <div class="panel-head">
+                <div>
+                  <h2 id="supplierFormTitle">Nuevo proveedor</h2>
+                  <p>Datos de compra y reposicion.</p>
+                </div>
+                <button type="button" class="ghost" data-close-supplier-panels>Cerrar</button>
+              </div>
+              <input type="hidden" name="id">
+              <div class="form-grid four">
+                <label>Nombre<input name="name" required></label>
+                <label>Categoria<input name="category"></label>
+                <label>Plazo medio dias<input name="lead_time_days" inputmode="numeric"></label>
+                <label>Web<input name="website"></label>
+              </div>
+              <label>Notas<textarea name="notes" rows="2"></textarea></label>
+              <div class="row-actions">
+                <button type="submit">Guardar proveedor</button>
+                <button type="button" class="ghost" data-reset-form="supplierForm">Limpiar</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section id="costs" class="view">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Costes por material</h2>
+                <p id="costResultText">Coste medio ponderado por compras activas.</p>
+              </div>
+            </div>
+            <div class="filter-grid">
+              <label>Buscar<input id="costSearch" type="search" placeholder="Material o proveedor"></label>
+              <label>Categoria<select id="costCategoryFilter"></select></label>
+              <label>Orden
+                <select id="costSort">
+                  <option value="spend_desc">Mayor gasto</option>
+                  <option value="avg_desc">Mayor coste medio</option>
+                  <option value="name_asc">Nombre A-Z</option>
+                  <option value="lots_desc">Mas lotes</option>
+                </select>
+              </label>
+              <label class="check"><input id="costOnlyWithPurchases" type="checkbox"> Solo con compras</label>
+            </div>
+            <div id="costTable" class="table"></div>
+          </section>
+        </section>
+
+        <section id="kits" class="view">
+          <div class="entity-page">
+            <section class="panel entity-list-panel">
+              <div class="panel-head invoice-head">
+                <div>
+                  <h2>Composicion de kits</h2>
+                  <p id="kitResultText">Coste medio por version.</p>
+                </div>
+                <div class="row-actions">
+                  <button type="button" data-new-kit>Nuevo kit</button>
+                </div>
+              </div>
+              <div id="kitList" class="list"></div>
+            </section>
+
+            <form id="kitForm" class="panel entity-module hidden">
+              <div class="panel-head">
+                <div>
+                  <h2 id="kitFormTitle">Nuevo kit</h2>
+                  <p>Define una version de kit.</p>
+                </div>
+                <button type="button" class="ghost" data-close-kit-panels>Cerrar</button>
+              </div>
+              <input type="hidden" name="id">
+              <div class="form-grid four">
+                <label>Nombre<input name="name" required placeholder="Kit base"></label>
+                <label>Version<input name="version" placeholder="Colgante, anillo..."></label>
+                <label>Notas<textarea name="notes" rows="1"></textarea></label>
+              </div>
+              <div class="row-actions">
+                <button type="submit">Guardar kit</button>
+                <button type="button" class="ghost" data-reset-form="kitForm">Limpiar</button>
+              </div>
+            </form>
+
+            <section id="kitDetailPanel" class="panel entity-module hidden"></section>
+          </div>
+        </section>
+
+        <section id="settings" class="view">
+          <div class="entity-page">
+            <form id="settingsForm" class="panel entity-module">
+              <div class="panel-head">
+                <div>
+                  <h2>Configuración</h2>
+                  <p>Ajustes básicos que hoy están por defecto y más adelante podremos ampliar.</p>
+                </div>
+              </div>
+              <div class="form-grid four">
+                <label>Nombre de la app<input name="company_name"></label>
+                <label>Moneda<input name="currency"></label>
+                <label>Estado por defecto
+                  <select name="default_invoice_status">
+                    <option value="draft">Borrador</option>
+                    <option value="posted">Contabilizada</option>
+                    <option value="paid">Pagada</option>
+                    <option value="archived">Archivada</option>
+                  </select>
+                </label>
+                <label>Categoría por defecto
+                  <select name="default_invoice_category">
+                    <option value="materiales">Materiales</option>
+                    <option value="envios">Envíos</option>
+                    <option value="marketing">Marketing</option>
+                    <option value="software">Software</option>
+                    <option value="servicios">Servicios</option>
+                    <option value="otros">Otros</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-grid two">
+                <label>Vista mensual inicial del dashboard
+                  <select name="dashboard_monthly_view">
+                    <option value="total">Gasto total</option>
+                    <option value="materiales">Materiales</option>
+                    <option value="marketing">Marketing</option>
+                    <option value="envios">Envíos</option>
+                  </select>
+                </label>
+                <label>Umbral base de stock bajo<input name="low_stock_default" inputmode="decimal"></label>
+              </div>
+              <div class="form-grid four">
+                <label>Color total<input name="dashboard_color_total" type="color"></label>
+                <label>Color materiales<input name="dashboard_color_materiales" type="color"></label>
+                <label>Color marketing<input name="dashboard_color_marketing" type="color"></label>
+                <label>Color envíos<input name="dashboard_color_envios" type="color"></label>
+              </div>
+              <div class="inline-note">
+                Esta sección es una base pensada para crecer hacia preferencias del equipo, alertas, reglas de inventario, paletas visuales y criterios de dashboard sin tocar código.
+              </div>
+              <div class="row-actions">
+                <button type="submit">Guardar configuración</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section id="audit" class="view">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Historial</h2>
+                <p>Cambios registrados por entidad.</p>
+              </div>
+            </div>
+            <div class="filter-grid">
+              <label>Entidad<input id="auditEntity" placeholder="material, invoice, supplier..."></label>
+              <label>ID<input id="auditId" inputmode="numeric" placeholder="ID"></label>
+              <button id="auditSearch" type="button">Buscar</button>
+            </div>
+            <div id="auditList" class="list"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <script src="/vendor/echarts/echarts.min.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
+
+
+
+
