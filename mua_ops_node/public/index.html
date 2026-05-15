@@ -369,11 +369,10 @@
                 <label>Proveedor preferente<select name="preferred_supplier_id"></select></label>
               </div>
               <div class="form-grid four">
-                <label>Stock real<input name="manual_stock" inputmode="decimal"></label>
+                <label>Stock Shopify<input name="effective_stock_qty" inputmode="decimal" readonly></label>
                 <label class="check"><input name="is_outlet" type="checkbox"> Outlet</label>
                 <label>Punto reposicion<input name="reorder_point" inputmode="decimal"></label>
                 <label>Stock objetivo<input name="target_stock" inputmode="decimal"></label>
-                <label>Imagen CDN<input name="image_url_override" placeholder="https://cdn.shopify.com/..."></label>
               </div>
               <div class="form-grid four">
                 <label>Uso<input name="usage_type" placeholder="material_kit, packaging..."></label>
@@ -591,19 +590,6 @@
                 <label>Color Bizum<input name="dashboard_color_bizum" type="color"></label>
                 <div></div>
               </div>
-              <section class="panel inset-panel">
-                <div class="panel-head">
-                  <div>
-                    <h2>Importación de cobros</h2>
-                    <p>Los ficheros de Shopify y Etsy se gestionan aquí para no mezclar importaciones con la operativa manual.</p>
-                  </div>
-                  <div class="row-actions">
-                    <button type="button" data-import-shopify-payouts>Importar Shopify</button>
-                    <button type="button" class="ghost" data-import-etsy-payouts>Importar Etsy</button>
-                  </div>
-                </div>
-                <div id="payoutImportList" class="list"></div>
-              </section>
               <section class="panel inset-panel">
                 <div class="panel-head">
                   <div>

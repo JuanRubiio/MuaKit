@@ -757,6 +757,18 @@ function shopifyTokenUrl(config) {
   return `https://${domain.replace(/\/+$/, "")}/admin/oauth/access_token`;
 }
 
+function shopifyRestUrl(config, resourcePath, query = null) {
+  const domain = String(config.store_domain || "").trim().replace(/\/+$/, "");
+  const base = /^https?:\/\//i.test(domain) ? domain : `https://${domain}`;
+  const url = new URL(`${base}/admin/api/${config.api_version}/${resourcePath.replace(/^\/+/, "")}`);
+  if (query) {
+    Object.entries(query).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && String(value) !== "") url.searchParams.set(key, String(value));
+    });
+  }
+  return url.toString();
+}
+
 async function acquireShopifyAccessToken(config) {
   validateShopifyConnectionConfig(config);
   if (String(config.admin_token || "").trim()) return String(config.admin_token).trim();
@@ -788,6 +800,28 @@ async function acquireShopifyAccessToken(config) {
     expiresAt: Date.now() + Math.max(300, expiresIn - 300) * 1000
   });
   return payload.access_token;
+}
+
+async function shopifyRest(config, resourcePath, query = null) {
+  validateShopifyConnectionConfig(config);
+  const accessToken = await acquireShopifyAccessToken(config);
+  const response = await fetch(shopifyRestUrl(config, resourcePath, query), {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": accessToken
+    }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const rawMessage = payload.errors || payload.error || payload.error_description || `Shopify HTTP ${response.status}`;
+    const message = String(rawMessage || "");
+    if (/scope|access denied|forbidden|unauthorized/i.test(message) && resourcePath.includes("shopify_payments/payouts")) {
+      throw new Error("La app necesita acceso a payouts de Shopify Payments. Revisa que tenga el scope read_shopify_payments_payouts y vuelve a instalarla en la tienda.");
+    }
+    throw new Error(message);
+  }
+  return payload;
 }
 
 async function shopifyGraphql(config, queryText, variables = {}) {
@@ -867,19 +901,21 @@ function upsertShopifyProductFromApi(product, mode = "full") {
     );
     audit("shopify_product", existing.id, mode === "inventory" ? "shopify_api_inventory" : "shopify_api_update", existing, one("SELECT * FROM shopify_products WHERE id=$id", { id: existing.id }));
   }
-  if (mode !== "inventory" && productId) {
+  if (productId) {
     const images = [];
-    if (product?.featuredImage?.url) images.push(product.featuredImage.url);
-    for (const edge of product?.images?.edges || []) {
-      if (edge?.node?.url && !images.includes(edge.node.url)) images.push(edge.node.url);
+    if (mode !== "inventory") {
+      if (product?.featuredImage?.url) images.push(product.featuredImage.url);
+      for (const edge of product?.images?.edges || []) {
+        if (edge?.node?.url && !images.includes(edge.node.url)) images.push(edge.node.url);
+      }
+      images.forEach((url, index) => {
+        exec(
+          `INSERT OR IGNORE INTO product_images (shopify_product_id, image_url, position)
+           VALUES ($productId, $url, $position)`,
+          { productId, url, position: index + 1 }
+        );
+      });
     }
-    images.forEach((url, index) => {
-      exec(
-        `INSERT OR IGNORE INTO product_images (shopify_product_id, image_url, position)
-         VALUES ($productId, $url, $position)`,
-        { productId, url, position: index + 1 }
-      );
-    });
     const stored = one("SELECT * FROM shopify_products WHERE id=$id", { id: productId });
     if (stored) ensureMaterialForShopifyProduct(stored);
   }
@@ -1091,53 +1127,37 @@ async function syncShopifyOrders(configInput = null) {
 
 async function syncShopifyPayouts(configInput = null) {
   const config = configInput || shopifyConnectionForUse();
-  let cursor = null;
   let rows = 0;
   let created = 0;
   let updated = 0;
-  do {
-    const data = await shopifyGraphql(config, `
-      query ShopifyPayouts($first: Int!, $after: String) {
-        shopifyPaymentsAccount {
-          payouts(first: $first, after: $after) {
-            edges {
-              cursor
-              node {
-                id
-                issuedAt
-                status
-                externalTraceId
-                net { amount currencyCode }
-                transactionType
-              }
-            }
-            pageInfo { hasNextPage endCursor }
-          }
-        }
-      }
-    `, { first: 100, after: cursor });
-    const edges = data.shopifyPaymentsAccount?.payouts?.edges || [];
-    for (const edge of edges) {
-      const payout = edge.node;
-      const result = upsertChannelPayout({
-        channel: "shopify",
-        external_id: payout.id,
-        payout_date: String(payout.issuedAt || "").slice(0, 10),
-        status: normalizePayoutStatus(payout.status || "paid"),
-        currency: payout.net?.currencyCode || "EUR",
-        gross_amount: n(payout.net?.amount),
-        fees_amount: 0,
-        net_amount: n(payout.net?.amount),
-        bank_reference: String(payout.externalTraceId || "").trim(),
-        notes: payout.transactionType ? `Shopify payout ${String(payout.transactionType).toLowerCase()}` : "",
-        raw_source_file: "shopify_api"
-      }, "import");
-      rows += 1;
-      if (result.created) created += 1;
-      else if (result.updated) updated += 1;
-    }
-    cursor = data.shopifyPaymentsAccount?.payouts?.pageInfo?.hasNextPage ? data.shopifyPaymentsAccount?.payouts?.pageInfo?.endCursor : null;
-  } while (cursor);
+  const data = await shopifyRest(config, "shopify_payments/payouts.json", { limit: 250 });
+  const payouts = Array.isArray(data?.payouts) ? data.payouts : [];
+  for (const payout of payouts) {
+    const result = upsertChannelPayout({
+      channel: "shopify",
+      external_id: payout.id ? `shopify_payout:${payout.id}` : `shopify_rest|${payout.date}|${payout.amount}`,
+      payout_date: String(payout.date || payout.issued_at || payout.issuedAt || "").slice(0, 10),
+      status: normalizePayoutStatus(payout.status || "paid"),
+      currency: payout.currency || payout.currency_code || "EUR",
+      gross_amount: n(
+        payout.summary?.charges_gross_amount
+        || payout.summary?.gross
+        || payout.amount
+      ),
+      fees_amount: n(
+        payout.summary?.charges_fee_amount
+        || payout.summary?.fees
+        || 0
+      ),
+      net_amount: n(payout.amount || payout.net?.amount),
+      bank_reference: String(payout.bank_reference || payout.external_trace_id || "").trim(),
+      notes: payout.type ? `Shopify payout ${String(payout.type).toLowerCase()}` : "",
+      raw_source_file: "shopify_api_rest"
+    }, "import");
+    rows += 1;
+    if (result.created) created += 1;
+    else if (result.updated) updated += 1;
+  }
   exec("UPDATE shopify_connection SET last_payouts_sync_at=$now, updated_at=CURRENT_TIMESTAMP WHERE id=1", { now: new Date().toISOString() });
   return { rows, created, updated, skipped: rows - created - updated };
 }
@@ -1749,6 +1769,7 @@ function payoutExternalIdPriority(value) {
   const id = String(value || "").trim();
   if (!id) return 0;
   if (id.startsWith("gid://shopify/ShopifyPaymentsPayout/")) return 3;
+  if (id.startsWith("shopify_payout:")) return 3;
   if (id.startsWith("shopify|")) return 2;
   if (id.startsWith("manual|")) return 1;
   return 1;
@@ -2050,6 +2071,27 @@ function dashboardFinance() {
       known_cost: n(kit.known_cost)
     }));
 
+  const reorderMaterials = query(
+    `SELECT m.id, m.name, m.category, m.reorder_point,
+            COALESCE((
+              SELECT SUM(COALESCE(sp.shopify_available_qty, 0))
+              FROM shopify_products sp
+              WHERE sp.material_id = m.id
+            ), 0) AS effective_stock_qty
+     FROM materials m
+     WHERE m.is_deleted = 0
+       AND COALESCE(m.reorder_point, 0) > 0
+     ORDER BY effective_stock_qty ASC, m.reorder_point ASC, m.name`
+  )
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      category: row.category,
+      reorder_point: n(row.reorder_point),
+      effective_stock_qty: n(row.effective_stock_qty)
+    }))
+    .filter((row) => row.effective_stock_qty <= row.reorder_point);
+
   const incomeChannels = income.channels
     .map((row) => ({
       channel: row.channel,
@@ -2109,17 +2151,7 @@ function dashboardFinance() {
           status: row.status,
           net_amount: n(row.net_amount)
         })),
-      recent_payout_imports: payoutImports.slice(0, 4).map((row) => ({
-        id: row.id,
-        channel: row.channel,
-        source_file: row.source_file,
-        rows_total: Number(row.rows_total || 0),
-        rows_created: Number(row.rows_created || 0),
-        rows_updated: Number(row.rows_updated || 0),
-        rows_skipped: Number(row.rows_skipped || 0),
-        status: row.status,
-        created_at: row.created_at
-      })),
+      reorder_materials: reorderMaterials,
       materials_without_image: materialsWithoutImage,
       materials_without_cost: materialsWithoutCost,
       incomplete_kits: incompleteKits

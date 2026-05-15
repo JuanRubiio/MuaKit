@@ -4,7 +4,6 @@
   invoices: [],
   payouts: [],
   incomeSummary: null,
-  incomeImports: [],
   costs: [],
   kits: [],
   settings: null,
@@ -238,7 +237,7 @@ function showMaterialEditor(material = null) {
               ${material.is_outlet ? badge("outlet", "warn") : ""}
               ${hierarchyParts(material).map((value) => badge(value)).join("")}
             </div>
-            <div class="meta">Stock Shopify ${material.effective_stock_qty ?? "-"} · Manual ${material.manual_stock ?? "-"}</div>
+            <div class="meta">Stock Shopify ${material.effective_stock_qty ?? "-"}</div>
           </div>
         `;
       } else {
@@ -761,6 +760,15 @@ function renderDashboard() {
       tone: operational.draft_invoices.length ? "warn" : "ok"
     },
     {
+      label: "Materiales a reponer",
+      count: operational.reorder_materials.length,
+      hint: operational.reorder_materials[0]
+        ? `${text(operational.reorder_materials[0].name)} · stock ${operational.reorder_materials[0].effective_stock_qty} / reposición ${operational.reorder_materials[0].reorder_point}`
+        : "Sin alertas de reposición",
+      action: "materials",
+      tone: operational.reorder_materials.length ? "warn" : "ok"
+    },
+    {
       label: "Materiales sin imagen",
       count: operational.materials_without_image.length,
       hint: operational.materials_without_image[0] ? text(operational.materials_without_image[0].name) : "Catálogo visual al día",
@@ -783,15 +791,6 @@ function renderDashboard() {
       action: "kits",
       tone: operational.incomplete_kits.length ? "warn" : "ok"
     },
-    {
-      label: "Importaciones de cobros",
-      count: operational.recent_payout_imports.length,
-      hint: operational.recent_payout_imports[0]
-        ? `${channelLabel(operational.recent_payout_imports[0].channel)} · ${text(operational.recent_payout_imports[0].source_file)}`
-        : "Todavía no hay importaciones de cobros",
-      action: "income",
-      tone: operational.recent_payout_imports.length ? "ok" : "warn"
-    }
   ];
   $("#dashboardOpsList").innerHTML = `<div class="ops-list">${opsRows.map((item) => `
     <button type="button" class="ops-item" data-jump-view="${item.action}">
@@ -825,14 +824,12 @@ function renderDashboard() {
 
 async function loadIncome() {
   const includeDeleted = $("#payoutsDeleted")?.checked ? 1 : 0;
-  const [summary, payouts, imports] = await Promise.all([
+  const [summary, payouts] = await Promise.all([
     api("/api/income/summary"),
-    api(`/api/channel-payouts?include_deleted=${includeDeleted}`),
-    api("/api/income/imports")
+    api(`/api/channel-payouts?include_deleted=${includeDeleted}`)
   ]);
   state.incomeSummary = summary;
   state.payouts = payouts;
-  state.incomeImports = imports;
   renderIncome();
 }
 
@@ -854,7 +851,6 @@ function renderIncome() {
     </article>
   `).join("");
   renderPayouts();
-  renderIncomeImports();
 }
 
 function renderPayouts() {
@@ -898,19 +894,6 @@ function renderPayouts() {
       </div>
     </article>
   `).join("") || `<div class="empty-state">No hay cobros con esos filtros.</div>`;
-}
-
-function renderIncomeImports() {
-  $("#payoutImportList").innerHTML = state.incomeImports.map((row) => `
-    <article class="row">
-      <div class="row-main">
-        <strong>${channelLabel(row.channel)} · ${text(row.source_file)}</strong>
-        <div class="meta">${text(row.created_at)} · ${row.rows_total} filas · ${row.rows_created} nuevas · ${row.rows_updated} actualizadas · ${row.rows_skipped} sin cambios</div>
-        ${row.notes ? `<p>${text(row.notes)}</p>` : ""}
-      </div>
-      <div class="tags">${badge(payoutStatusLabel(row.status), row.status === "completed" ? "ok" : "warn")}</div>
-    </article>
-  `).join("") || `<div class="empty-state">Todavía no hay importaciones de cobros.</div>`;
 }
 
 async function openPayout(id) {
@@ -1178,7 +1161,7 @@ function renderMaterials() {
           ${material.base_material ? badge(material.base_material) : ""}
           ${material.finish ? badge(material.finish) : ""}
         </div>
-        <div class="meta">Stock Shopify ${material.effective_stock_qty ?? "-"} · Manual ${material.manual_stock ?? "-"} · Reposición ${material.reorder_point ?? "-"} · Objetivo ${material.target_stock ?? "-"}</div>
+        <div class="meta">Stock Shopify ${material.effective_stock_qty ?? "-"} · Reposición ${material.reorder_point ?? "-"} · Objetivo ${material.target_stock ?? "-"}</div>
         ${material.notes ? `<p>${text(material.notes)}</p>` : ""}
       </div>
       <div class="row-actions">
@@ -1628,13 +1611,6 @@ async function savePayout(event) {
   toast("Cobro guardado");
 }
 
-async function runPayoutImport(channel) {
-  const route = channel === "etsy" ? "/api/import/payouts/etsy" : "/api/import/payouts/shopify";
-  const result = await api(route, { method: "POST", body: "{}" });
-  await Promise.all([loadIncome(), loadSummary(), loadDashboardFinance()]);
-  toast(`${channelLabel(channel)} importado · ${result.rows_created || 0} nuevas, ${result.rows_updated || 0} actualizadas`);
-}
-
 async function saveSettings(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -1838,8 +1814,6 @@ function bindEvents() {
       if (t.dataset.closeInvoicePanels !== undefined) closeInvoicePanels();
       if (t.dataset.newPayout !== undefined) showPayoutEditor();
       if (t.dataset.closePayoutPanels !== undefined) closePayoutPanels();
-      if (t.dataset.importShopifyPayouts !== undefined) await runPayoutImport("shopify");
-      if (t.dataset.importEtsyPayouts !== undefined) await runPayoutImport("etsy");
       if (t.dataset.testShopifyConnection !== undefined) await testShopifyConnectionAction();
       if (t.dataset.syncShopifyNow !== undefined) await syncShopifyNow();
       if (t.dataset.saveShopifyConnection !== undefined) await saveShopifyConnection($("#shopifyConnectionForm"));

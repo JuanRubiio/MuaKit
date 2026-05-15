@@ -44,6 +44,32 @@ function createMockShopifyServer() {
       res.end(JSON.stringify({ error: "invalid_client", error_description: "Client credentials rejected by mock Shopify" }));
       return;
     }
+    if (req.method === "GET" && req.url.startsWith("/admin/api/2026-01/shopify_payments/payouts.json")) {
+      if (req.headers["x-shopify-access-token"] !== "mock_access_token_1234") {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ errors: "Missing or invalid access token" }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        payouts: [
+          {
+            id: 623721858,
+            date: "2026-05-15",
+            status: "paid",
+            currency: "EUR",
+            amount: "441.06",
+            bank_reference: "trace-44106",
+            type: "deposit",
+            summary: {
+              charges_gross_amount: "452.36",
+              charges_fee_amount: "11.30"
+            }
+          }
+        ]
+      }));
+      return;
+    }
     if (req.method !== "POST" || !req.url.includes("/admin/api/2026-01/graphql.json")) {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Not found" }));
@@ -134,27 +160,6 @@ function createMockShopifyServer() {
             }
           ],
           pageInfo: { hasNextPage: false, endCursor: null }
-        }
-      };
-    } else if (query.includes("query ShopifyPayouts")) {
-      data = {
-        shopifyPaymentsAccount: {
-          payouts: {
-            edges: [
-              {
-                cursor: "payout-1",
-                node: {
-                  id: "gid://shopify/ShopifyPaymentsPayout/1",
-                  issuedAt: "2026-05-15T00:00:00Z",
-                  status: "PAID",
-                  gross: { amount: "452.36", currencyCode: "EUR" },
-                  fees: { amount: "11.30", currencyCode: "EUR" },
-                  net: { amount: "441.06", currencyCode: "EUR" }
-                }
-              }
-            ],
-            pageInfo: { hasNextPage: false, endCursor: null }
-          }
         }
       };
     }
@@ -307,7 +312,7 @@ async function run() {
     const payouts = await request("GET", "/api/channel-payouts");
     assert(payouts.some((row) => row.channel === "shopify"), "Channel payouts should include Shopify rows");
     assert(payouts.some((row) => row.channel === "etsy"), "Channel payouts should include Etsy rows");
-    assert(payouts.some((row) => row.external_id === "gid://shopify/ShopifyPaymentsPayout/1"), "Shopify direct sync should persist API payouts");
+    assert(payouts.some((row) => row.external_id === "shopify_payout:623721858"), "Shopify direct sync should persist API payouts");
 
     const manualPayout = await request("POST", "/api/channel-payouts", {
       channel: "bizum",
