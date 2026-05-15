@@ -490,8 +490,8 @@ function sortRows(rows, sort, handlers) {
 }
 
 async function loadSummary() {
-  const s = await api("/api/summary");
-  $("#summaryText").textContent = `${s.materials} materiales · ${s.suppliers} proveedores · ${s.invoices} facturas · ${s.payouts || 0} cobros · ${s.documents} documentos`;
+  await api("/api/summary");
+  $("#summaryText").textContent = "";
 }
 
 async function loadDashboardFinance() {
@@ -743,14 +743,14 @@ function renderDashboardCharts() {
   const reorderRows = (finance.operational?.reorder_materials || []).slice(0, 6);
   reorderChart.setOption({
     animationDuration: 400,
-    grid: { left: 18, right: 20, top: 12, bottom: 24, containLabel: true },
+    grid: { left: 36, right: 18, top: 18, bottom: 60, containLabel: true },
     tooltip: {
       trigger: "axis",
-      axisPointer: { type: "shadow" },
+      axisPointer: { type: "cross" },
       valueFormatter: (value) => `${number(value)} ud`
     },
     legend: {
-      bottom: 0,
+      bottom: 8,
       left: "center",
       itemWidth: 14,
       itemHeight: 10,
@@ -758,21 +758,20 @@ function renderDashboardCharts() {
       textStyle: { color: "#5d5650", fontSize: 12, fontWeight: 600 }
     },
     xAxis: {
+      type: "category",
+      axisLine: { lineStyle: { color: "#c9bfb5" } },
+      axisLabel: {
+        color: "#766e68",
+        interval: 0,
+        rotate: 18,
+        formatter: (value) => String(value || "").length > 18 ? `${String(value).slice(0, 18)}…` : value
+      },
+      data: reorderRows.map((row) => row.name)
+    },
+    yAxis: {
       type: "value",
       axisLabel: { color: "#766e68", formatter: (value) => `${number(value)}` },
       splitLine: { lineStyle: { color: "#ede7df" } }
-    },
-    yAxis: {
-      type: "category",
-      inverse: true,
-      axisLine: { show: false },
-      axisTick: { show: false },
-      axisLabel: {
-        color: "#5d5650",
-        width: 168,
-        overflow: "truncate"
-      },
-      data: reorderRows.map((row) => row.name)
     },
     graphic: reorderRows.length ? [] : [{
       type: "text",
@@ -789,15 +788,18 @@ function renderDashboardCharts() {
       {
         name: "Stock Shopify",
         type: "bar",
-        barMaxWidth: 16,
-        itemStyle: { color: colors.cobros, borderRadius: [0, 6, 6, 0] },
+        barMaxWidth: 28,
+        itemStyle: { color: colors.cobros, borderRadius: [6, 6, 0, 0] },
         data: reorderRows.map((row) => number(row.effective_stock_qty))
       },
       {
         name: "Punto reposición",
-        type: "bar",
-        barMaxWidth: 16,
-        itemStyle: { color: colors.materiales, borderRadius: [0, 6, 6, 0], opacity: 0.78 },
+        type: "line",
+        smooth: true,
+        symbol: "circle",
+        symbolSize: 8,
+        lineStyle: { width: 3, color: colors.materiales },
+        itemStyle: { color: colors.materiales },
         data: reorderRows.map((row) => number(row.reorder_point))
       }
     ]
@@ -814,9 +816,9 @@ function renderDashboard() {
   const k = finance.kpis;
   const expenseLabel = DASHBOARD_EXPENSE_LABELS[state.dashboardExpenseTrendView] || DASHBOARD_EXPENSE_LABELS.total;
   const incomeLabel = DASHBOARD_INCOME_LABELS[state.dashboardIncomeTrendView] || DASHBOARD_INCOME_LABELS.cobros;
-  $("#dashboardExpenseTitle").textContent = `Gastos mensuales · ${expenseLabel}`;
+  $("#dashboardExpenseTitle").textContent = "Gastos mensuales";
   $("#dashboardExpenseText").textContent = `Lectura mensual de ${expenseLabel.toLocaleLowerCase("es")} para seguir el peso real de los gastos.`;
-  $("#dashboardIncomeTitle").textContent = `Cobros mensuales · ${incomeLabel}`;
+  $("#dashboardIncomeTitle").textContent = "Cobros mensuales";
   $("#dashboardIncomeText").textContent = `Seguimiento de ${incomeLabel.toLocaleLowerCase("es")} con la misma paleta del resto de la app.`;
   $("#dashboardCards").innerHTML = [
     ["Gasto total", euro.format(k.total_expense), `${k.invoice_count} facturas activas`],

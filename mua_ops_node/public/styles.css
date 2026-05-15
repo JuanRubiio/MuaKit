@@ -288,10 +288,17 @@ main {
   gap: 10px;
 }
 
+.dashboard-trend-head > div:first-child {
+  min-height: 66px;
+}
+
 .dashboard-trend-head .segmented-control {
   justify-self: end;
   max-width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
   justify-content: flex-end;
+  align-content: start;
 }
 
 .dashboard-mini-grid {
@@ -466,7 +473,7 @@ main {
 }
 
 .dashboard-reorder-panel .chart-surface-small {
-  min-height: 244px;
+  min-height: 252px;
 }
 
 .dashboard-spend-panel .rank-list {
@@ -1119,6 +1126,7 @@ textarea {
   .dashboard-trend-head .segmented-control {
     justify-self: stretch;
     justify-content: flex-start;
+    grid-template-columns: repeat(2, minmax(0, max-content));
   }
 
   .form-grid.four,
