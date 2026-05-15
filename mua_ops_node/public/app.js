@@ -235,8 +235,10 @@ function showMaterialEditor(material = null) {
             <strong>${text(material.name)}</strong>
             <div class="tags">
               ${material.category ? badge(material.category) : ""}
+              ${material.is_outlet ? badge("outlet", "warn") : ""}
               ${hierarchyParts(material).map((value) => badge(value)).join("")}
             </div>
+            <div class="meta">Stock Shopify ${material.effective_stock_qty ?? "-"} · Manual ${material.manual_stock ?? "-"}</div>
           </div>
         `;
       } else {
@@ -319,6 +321,10 @@ function showPayoutEditor(payout = null, keepDetail = false) {
 function optionList(values, selected = "", first = "") {
   const firstOption = first ? `<option value="">${escapeHtml(first)}</option>` : "";
   return `${firstOption}${values.map((value) => `<option value="${escapeHtml(value)}" ${String(value) === String(selected) ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}`;
+}
+
+function distinctValues(rows, key) {
+  return Array.from(new Set(rows.map((row) => String(row[key] || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es"));
 }
 
 function supplierOptions(selected = "", first = "Sin proveedor") {
@@ -647,7 +653,7 @@ function renderDashboardCharts() {
         name: "Gasto",
         type: "bar",
         barMaxWidth: 22,
-        itemStyle: { color: colors.total, borderRadius: [6, 6, 0, 0] },
+        itemStyle: { color: colors.fees, borderRadius: [6, 6, 0, 0] },
         data: finance.monthly_breakdown?.series?.total || []
       },
       {
@@ -1064,6 +1070,23 @@ function refreshSupplierSelects() {
   $("#materialSupplierFilter").innerHTML = supplierOptions($("#materialSupplierFilter").value, "Todos");
 }
 
+function refreshMaterialHierarchyFilters() {
+  const mappings = [
+    ["#materialUsageFilter", "usage_type", "Todos"],
+    ["#materialFamilyFilter", "family", "Todas"],
+    ["#materialSubfamilyFilter", "subfamily", "Todas"],
+    ["#materialVariantFilter", "variant", "Todas"],
+    ["#materialBaseFilter", "base_material", "Todos"],
+    ["#materialFinishFilter", "finish", "Todos"]
+  ];
+  mappings.forEach(([selector, key, empty]) => {
+    const select = $(selector);
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = optionList(distinctValues(state.materials.filter((row) => !row.is_deleted), key), current, empty);
+  });
+}
+
 function renderSuppliers() {
   let rows = [...state.suppliers];
   rows = applyTextSearch(rows, $("#supplierSearch")?.value, ["name", "category", "website", "notes"]);
@@ -1096,6 +1119,7 @@ async function loadMaterials() {
   const includeDeleted = $("#materialsDeleted")?.checked ? 1 : 0;
   state.materials = await api(`/api/materials?include_deleted=${includeDeleted}`);
   refreshMaterialSelects();
+  refreshMaterialHierarchyFilters();
   renderMaterials();
 }
 
@@ -1111,12 +1135,27 @@ function renderMaterials() {
   rows = applyTextSearch(rows, $("#materialSearch")?.value, ["name", "category", "notes", "preferred_supplier_name", "usage_type", "family", "subfamily", "variant", "base_material", "finish"]);
   const category = $("#materialCategoryFilter")?.value;
   const supplier = $("#materialSupplierFilter")?.value;
+  const usage = $("#materialUsageFilter")?.value;
+  const family = $("#materialFamilyFilter")?.value;
+  const subfamily = $("#materialSubfamilyFilter")?.value;
+  const variant = $("#materialVariantFilter")?.value;
+  const baseMaterial = $("#materialBaseFilter")?.value;
+  const finish = $("#materialFinishFilter")?.value;
+  const outlet = $("#materialOutletFilter")?.value;
   if (category) rows = rows.filter((material) => material.category === category);
   if (supplier) rows = rows.filter((material) => String(material.preferred_supplier_id || "") === String(supplier));
+  if (usage) rows = rows.filter((material) => String(material.usage_type || "") === usage);
+  if (family) rows = rows.filter((material) => String(material.family || "") === family);
+  if (subfamily) rows = rows.filter((material) => String(material.subfamily || "") === subfamily);
+  if (variant) rows = rows.filter((material) => String(material.variant || "") === variant);
+  if (baseMaterial) rows = rows.filter((material) => String(material.base_material || "") === baseMaterial);
+  if (finish) rows = rows.filter((material) => String(material.finish || "") === finish);
+  if (outlet === "1") rows = rows.filter((material) => Boolean(material.is_outlet));
+  if (outlet === "0") rows = rows.filter((material) => !material.is_outlet);
   rows = sortRows(rows, $("#materialSort")?.value, {
     category_asc: (a, b) => lower(a.category).localeCompare(lower(b.category)) || lower(a.name).localeCompare(lower(b.name)),
-    stock_asc: (a, b) => number(a.manual_stock) - number(b.manual_stock),
-    stock_desc: (a, b) => number(b.manual_stock) - number(a.manual_stock),
+    stock_asc: (a, b) => number(a.effective_stock_qty) - number(b.effective_stock_qty),
+    stock_desc: (a, b) => number(b.effective_stock_qty) - number(a.effective_stock_qty),
     default: (a, b) => lower(a.name).localeCompare(lower(b.name)),
     name_asc: (a, b) => lower(a.name).localeCompare(lower(b.name))
   });
@@ -1131,6 +1170,7 @@ function renderMaterials() {
           ${badge(material.unit_label || "ud")}
           ${badge(material.preferred_supplier_name || "sin proveedor")}
           ${material.linked_product_count ? badge(`${material.linked_product_count} imagen`, "ok") : badge("sin imagen", "warn")}
+          ${material.is_outlet ? badge("outlet", "warn") : ""}
           ${material.usage_type ? badge(material.usage_type) : ""}
           ${material.family ? badge(material.family) : ""}
           ${material.subfamily ? badge(material.subfamily) : ""}
@@ -1138,7 +1178,7 @@ function renderMaterials() {
           ${material.base_material ? badge(material.base_material) : ""}
           ${material.finish ? badge(material.finish) : ""}
         </div>
-        <div class="meta">Stock ${material.manual_stock ?? "-"} · Reposición ${material.reorder_point ?? "-"} · Objetivo ${material.target_stock ?? "-"}</div>
+        <div class="meta">Stock Shopify ${material.effective_stock_qty ?? "-"} · Manual ${material.manual_stock ?? "-"} · Reposición ${material.reorder_point ?? "-"} · Objetivo ${material.target_stock ?? "-"}</div>
         ${material.notes ? `<p>${text(material.notes)}</p>` : ""}
       </div>
       <div class="row-actions">
@@ -1506,6 +1546,7 @@ async function saveMaterial(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = formObject(form);
+  data.is_outlet = Boolean(form.elements.is_outlet?.checked);
   const id = data.id;
   delete data.id;
   const saved = await api(id ? `/api/materials/${id}` : "/api/materials", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
@@ -1945,6 +1986,13 @@ function bindEvents() {
     ["#materialSearch", renderMaterials],
     ["#materialCategoryFilter", renderMaterials],
     ["#materialSupplierFilter", renderMaterials],
+    ["#materialUsageFilter", renderMaterials],
+    ["#materialFamilyFilter", renderMaterials],
+    ["#materialSubfamilyFilter", renderMaterials],
+    ["#materialVariantFilter", renderMaterials],
+    ["#materialBaseFilter", renderMaterials],
+    ["#materialFinishFilter", renderMaterials],
+    ["#materialOutletFilter", renderMaterials],
     ["#materialSort", renderMaterials],
     ["#supplierSearch", renderSuppliers],
     ["#supplierCategoryFilter", renderSuppliers],

@@ -88,6 +88,7 @@ function backfillMaterialHierarchy() {
     for (const key of ["usage_type", "family", "subfamily", "variant", "base_material", "finish"]) {
       if (!String(material[key] || "").trim() && String(inferred[key] || "").trim()) patch[key] = inferred[key];
     }
+    if (!Number(material.is_outlet || 0) && /\boutlet\b/i.test(String(material.name || ""))) patch.is_outlet = 1;
     if (!Object.keys(patch).length) continue;
     exec(
       `UPDATE materials
@@ -105,6 +106,7 @@ function materialPayload(row) {
     shopify_inventory_qty: optionalN(row.shopify_inventory_qty),
     shopify_available_qty: optionalN(row.shopify_available_qty),
     effective_stock_qty: optionalN(row.effective_stock_qty),
+    is_outlet: Boolean(Number(row.is_outlet || 0)),
     usage_type: row.usage_type || "",
     family: row.family || "",
     subfamily: row.subfamily || "",
@@ -334,6 +336,7 @@ function migrate() {
       unit_label TEXT NOT NULL DEFAULT 'ud',
       preferred_supplier_id INTEGER REFERENCES suppliers(id),
       manual_stock REAL,
+      is_outlet INTEGER NOT NULL DEFAULT 0,
       reorder_point REAL,
       target_stock REAL,
       image_url_override TEXT DEFAULT '',
@@ -552,6 +555,7 @@ function migrate() {
     );
   `);
   ensureColumn("materials", "image_url_override", "TEXT DEFAULT ''");
+  ensureColumn("materials", "is_outlet", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("materials", "usage_type", "TEXT DEFAULT ''");
   ensureColumn("materials", "family", "TEXT DEFAULT ''");
   ensureColumn("materials", "subfamily", "TEXT DEFAULT ''");
@@ -2362,14 +2366,15 @@ function createApp() {
     const b = req.body;
     const inferred = inferMaterialHierarchy(b.name, b.category || "material");
     const id = insert(
-      `INSERT INTO materials (name, category, unit_label, preferred_supplier_id, manual_stock, reorder_point, target_stock, image_url_override, usage_type, family, subfamily, variant, base_material, finish, notes)
-       VALUES ($name, $category, $unit, $supplier, $stock, $reorder, $target, $imageUrl, $usage_type, $family, $subfamily, $variant, $base_material, $finish, $notes)`,
+      `INSERT INTO materials (name, category, unit_label, preferred_supplier_id, manual_stock, is_outlet, reorder_point, target_stock, image_url_override, usage_type, family, subfamily, variant, base_material, finish, notes)
+       VALUES ($name, $category, $unit, $supplier, $stock, $is_outlet, $reorder, $target, $imageUrl, $usage_type, $family, $subfamily, $variant, $base_material, $finish, $notes)`,
       {
         name: b.name,
         category: b.category || "material",
         unit: b.unit_label || "ud",
         supplier: optionalN(b.preferred_supplier_id),
         stock: optionalN(b.manual_stock),
+        is_outlet: b.is_outlet ? 1 : 0,
         reorder: optionalN(b.reorder_point),
         target: optionalN(b.target_stock),
         imageUrl: b.image_url_override || "",
@@ -2392,12 +2397,15 @@ function createApp() {
     const before = one("SELECT * FROM materials WHERE id=$id", { id: req.params.id });
     if (!before) return res.status(404).json({ error: "Entidad no encontrada" });
     const fields = [
-      "name", "category", "unit_label", "preferred_supplier_id", "manual_stock", "reorder_point", "target_stock",
+      "name", "category", "unit_label", "preferred_supplier_id", "manual_stock", "is_outlet", "reorder_point", "target_stock",
       "image_url_override", "usage_type", "family", "subfamily", "variant", "base_material", "finish", "notes"
     ].filter((field) => Object.prototype.hasOwnProperty.call(req.body, field));
     if (!fields.length) return res.json(materialPayload(before));
     const params = { id: req.params.id };
-    for (const field of fields) params[field] = req.body[field] === "" ? null : req.body[field];
+    for (const field of fields) {
+      if (field === "is_outlet") params[field] = req.body[field] ? 1 : 0;
+      else params[field] = req.body[field] === "" ? null : req.body[field];
+    }
     exec(`UPDATE materials SET ${nowPatch("materials", fields)} WHERE id=$id`, params);
     const after = materialPayload(one("SELECT * FROM materials WHERE id=$id", { id: req.params.id }));
     audit("material", Number(req.params.id), "update", before, after);

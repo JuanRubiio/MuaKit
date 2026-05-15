@@ -326,6 +326,19 @@
                 <label>Buscar<input id="materialSearch" type="search" placeholder="Nombre o nota"></label>
                 <label>Categoria<select id="materialCategoryFilter"></select></label>
                 <label>Proveedor<select id="materialSupplierFilter"></select></label>
+                <label>Uso<select id="materialUsageFilter"></select></label>
+                <label>Familia<select id="materialFamilyFilter"></select></label>
+                <label>Subfamilia<select id="materialSubfamilyFilter"></select></label>
+                <label>Variante<select id="materialVariantFilter"></select></label>
+                <label>Material<select id="materialBaseFilter"></select></label>
+                <label>Acabado<select id="materialFinishFilter"></select></label>
+                <label>Outlet
+                  <select id="materialOutletFilter">
+                    <option value="">Todos</option>
+                    <option value="1">Solo outlet</option>
+                    <option value="0">Sin outlet</option>
+                  </select>
+                </label>
                 <label>Orden
                   <select id="materialSort">
                     <option value="name_asc">Nombre A-Z</option>
@@ -357,6 +370,7 @@
               </div>
               <div class="form-grid four">
                 <label>Stock real<input name="manual_stock" inputmode="decimal"></label>
+                <label class="check"><input name="is_outlet" type="checkbox"> Outlet</label>
                 <label>Punto reposicion<input name="reorder_point" inputmode="decimal"></label>
                 <label>Stock objetivo<input name="target_stock" inputmode="decimal"></label>
                 <label>Imagen CDN<input name="image_url_override" placeholder="https://cdn.shopify.com/..."></label>
