@@ -1,11 +1,13 @@
 const { spawn } = require("child_process");
 const fs = require("fs");
+const http = require("http");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const SERVER = path.join(__dirname, "server.js");
 const TEST_DIR = path.join(ROOT, "data", "mua_ops_test");
 const PORT = 5065;
+const SHOPIFY_MOCK_PORT = 5066;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 function assert(condition, message) {
@@ -17,6 +19,125 @@ function cleanTestDir() {
   assert(resolved.startsWith(path.join(ROOT, "data")), "Test directory must stay inside data/");
   fs.rmSync(resolved, { recursive: true, force: true });
   fs.mkdirSync(resolved, { recursive: true });
+}
+
+function createMockShopifyServer() {
+  const server = http.createServer(async (req, res) => {
+    if (req.method !== "POST" || !req.url.includes("/admin/api/2026-01/graphql.json")) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Not found" }));
+      return;
+    }
+    let body = "";
+    for await (const chunk of req) body += chunk.toString();
+    const payload = JSON.parse(body || "{}");
+    const query = String(payload.query || "");
+    let data = {};
+    if (query.includes("shop {")) {
+      data = { shop: { name: "Mua Kit Test", myshopifyDomain: "muakit-test.myshopify.com" } };
+    } else if (query.includes("query ShopifyProducts")) {
+      data = {
+        products: {
+          edges: [
+            {
+              cursor: "product-1",
+              node: {
+                id: "gid://shopify/Product/1",
+                handle: "cadena-incluida-dorada-acero",
+                title: "Cadena incluida dorada (acero)",
+                status: "ACTIVE",
+                updatedAt: "2026-05-15T10:00:00Z",
+                featuredImage: { url: "https://cdn.shopify.com/mock/cadena-dorada.jpg" },
+                images: { edges: [{ node: { url: "https://cdn.shopify.com/mock/cadena-dorada.jpg" } }] },
+                variants: { edges: [{ node: { sku: "CAD-DOR-001", inventoryQuantity: 18 } }] }
+              }
+            },
+            {
+              cursor: "product-2",
+              node: {
+                id: "gid://shopify/Product/2",
+                handle: "anillo-corazon-plateado-acero",
+                title: "Anillo Corazón plateado (acero)",
+                status: "ACTIVE",
+                updatedAt: "2026-05-15T10:05:00Z",
+                featuredImage: { url: "https://cdn.shopify.com/mock/anillo-corazon.jpg" },
+                images: { edges: [{ node: { url: "https://cdn.shopify.com/mock/anillo-corazon.jpg" } }] },
+                variants: { edges: [{ node: { sku: "ANI-PLA-001", inventoryQuantity: 12 } }] }
+              }
+            }
+          ],
+          pageInfo: { hasNextPage: false, endCursor: null }
+        }
+      };
+    } else if (query.includes("query ShopifyInventory")) {
+      data = {
+        products: {
+          edges: [
+            {
+              cursor: "inventory-1",
+              node: {
+                handle: "cadena-incluida-dorada-acero",
+                title: "Cadena incluida dorada (acero)",
+                status: "ACTIVE",
+                variants: { edges: [{ node: { sku: "CAD-DOR-001", inventoryQuantity: 20 } }] }
+              }
+            }
+          ],
+          pageInfo: { hasNextPage: false, endCursor: null }
+        }
+      };
+    } else if (query.includes("query ShopifyOrders")) {
+      data = {
+        orders: {
+          edges: [
+            {
+              cursor: "order-1",
+              node: {
+                id: "gid://shopify/Order/1001",
+                name: "#1001",
+                createdAt: "2026-05-14T12:00:00Z",
+                updatedAt: "2026-05-15T08:00:00Z",
+                displayFinancialStatus: "PAID",
+                displayFulfillmentStatus: "UNFULFILLED",
+                currentTotalPriceSet: { shopMoney: { amount: "89.90", currencyCode: "EUR" } },
+                currentSubtotalPriceSet: { shopMoney: { amount: "79.90", currencyCode: "EUR" } },
+                currentTotalDiscountsSet: { shopMoney: { amount: "5.00", currencyCode: "EUR" } },
+                totalShippingPriceSet: { shopMoney: { amount: "5.00", currencyCode: "EUR" } },
+                totalTaxSet: { shopMoney: { amount: "10.00", currencyCode: "EUR" } }
+              }
+            }
+          ],
+          pageInfo: { hasNextPage: false, endCursor: null }
+        }
+      };
+    } else if (query.includes("query ShopifyPayouts")) {
+      data = {
+        shopifyPaymentsAccount: {
+          payouts: {
+            edges: [
+              {
+                cursor: "payout-1",
+                node: {
+                  id: "gid://shopify/ShopifyPaymentsPayout/1",
+                  issuedAt: "2026-05-15T00:00:00Z",
+                  status: "PAID",
+                  gross: { amount: "452.36", currencyCode: "EUR" },
+                  fees: { amount: "11.30", currencyCode: "EUR" },
+                  net: { amount: "441.06", currencyCode: "EUR" }
+                }
+              }
+            ],
+            pageInfo: { hasNextPage: false, endCursor: null }
+          }
+        }
+      };
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ data }));
+  });
+  return new Promise((resolve) => {
+    server.listen(SHOPIFY_MOCK_PORT, "127.0.0.1", () => resolve(server));
+  });
 }
 
 async function request(method, route, body) {
@@ -58,6 +179,7 @@ async function waitForServer() {
 
 async function run() {
   cleanTestDir();
+  const mockShopifyServer = await createMockShopifyServer();
   const child = spawn(process.execPath, [SERVER, "--port", String(PORT)], {
     cwd: ROOT,
     env: {
@@ -103,6 +225,38 @@ async function run() {
     assert(updatedSettings.default_invoice_status === "posted", "Settings should persist invoice defaults");
     assert(updatedSettings.default_payout_channel === "bizum", "Settings should persist payout defaults");
 
+    const shopifyConnection = await request("PATCH", "/api/shopify/connection", {
+      store_domain: `http://127.0.0.1:${SHOPIFY_MOCK_PORT}`,
+      admin_token: "shpat_test_token",
+      api_version: "2026-01",
+      sync_enabled: true,
+      sync_interval_minutes: 60,
+      pull_products: true,
+      pull_inventory: true,
+      pull_orders: true,
+      pull_payouts: true
+    });
+    assert(shopifyConnection.token_configured === true, "Shopify connection should persist token server-side");
+
+    const connectionStatus = await request("GET", "/api/shopify/connection");
+    assert(connectionStatus.admin_token_masked.endsWith("oken"), "Shopify connection should only expose a masked token");
+
+    const connectionTest = await request("POST", "/api/shopify/connection/test", {});
+    assert(connectionTest.ok === true, "Shopify connection test should succeed against mock server");
+
+    const firstShopifySync = await request("POST", "/api/shopify/sync", {});
+    assert(firstShopifySync.products?.rows > 0, "Shopify sync should import products");
+    assert(firstShopifySync.inventory?.rows > 0, "Shopify sync should import inventory");
+    assert(firstShopifySync.orders?.rows > 0, "Shopify sync should import orders");
+    assert(firstShopifySync.payouts?.rows > 0, "Shopify sync should import payouts");
+
+    const secondShopifySync = await request("POST", "/api/shopify/sync", {});
+    assert(secondShopifySync.products?.created === 0, "Shopify product sync should be idempotent on second run");
+
+    const shopifySyncStatus = await request("GET", "/api/shopify/sync-status");
+    assert(shopifySyncStatus.last_sync_status === "ok", "Shopify sync status should record successful syncs");
+    assert(shopifySyncStatus.last_products_sync_at, "Shopify sync status should retain per-block timestamps");
+
     const shopifyImport = await request("POST", "/api/import/payouts/shopify", {});
     assert(shopifyImport.rows_total > 0, "Shopify payouts import should read rows");
     assert(shopifyImport.rows_created > 0, "Shopify payouts import should create payouts");
@@ -124,6 +278,7 @@ async function run() {
     const payouts = await request("GET", "/api/channel-payouts");
     assert(payouts.some((row) => row.channel === "shopify"), "Channel payouts should include Shopify rows");
     assert(payouts.some((row) => row.channel === "etsy"), "Channel payouts should include Etsy rows");
+    assert(payouts.some((row) => row.external_id === "gid://shopify/ShopifyPaymentsPayout/1"), "Shopify direct sync should persist API payouts");
 
     const manualPayout = await request("POST", "/api/channel-payouts", {
       channel: "bizum",
@@ -176,6 +331,7 @@ async function run() {
     assert(material.id, "Material should be created");
 
     const products = await request("GET", "/api/shopify-products?q=cadena");
+    assert(products.some((row) => row.handle === "cadena-incluida-dorada-acero"), "Shopify direct sync should expose imported products");
     if (products.length) {
       const linked = await request("PATCH", `/api/shopify-products/${products[0].id}`, { material_id: material.id });
       assert(linked.material_id === material.id, "Shopify product should link to a material");
@@ -271,6 +427,7 @@ async function run() {
   } finally {
     child.kill();
     await new Promise((resolve) => child.once("exit", resolve));
+    await new Promise((resolve) => mockShopifyServer.close(resolve));
     if (process.env.MUA_OPS_TEST_DEBUG) {
       console.log(serverOutput);
     }

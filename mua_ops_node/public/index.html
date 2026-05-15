@@ -590,6 +590,38 @@
                 </div>
                 <div id="payoutImportList" class="list"></div>
               </section>
+              <section class="panel inset-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Shopify</h2>
+                    <p>Conexión directa con Shopify Admin API para catálogo, inventario, pedidos y payouts sin depender de CSV.</p>
+                  </div>
+                </div>
+                <form id="shopifyConnectionForm" class="stack-form">
+                  <div class="form-grid three">
+                    <label>Dominio Shopify<input name="store_domain" placeholder="tu-tienda.myshopify.com"></label>
+                    <label>Versión API<input name="api_version" placeholder="2026-01"></label>
+                    <label>Token Admin<input name="admin_token" type="password" placeholder="shpat_..."></label>
+                  </div>
+                  <div class="form-grid three">
+                    <label class="check"><input name="sync_enabled" type="checkbox"> Auto refresco activo</label>
+                    <label>Frecuencia (minutos)<input name="sync_interval_minutes" inputmode="numeric" min="5"></label>
+                    <div class="inline-note">La sincronización automática solo corre mientras la app siga abierta y visible.</div>
+                  </div>
+                  <div class="form-grid four">
+                    <label class="check"><input name="pull_products" type="checkbox"> Catálogo</label>
+                    <label class="check"><input name="pull_inventory" type="checkbox"> Inventario</label>
+                    <label class="check"><input name="pull_orders" type="checkbox"> Pedidos</label>
+                    <label class="check"><input name="pull_payouts" type="checkbox"> Payouts</label>
+                  </div>
+                  <div class="row-actions">
+                    <button type="button" data-test-shopify-connection>Probar conexión</button>
+                    <button type="button" class="ghost" data-sync-shopify-now>Sincronizar ahora</button>
+                    <button type="submit" class="ghost">Guardar Shopify</button>
+                  </div>
+                </form>
+                <div id="shopifySyncStatus" class="list"></div>
+              </section>
               <div class="row-actions">
                 <button type="submit">Guardar configuración</button>
               </div>

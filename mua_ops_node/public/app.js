@@ -8,6 +8,8 @@
   costs: [],
   kits: [],
   settings: null,
+  shopifyConnection: null,
+  shopifySyncStatus: null,
   dashboardFinance: null,
   dashboardSpendView: "suppliers",
   dashboardExpenseTrendView: "total",
@@ -15,7 +17,8 @@
   dashboardCharts: {},
   selectedInvoiceId: null,
   selectedPayoutId: null,
-  invoiceLineFormOpen: false
+  invoiceLineFormOpen: false,
+  shopifyAutoSyncTimer: null
 };
 
 const CATEGORIES = ["kit", "joya", "cadena", "topping", "packaging", "consumible", "servicio", "material"];
@@ -499,6 +502,17 @@ async function loadSettings() {
   renderSettings();
 }
 
+async function loadShopifyConnection() {
+  const [connection, status] = await Promise.all([
+    api("/api/shopify/connection"),
+    api("/api/shopify/sync-status")
+  ]);
+  state.shopifyConnection = connection;
+  state.shopifySyncStatus = status;
+  renderShopifyConnection();
+  setupShopifyAutoSync();
+}
+
 function dashboardChart(id) {
   if (!window.echarts) return null;
   const node = document.getElementById(id);
@@ -967,6 +981,68 @@ function renderSettings() {
   $$("[data-dashboard-income-trend-view]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.dashboardIncomeTrendView === state.dashboardIncomeTrendView);
   });
+}
+
+function renderShopifyConnection() {
+  const form = $("#shopifyConnectionForm");
+  const statusNode = $("#shopifySyncStatus");
+  const connection = state.shopifyConnection;
+  const status = state.shopifySyncStatus;
+  if (!form || !connection || !statusNode) return;
+  form.elements.store_domain.value = connection.store_domain || "";
+  form.elements.api_version.value = connection.api_version || "2026-01";
+  form.elements.admin_token.value = "";
+  form.elements.admin_token.placeholder = connection.admin_token_masked || "shpat_...";
+  form.elements.sync_enabled.checked = Boolean(connection.sync_enabled);
+  form.elements.sync_interval_minutes.value = connection.sync_interval_minutes || 60;
+  form.elements.pull_products.checked = Boolean(connection.pull_products);
+  form.elements.pull_inventory.checked = Boolean(connection.pull_inventory);
+  form.elements.pull_orders.checked = Boolean(connection.pull_orders);
+  form.elements.pull_payouts.checked = Boolean(connection.pull_payouts);
+
+  const summary = status.last_sync_summary;
+  const summaryText = summary && typeof summary === "object"
+    ? Object.entries(summary)
+        .filter(([key, value]) => ["products", "inventory", "orders", "payouts"].includes(key) && value)
+        .map(([key, value]) => `${key}: ${value.created ?? 0} nuevas / ${value.updated ?? 0} actualizadas`)
+        .join(" · ")
+    : (typeof summary === "string" ? summary : "");
+
+  statusNode.innerHTML = `
+    <article class="row">
+      <div class="row-main">
+        <strong>${connection.token_configured ? "Conexión configurada" : "Conexión pendiente"}</strong>
+        <div class="meta">${connection.store_domain ? text(connection.store_domain) : "Todavía no hay dominio configurado"} · API ${text(connection.api_version || "2026-01")}</div>
+        <div class="meta">Última sync: ${text(status.last_sync_at || "nunca")} · Próxima: ${text(status.next_sync_at || "manual")}</div>
+        ${summaryText ? `<p>${text(summaryText)}</p>` : ""}
+      </div>
+      <div class="tags">
+        ${badge(connection.sync_enabled ? "auto activa" : "manual", connection.sync_enabled ? "ok" : "warn")}
+        ${badge(status.running ? "sincronizando" : (status.last_sync_status || "sin estado"), status.running ? "warn" : "ok")}
+      </div>
+    </article>
+  `;
+}
+
+async function maybeRunShopifyAutoSync() {
+  if (!state.shopifySyncStatus?.sync_enabled) return;
+  if (document.visibilityState !== "visible") return;
+  const status = await api("/api/shopify/sync-status");
+  state.shopifySyncStatus = status;
+  renderShopifyConnection();
+  if (!status.due || status.running) return;
+  await api("/api/shopify/sync", { method: "POST", body: "{}" });
+  await Promise.all([loadShopifyConnection(), loadMaterials(), loadIncome(), loadSummary(), loadDashboardFinance()]);
+  toast("Shopify sincronizado automáticamente");
+}
+
+function setupShopifyAutoSync() {
+  if (state.shopifyAutoSyncTimer) clearInterval(state.shopifyAutoSyncTimer);
+  if (!state.shopifySyncStatus?.sync_enabled) return;
+  maybeRunShopifyAutoSync().catch((error) => clientLog("shopify_auto_sync_error", { message: error.message }, "error"));
+  state.shopifyAutoSyncTimer = setInterval(() => {
+    maybeRunShopifyAutoSync().catch((error) => clientLog("shopify_auto_sync_error", { message: error.message }, "error"));
+  }, 60000);
 }
 
 async function loadSuppliers() {
@@ -1527,6 +1603,49 @@ async function saveSettings(event) {
   toast("Configuración guardada");
 }
 
+function shopifyConnectionDataFromForm(form) {
+  return {
+    store_domain: form.elements.store_domain.value.trim(),
+    api_version: form.elements.api_version.value.trim() || "2026-01",
+    admin_token: form.elements.admin_token.value.trim(),
+    sync_enabled: form.elements.sync_enabled.checked,
+    sync_interval_minutes: form.elements.sync_interval_minutes.value,
+    pull_products: form.elements.pull_products.checked,
+    pull_inventory: form.elements.pull_inventory.checked,
+    pull_orders: form.elements.pull_orders.checked,
+    pull_payouts: form.elements.pull_payouts.checked
+  };
+}
+
+async function saveShopifyConnection(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = shopifyConnectionDataFromForm(form);
+  if (!data.admin_token) delete data.admin_token;
+  state.shopifyConnection = await api("/api/shopify/connection", {
+    method: "PATCH",
+    body: JSON.stringify(data)
+  });
+  await loadShopifyConnection();
+  toast("Configuración Shopify guardada");
+}
+
+async function testShopifyConnectionAction() {
+  const form = $("#shopifyConnectionForm");
+  const data = shopifyConnectionDataFromForm(form);
+  const result = await api("/api/shopify/connection/test", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+  toast(`Conexión correcta con ${result.shop_name || result.myshopify_domain || "Shopify"}`);
+}
+
+async function syncShopifyNow() {
+  await api("/api/shopify/sync", { method: "POST", body: "{}" });
+  await Promise.all([loadShopifyConnection(), loadMaterials(), loadIncome(), loadSummary(), loadDashboardFinance()]);
+  toast("Shopify sincronizado");
+}
+
 async function uploadDocumentIfNeeded() {
   const file = $("#documentFile").files[0];
   if (!file) return $("#invoiceForm input[name=document_id]").value || "";
@@ -1624,6 +1743,7 @@ function populateStaticFilters() {
 async function refreshAll() {
   await loadSummary();
   await loadSettings();
+  await loadShopifyConnection();
   await loadDashboardFinance();
   await loadIncome();
   await loadSuppliers();
@@ -1673,6 +1793,8 @@ function bindEvents() {
       if (t.dataset.closePayoutPanels !== undefined) closePayoutPanels();
       if (t.dataset.importShopifyPayouts !== undefined) await runPayoutImport("shopify");
       if (t.dataset.importEtsyPayouts !== undefined) await runPayoutImport("etsy");
+      if (t.dataset.testShopifyConnection !== undefined) await testShopifyConnectionAction();
+      if (t.dataset.syncShopifyNow !== undefined) await syncShopifyNow();
       if (t.dataset.newMaterial !== undefined) showMaterialEditor();
       if (t.dataset.closeMaterialPanels !== undefined) closeMaterialPanels();
       if (t.dataset.newSupplier !== undefined) showSupplierEditor();
@@ -1790,6 +1912,7 @@ function bindEvents() {
   $("#kitForm").addEventListener("submit", saveKit);
   $("#payoutForm").addEventListener("submit", savePayout);
   $("#settingsForm").addEventListener("submit", saveSettings);
+  $("#shopifyConnectionForm").addEventListener("submit", saveShopifyConnection);
   document.body.addEventListener("submit", (event) => {
     if (event.target.id !== "lineForm") return;
     event.preventDefault();
@@ -1856,6 +1979,11 @@ function bindEvents() {
       if (chart && !(typeof chart.isDisposed === "function" && chart.isDisposed())) chart.resize();
     });
   }, 100));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      maybeRunShopifyAutoSync().catch((error) => clientLog("shopify_visibility_sync_error", { message: error.message }, "error"));
+    }
+  });
 }
 
 function debounce(fn, ms) {
@@ -1869,7 +1997,6 @@ function debounce(fn, ms) {
 async function init() {
   populateStaticFilters();
   bindEvents();
-  api("/api/import/shopify", { method: "POST", body: "{}" }).catch((error) => clientLog("shopify_auto_import_error", { message: error.message }, "error"));
   await refreshAll();
   clientLog("app_init_success", { path: location.pathname });
 }

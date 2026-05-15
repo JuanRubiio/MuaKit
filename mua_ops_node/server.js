@@ -16,6 +16,7 @@ const PRODUCTS_CSV = process.env.MUA_OPS_PRODUCTS_CSV || (fs.existsSync(WORKSPAC
 const INVENTORY_CSV = process.env.MUA_OPS_INVENTORY_CSV || path.join(ROOT, "shopify", "inventario", "inventory_export_1.csv");
 const SHOPIFY_PAYOUTS_CSV = process.env.MUA_OPS_SHOPIFY_PAYOUTS_CSV || path.join(ROOT, "shopify", "pagos", "payouts_export_1.csv");
 const ETSY_PAYOUTS_DIR = process.env.MUA_OPS_ETSY_PAYOUTS_DIR || path.join(ROOT, "etsy", "pagos");
+const DEFAULT_SHOPIFY_API_VERSION = "2026-01";
 const ACTOR = "local_user";
 const DEFAULT_SETTINGS = {
   company_name: "Mua Ops",
@@ -36,6 +37,13 @@ const DEFAULT_SETTINGS = {
   dashboard_color_shopify: "#166b5e",
   dashboard_color_etsy: "#9f7234",
   dashboard_color_bizum: "#c18a3a"
+};
+
+let shopifySyncState = {
+  running: false,
+  startedAt: null,
+  finishedAt: null,
+  lastResult: null
 };
 
 let SQL;
@@ -61,9 +69,7 @@ async function openDb() {
   seedSuppliers();
   seedSalesChannels();
   seedSettings();
-  if (fs.existsSync(PRODUCTS_CSV)) {
-    importShopify(PRODUCTS_CSV, INVENTORY_CSV);
-  }
+  seedShopifyConnection();
   if (fs.existsSync(LEGACY_JSON) && tableCount("invoices") === 0 && tableCount("materials") === 0) {
     migrateLegacyJson();
   }
@@ -114,6 +120,16 @@ function seedSettings() {
   }
 }
 
+function seedShopifyConnection() {
+  exec(
+    `INSERT OR IGNORE INTO shopify_connection (
+      id, store_domain, admin_token, api_version, sync_enabled, sync_interval_minutes,
+      pull_products, pull_inventory, pull_orders, pull_payouts
+    ) VALUES (1, '', '', $apiVersion, 0, 60, 1, 1, 1, 1)`,
+    { apiVersion: DEFAULT_SHOPIFY_API_VERSION }
+  );
+}
+
 function settingsObject() {
   const rows = query(`SELECT key, value FROM app_settings ORDER BY key`);
   const values = { ...DEFAULT_SETTINGS };
@@ -137,6 +153,113 @@ function updateSettings(payload = {}) {
   audit("app_settings", 1, "update", before, next);
   saveDb();
   return next;
+}
+
+function shopifyConnectionRow() {
+  const row = one("SELECT * FROM shopify_connection WHERE id=1");
+  if (row) return row;
+  seedShopifyConnection();
+  return one("SELECT * FROM shopify_connection WHERE id=1");
+}
+
+function maskToken(token) {
+  const raw = String(token || "").trim();
+  if (!raw) return "";
+  const tail = raw.slice(-4);
+  return `••••${tail}`;
+}
+
+function shopifyConnectionPayload(row = shopifyConnectionRow()) {
+  const summaryText = String(row?.last_sync_summary || "").trim();
+  let parsedSummary = null;
+  if (summaryText) {
+    try {
+      parsedSummary = JSON.parse(summaryText);
+    } catch {
+      parsedSummary = summaryText;
+    }
+  }
+  return {
+    store_domain: row?.store_domain || "",
+    api_version: row?.api_version || DEFAULT_SHOPIFY_API_VERSION,
+    sync_enabled: Boolean(Number(row?.sync_enabled || 0)),
+    sync_interval_minutes: Number(row?.sync_interval_minutes || 60),
+    pull_products: Boolean(Number(row?.pull_products || 0)),
+    pull_inventory: Boolean(Number(row?.pull_inventory || 0)),
+    pull_orders: Boolean(Number(row?.pull_orders || 0)),
+    pull_payouts: Boolean(Number(row?.pull_payouts || 0)),
+    last_sync_at: row?.last_sync_at || "",
+    last_sync_status: row?.last_sync_status || "",
+    last_sync_summary: parsedSummary,
+    last_products_sync_at: row?.last_products_sync_at || "",
+    last_inventory_sync_at: row?.last_inventory_sync_at || "",
+    last_orders_sync_at: row?.last_orders_sync_at || "",
+    last_payouts_sync_at: row?.last_payouts_sync_at || "",
+    token_configured: Boolean(String(row?.admin_token || "").trim()),
+    admin_token_masked: maskToken(row?.admin_token)
+  };
+}
+
+function shopifyConnectionForUse(row = shopifyConnectionRow()) {
+  return {
+    store_domain: String(row?.store_domain || "").trim(),
+    admin_token: String(row?.admin_token || "").trim(),
+    api_version: String(row?.api_version || DEFAULT_SHOPIFY_API_VERSION).trim() || DEFAULT_SHOPIFY_API_VERSION,
+    sync_enabled: Boolean(Number(row?.sync_enabled || 0)),
+    sync_interval_minutes: Math.max(5, Number(row?.sync_interval_minutes || 60)),
+    pull_products: Boolean(Number(row?.pull_products || 0)),
+    pull_inventory: Boolean(Number(row?.pull_inventory || 0)),
+    pull_orders: Boolean(Number(row?.pull_orders || 0)),
+    pull_payouts: Boolean(Number(row?.pull_payouts || 0)),
+    last_sync_at: row?.last_sync_at || "",
+    last_sync_status: row?.last_sync_status || "",
+    last_sync_summary: row?.last_sync_summary || "",
+    last_products_sync_at: row?.last_products_sync_at || "",
+    last_inventory_sync_at: row?.last_inventory_sync_at || "",
+    last_orders_sync_at: row?.last_orders_sync_at || "",
+    last_payouts_sync_at: row?.last_payouts_sync_at || ""
+  };
+}
+
+function validateShopifyConnectionConfig(config) {
+  if (!String(config.store_domain || "").trim()) throw new Error("Falta el dominio de Shopify");
+  if (!String(config.admin_token || "").trim()) throw new Error("Falta el token de Shopify");
+}
+
+function updateShopifyConnection(payload = {}) {
+  const before = shopifyConnectionRow();
+  const current = shopifyConnectionForUse(before);
+  const next = {
+    ...current,
+    store_domain: Object.prototype.hasOwnProperty.call(payload, "store_domain") ? String(payload.store_domain || "").trim() : current.store_domain,
+    api_version: Object.prototype.hasOwnProperty.call(payload, "api_version") ? String(payload.api_version || DEFAULT_SHOPIFY_API_VERSION).trim() || DEFAULT_SHOPIFY_API_VERSION : current.api_version,
+    sync_enabled: Object.prototype.hasOwnProperty.call(payload, "sync_enabled") ? (payload.sync_enabled ? 1 : 0) : (current.sync_enabled ? 1 : 0),
+    sync_interval_minutes: Object.prototype.hasOwnProperty.call(payload, "sync_interval_minutes") ? Math.max(5, n(payload.sync_interval_minutes, 60)) : current.sync_interval_minutes,
+    pull_products: Object.prototype.hasOwnProperty.call(payload, "pull_products") ? (payload.pull_products ? 1 : 0) : (current.pull_products ? 1 : 0),
+    pull_inventory: Object.prototype.hasOwnProperty.call(payload, "pull_inventory") ? (payload.pull_inventory ? 1 : 0) : (current.pull_inventory ? 1 : 0),
+    pull_orders: Object.prototype.hasOwnProperty.call(payload, "pull_orders") ? (payload.pull_orders ? 1 : 0) : (current.pull_orders ? 1 : 0),
+    pull_payouts: Object.prototype.hasOwnProperty.call(payload, "pull_payouts") ? (payload.pull_payouts ? 1 : 0) : (current.pull_payouts ? 1 : 0)
+  };
+  if (Object.prototype.hasOwnProperty.call(payload, "admin_token")) {
+    const incoming = String(payload.admin_token || "").trim();
+    next.admin_token = incoming ? incoming : current.admin_token;
+  } else {
+    next.admin_token = current.admin_token;
+  }
+  exec(
+    `UPDATE shopify_connection
+     SET store_domain=$store_domain, admin_token=$admin_token, api_version=$api_version,
+         sync_enabled=$sync_enabled, sync_interval_minutes=$sync_interval_minutes,
+         pull_products=$pull_products, pull_inventory=$pull_inventory,
+         pull_orders=$pull_orders, pull_payouts=$pull_payouts,
+         updated_at=CURRENT_TIMESTAMP
+     WHERE id=1`,
+    next
+  );
+  const after = shopifyConnectionRow();
+  audit("shopify_connection", 1, "update", { ...before, admin_token: before.admin_token ? "***" : "" }, { ...after, admin_token: after.admin_token ? "***" : "" });
+  saveDb();
+  return shopifyConnectionPayload(after);
 }
 
 function migrate() {
@@ -309,6 +432,50 @@ function migrate() {
       status TEXT NOT NULL DEFAULT 'completed',
       notes TEXT DEFAULT '',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS shopify_connection (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      store_domain TEXT DEFAULT '',
+      admin_token TEXT DEFAULT '',
+      api_version TEXT NOT NULL DEFAULT '2026-01',
+      sync_enabled INTEGER NOT NULL DEFAULT 0,
+      sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
+      pull_products INTEGER NOT NULL DEFAULT 1,
+      pull_inventory INTEGER NOT NULL DEFAULT 1,
+      pull_orders INTEGER NOT NULL DEFAULT 1,
+      pull_payouts INTEGER NOT NULL DEFAULT 1,
+      last_sync_at TEXT,
+      last_sync_status TEXT DEFAULT '',
+      last_sync_summary TEXT DEFAULT '',
+      last_products_sync_at TEXT,
+      last_inventory_sync_at TEXT,
+      last_orders_sync_at TEXT,
+      last_payouts_sync_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS sales_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel TEXT NOT NULL REFERENCES sales_channels(code),
+      external_id TEXT NOT NULL,
+      order_number TEXT DEFAULT '',
+      order_date TEXT NOT NULL,
+      updated_at_source TEXT DEFAULT '',
+      currency TEXT NOT NULL DEFAULT 'EUR',
+      gross_amount REAL NOT NULL DEFAULT 0,
+      discount_amount REAL NOT NULL DEFAULT 0,
+      shipping_amount REAL NOT NULL DEFAULT 0,
+      tax_amount REAL NOT NULL DEFAULT 0,
+      net_amount REAL NOT NULL DEFAULT 0,
+      financial_status TEXT DEFAULT '',
+      fulfillment_status TEXT DEFAULT '',
+      raw_source TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      is_deleted INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(channel, external_id)
     );
 
     CREATE TABLE IF NOT EXISTS kit_recipes (
@@ -503,6 +670,450 @@ function parseEnglishDate(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return parsed.toISOString().slice(0, 10);
+}
+
+function isoTimestampDaysAgo(days = 0) {
+  const date = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  return date.toISOString();
+}
+
+function timestampWithOverlap(value, overlapHours = 6, fallbackDays = 365) {
+  if (!value) return isoTimestampDaysAgo(fallbackDays);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return isoTimestampDaysAgo(fallbackDays);
+  return new Date(parsed.getTime() - overlapHours * 60 * 60 * 1000).toISOString();
+}
+
+function shopifyGraphqlUrl(config) {
+  const domain = String(config.store_domain || "").trim();
+  if (/^https?:\/\//i.test(domain)) {
+    return `${domain.replace(/\/+$/, "")}/admin/api/${config.api_version}/graphql.json`;
+  }
+  return `https://${domain.replace(/\/+$/, "")}/admin/api/${config.api_version}/graphql.json`;
+}
+
+async function shopifyGraphql(config, queryText, variables = {}) {
+  validateShopifyConnectionConfig(config);
+  const response = await fetch(shopifyGraphqlUrl(config), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": config.admin_token
+    },
+    body: JSON.stringify({ query: queryText, variables })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.errors?.[0]?.message || `Shopify HTTP ${response.status}`);
+  }
+  if (payload.errors?.length) {
+    throw new Error(payload.errors[0].message || "Error de Shopify GraphQL");
+  }
+  return payload.data || {};
+}
+
+function firstAvailableImage(product) {
+  if (product?.featuredImage?.url) return product.featuredImage.url;
+  const edge = product?.images?.edges?.find((item) => item?.node?.url);
+  return edge?.node?.url || "";
+}
+
+function productInventorySummary(product) {
+  const variants = product?.variants?.edges || [];
+  const qty = variants.reduce((sum, edge) => sum + n(edge?.node?.inventoryQuantity), 0);
+  return {
+    sku: variants.map((edge) => String(edge?.node?.sku || "").trim()).find(Boolean) || "",
+    quantity: qty,
+    available: qty
+  };
+}
+
+function upsertShopifyProductFromApi(product, mode = "full") {
+  const handle = String(product.handle || "").trim();
+  if (!handle) return false;
+  const existing = one("SELECT * FROM shopify_products WHERE handle=$handle", { handle });
+  const summary = productInventorySummary(product);
+  const imageUrl = firstAvailableImage(product);
+  let productId = existing?.id || null;
+  if (!existing) {
+    productId = insert(
+      `INSERT INTO shopify_products (handle, title, status, sku, image_url, shopify_inventory_qty, shopify_available_qty)
+       VALUES ($handle, $title, $status, $sku, $image_url, $qty, $available)`,
+      {
+        handle,
+        title: product.title || handle,
+        status: String(product.status || ""),
+        sku: summary.sku,
+        image_url: imageUrl,
+        qty: summary.quantity,
+        available: summary.available
+      }
+    );
+    audit("shopify_product", productId, "shopify_api_create", null, one("SELECT * FROM shopify_products WHERE id=$id", { id: productId }));
+  } else {
+    const fields = mode === "inventory"
+      ? `shopify_inventory_qty=$qty, shopify_available_qty=$available, sku=COALESCE(NULLIF($sku, ''), sku), updated_at=CURRENT_TIMESTAMP`
+      : `title=$title, status=$status, sku=$sku, image_url=COALESCE(NULLIF($image_url, ''), image_url), shopify_inventory_qty=$qty, shopify_available_qty=$available, updated_at=CURRENT_TIMESTAMP`;
+    exec(
+      `UPDATE shopify_products SET ${fields} WHERE id=$id`,
+      {
+        id: existing.id,
+        title: product.title || existing.title,
+        status: String(product.status || existing.status || ""),
+        sku: summary.sku,
+        image_url: imageUrl,
+        qty: summary.quantity,
+        available: summary.available
+      }
+    );
+    audit("shopify_product", existing.id, mode === "inventory" ? "shopify_api_inventory" : "shopify_api_update", existing, one("SELECT * FROM shopify_products WHERE id=$id", { id: existing.id }));
+  }
+  if (mode !== "inventory" && productId) {
+    const images = [];
+    if (product?.featuredImage?.url) images.push(product.featuredImage.url);
+    for (const edge of product?.images?.edges || []) {
+      if (edge?.node?.url && !images.includes(edge.node.url)) images.push(edge.node.url);
+    }
+    images.forEach((url, index) => {
+      exec(
+        `INSERT OR IGNORE INTO product_images (shopify_product_id, image_url, position)
+         VALUES ($productId, $url, $position)`,
+        { productId, url, position: index + 1 }
+      );
+    });
+    const stored = one("SELECT * FROM shopify_products WHERE id=$id", { id: productId });
+    if (stored) ensureMaterialForShopifyProduct(stored);
+  }
+  return true;
+}
+
+function upsertSalesOrder(payload, source = "shopify_sync") {
+  const existing = one("SELECT * FROM sales_orders WHERE channel=$channel AND external_id=$external_id", payload);
+  if (!existing) {
+    const id = insert(
+      `INSERT INTO sales_orders (
+        channel, external_id, order_number, order_date, updated_at_source, currency,
+        gross_amount, discount_amount, shipping_amount, tax_amount, net_amount,
+        financial_status, fulfillment_status, raw_source, notes
+      ) VALUES (
+        $channel, $external_id, $order_number, $order_date, $updated_at_source, $currency,
+        $gross_amount, $discount_amount, $shipping_amount, $tax_amount, $net_amount,
+        $financial_status, $fulfillment_status, $raw_source, $notes
+      )`,
+      payload
+    );
+    const after = one("SELECT * FROM sales_orders WHERE id=$id", { id });
+    audit("sales_order", id, source === "manual" ? "create" : "shopify_sync_create", null, after);
+    return { created: true, updated: false, row: after };
+  }
+  const fields = [
+    "order_number", "order_date", "updated_at_source", "currency", "gross_amount",
+    "discount_amount", "shipping_amount", "tax_amount", "net_amount",
+    "financial_status", "fulfillment_status", "raw_source", "notes"
+  ];
+  const same = fields.every((field) => String(existing[field] ?? "") === String(payload[field] ?? ""));
+  if (same) return { created: false, updated: false, row: existing };
+  exec(`UPDATE sales_orders SET ${nowPatch("sales_orders", fields)} WHERE id=$id`, { id: existing.id, ...payload });
+  const after = one("SELECT * FROM sales_orders WHERE id=$id", { id: existing.id });
+  audit("sales_order", existing.id, source === "manual" ? "update" : "shopify_sync_update", existing, after);
+  return { created: false, updated: true, row: after };
+}
+
+async function testShopifyConnection(configInput = null) {
+  const config = configInput || shopifyConnectionForUse();
+  validateShopifyConnectionConfig(config);
+  const data = await shopifyGraphql(config, `
+    query {
+      shop {
+        name
+        myshopifyDomain
+      }
+    }
+  `);
+  return {
+    ok: true,
+    shop_name: data.shop?.name || "",
+    myshopify_domain: data.shop?.myshopifyDomain || ""
+  };
+}
+
+async function syncShopifyProducts(configInput = null) {
+  const config = configInput || shopifyConnectionForUse();
+  const updatedAfter = timestampWithOverlap(config.last_products_sync_at, 6, 365);
+  let cursor = null;
+  let rows = 0;
+  let created = 0;
+  let updated = 0;
+  do {
+    const data = await shopifyGraphql(config, `
+      query ShopifyProducts($first: Int!, $after: String, $query: String) {
+        products(first: $first, after: $after, query: $query, sortKey: UPDATED_AT) {
+          edges {
+            cursor
+            node {
+              id
+              handle
+              title
+              status
+              updatedAt
+              featuredImage { url }
+              images(first: 20) { edges { node { url } } }
+              variants(first: 50) { edges { node { sku inventoryQuantity } } }
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `, {
+      first: 100,
+      after: cursor,
+      query: `updated_at:>=${updatedAfter}`
+    });
+    const edges = data.products?.edges || [];
+    for (const edge of edges) {
+      const before = one("SELECT * FROM shopify_products WHERE handle=$handle", { handle: edge.node.handle });
+      if (upsertShopifyProductFromApi(edge.node, "full")) {
+        rows += 1;
+        if (before) updated += 1;
+        else created += 1;
+      }
+    }
+    cursor = data.products?.pageInfo?.hasNextPage ? data.products?.pageInfo?.endCursor : null;
+  } while (cursor);
+  exec("UPDATE shopify_connection SET last_products_sync_at=$now, updated_at=CURRENT_TIMESTAMP WHERE id=1", { now: new Date().toISOString() });
+  return { rows, created, updated, skipped: 0 };
+}
+
+async function syncShopifyInventory(configInput = null) {
+  const config = configInput || shopifyConnectionForUse();
+  const updatedAfter = timestampWithOverlap(config.last_inventory_sync_at, 2, 30);
+  let cursor = null;
+  let rows = 0;
+  do {
+    const data = await shopifyGraphql(config, `
+      query ShopifyInventory($first: Int!, $after: String, $query: String) {
+        products(first: $first, after: $after, query: $query, sortKey: UPDATED_AT) {
+          edges {
+            cursor
+            node {
+              handle
+              title
+              status
+              variants(first: 50) { edges { node { sku inventoryQuantity } } }
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `, {
+      first: 100,
+      after: cursor,
+      query: `updated_at:>=${updatedAfter}`
+    });
+    const edges = data.products?.edges || [];
+    for (const edge of edges) {
+      if (upsertShopifyProductFromApi(edge.node, "inventory")) rows += 1;
+    }
+    cursor = data.products?.pageInfo?.hasNextPage ? data.products?.pageInfo?.endCursor : null;
+  } while (cursor);
+  exec("UPDATE shopify_connection SET last_inventory_sync_at=$now, updated_at=CURRENT_TIMESTAMP WHERE id=1", { now: new Date().toISOString() });
+  return { rows, created: 0, updated: rows, skipped: 0 };
+}
+
+function moneyAmount(node) {
+  return n(node?.shopMoney?.amount ?? node?.presentmentMoney?.amount ?? node?.amount ?? 0);
+}
+
+async function syncShopifyOrders(configInput = null) {
+  const config = configInput || shopifyConnectionForUse();
+  const updatedAfter = timestampWithOverlap(config.last_orders_sync_at, 6, 365);
+  let cursor = null;
+  let rows = 0;
+  let created = 0;
+  let updated = 0;
+  do {
+    const data = await shopifyGraphql(config, `
+      query ShopifyOrders($first: Int!, $after: String, $query: String) {
+        orders(first: $first, after: $after, query: $query, sortKey: UPDATED_AT) {
+          edges {
+            cursor
+            node {
+              id
+              name
+              createdAt
+              updatedAt
+              displayFinancialStatus
+              displayFulfillmentStatus
+              currentTotalPriceSet { shopMoney { amount currencyCode } }
+              currentSubtotalPriceSet { shopMoney { amount currencyCode } }
+              currentTotalDiscountsSet { shopMoney { amount currencyCode } }
+              totalShippingPriceSet { shopMoney { amount currencyCode } }
+              totalTaxSet { shopMoney { amount currencyCode } }
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `, {
+      first: 100,
+      after: cursor,
+      query: `updated_at:>=${updatedAfter}`
+    });
+    const edges = data.orders?.edges || [];
+    for (const edge of edges) {
+      const order = edge.node;
+      const payload = {
+        channel: "shopify",
+        external_id: order.id,
+        order_number: order.name || "",
+        order_date: String(order.createdAt || "").slice(0, 10),
+        updated_at_source: order.updatedAt || "",
+        currency: order.currentTotalPriceSet?.shopMoney?.currencyCode || "EUR",
+        gross_amount: moneyAmount(order.currentSubtotalPriceSet),
+        discount_amount: moneyAmount(order.currentTotalDiscountsSet),
+        shipping_amount: moneyAmount(order.totalShippingPriceSet),
+        tax_amount: moneyAmount(order.totalTaxSet),
+        net_amount: moneyAmount(order.currentTotalPriceSet),
+        financial_status: String(order.displayFinancialStatus || ""),
+        fulfillment_status: String(order.displayFulfillmentStatus || ""),
+        raw_source: "shopify_api",
+        notes: ""
+      };
+      const result = upsertSalesOrder(payload);
+      rows += 1;
+      if (result.created) created += 1;
+      else if (result.updated) updated += 1;
+    }
+    cursor = data.orders?.pageInfo?.hasNextPage ? data.orders?.pageInfo?.endCursor : null;
+  } while (cursor);
+  exec("UPDATE shopify_connection SET last_orders_sync_at=$now, updated_at=CURRENT_TIMESTAMP WHERE id=1", { now: new Date().toISOString() });
+  return { rows, created, updated, skipped: rows - created - updated };
+}
+
+async function syncShopifyPayouts(configInput = null) {
+  const config = configInput || shopifyConnectionForUse();
+  let cursor = null;
+  let rows = 0;
+  let created = 0;
+  let updated = 0;
+  do {
+    const data = await shopifyGraphql(config, `
+      query ShopifyPayouts($first: Int!, $after: String) {
+        shopifyPaymentsAccount {
+          payouts(first: $first, after: $after) {
+            edges {
+              cursor
+              node {
+                id
+                issuedAt
+                status
+                gross { amount currencyCode }
+                fees { amount currencyCode }
+                net { amount currencyCode }
+              }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    `, { first: 100, after: cursor });
+    const edges = data.shopifyPaymentsAccount?.payouts?.edges || [];
+    for (const edge of edges) {
+      const payout = edge.node;
+      const result = upsertChannelPayout({
+        channel: "shopify",
+        external_id: payout.id,
+        payout_date: String(payout.issuedAt || "").slice(0, 10),
+        status: normalizePayoutStatus(payout.status || "paid"),
+        currency: payout.net?.currencyCode || payout.gross?.currencyCode || "EUR",
+        gross_amount: n(payout.gross?.amount),
+        fees_amount: n(payout.fees?.amount),
+        net_amount: n(payout.net?.amount),
+        raw_source_file: "shopify_api"
+      }, "import");
+      rows += 1;
+      if (result.created) created += 1;
+      else if (result.updated) updated += 1;
+    }
+    cursor = data.shopifyPaymentsAccount?.payouts?.pageInfo?.hasNextPage ? data.shopifyPaymentsAccount?.payouts?.pageInfo?.endCursor : null;
+  } while (cursor);
+  exec("UPDATE shopify_connection SET last_payouts_sync_at=$now, updated_at=CURRENT_TIMESTAMP WHERE id=1", { now: new Date().toISOString() });
+  return { rows, created, updated, skipped: rows - created - updated };
+}
+
+function shopifySyncStatus() {
+  const row = shopifyConnectionRow();
+  const config = shopifyConnectionPayload(row);
+  const interval = Math.max(5, Number(row.sync_interval_minutes || 60));
+  const lastSyncAt = row.last_sync_at ? new Date(row.last_sync_at) : null;
+  const nextSyncAt = lastSyncAt && !Number.isNaN(lastSyncAt.getTime())
+    ? new Date(lastSyncAt.getTime() + interval * 60 * 1000).toISOString()
+    : "";
+  const due = Boolean(config.sync_enabled) && !shopifySyncState.running && (!nextSyncAt || new Date(nextSyncAt) <= new Date());
+  return {
+    ...config,
+    running: shopifySyncState.running,
+    started_at: shopifySyncState.startedAt || "",
+    finished_at: shopifySyncState.finishedAt || "",
+    next_sync_at: nextSyncAt,
+    due
+  };
+}
+
+async function runShopifySync(mode = "all") {
+  if (shopifySyncState.running) throw new Error("Ya hay una sincronización Shopify en curso");
+  const row = shopifyConnectionRow();
+  const config = shopifyConnectionForUse(row);
+  validateShopifyConnectionConfig(config);
+  const tasks = {
+    products: mode === "products" || (mode === "all" && config.pull_products),
+    inventory: mode === "inventory" || (mode === "all" && config.pull_inventory),
+    orders: mode === "orders" || (mode === "all" && config.pull_orders),
+    payouts: mode === "payouts" || (mode === "all" && config.pull_payouts)
+  };
+  const summary = {
+    products: null,
+    inventory: null,
+    orders: null,
+    payouts: null,
+    started_at: new Date().toISOString(),
+    finished_at: "",
+    status: "ok"
+  };
+  shopifySyncState = { running: true, startedAt: summary.started_at, finishedAt: null, lastResult: null };
+  exec("UPDATE shopify_connection SET last_sync_status='running', updated_at=CURRENT_TIMESTAMP WHERE id=1");
+  saveDb();
+  try {
+    if (tasks.products) summary.products = await syncShopifyProducts(config);
+    if (tasks.inventory) summary.inventory = await syncShopifyInventory(config);
+    if (tasks.orders) summary.orders = await syncShopifyOrders(config);
+    if (tasks.payouts) summary.payouts = await syncShopifyPayouts(config);
+  } catch (error) {
+    summary.status = "error";
+    summary.error = error.message;
+    throw error;
+  } finally {
+    summary.finished_at = new Date().toISOString();
+    const effectiveStatus = summary.error ? "error" : "ok";
+    exec(
+      `UPDATE shopify_connection
+       SET last_sync_at=$last_sync_at, last_sync_status=$status, last_sync_summary=$summary, updated_at=CURRENT_TIMESTAMP
+       WHERE id=1`,
+      {
+        last_sync_at: summary.finished_at,
+        status: effectiveStatus,
+        summary: JSON.stringify(summary)
+      }
+    );
+    saveDb();
+    shopifySyncState = {
+      running: false,
+      startedAt: summary.started_at,
+      finishedAt: summary.finished_at,
+      lastResult: summary
+    };
+  }
+  return summary;
 }
 
 function payoutPayload(row) {
@@ -1403,6 +2014,80 @@ function createApp() {
 
   app.patch("/api/settings", (req, res) => {
     res.json(updateSettings(req.body || {}));
+  });
+
+  app.get("/api/shopify/connection", (req, res) => {
+    res.json(shopifyConnectionPayload());
+  });
+
+  app.patch("/api/shopify/connection", (req, res) => {
+    try {
+      res.json(updateShopifyConnection(req.body || {}));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/shopify/connection/test", async (req, res) => {
+    try {
+      const current = shopifyConnectionForUse();
+      const override = {
+        ...current,
+        store_domain: Object.prototype.hasOwnProperty.call(req.body || {}, "store_domain") ? String(req.body.store_domain || "").trim() : current.store_domain,
+        admin_token: Object.prototype.hasOwnProperty.call(req.body || {}, "admin_token") && String(req.body.admin_token || "").trim()
+          ? String(req.body.admin_token || "").trim()
+          : current.admin_token,
+        api_version: Object.prototype.hasOwnProperty.call(req.body || {}, "api_version") ? String(req.body.api_version || DEFAULT_SHOPIFY_API_VERSION).trim() || DEFAULT_SHOPIFY_API_VERSION : current.api_version
+      };
+      res.json(await testShopifyConnection(override));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/shopify/sync-status", (req, res) => {
+    res.json(shopifySyncStatus());
+  });
+
+  app.post("/api/shopify/sync", async (req, res) => {
+    try {
+      const result = await runShopifySync("all");
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message, status: shopifySyncStatus() });
+    }
+  });
+
+  app.post("/api/shopify/sync/products", async (req, res) => {
+    try {
+      res.json(await runShopifySync("products"));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/shopify/sync/inventory", async (req, res) => {
+    try {
+      res.json(await runShopifySync("inventory"));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/shopify/sync/orders", async (req, res) => {
+    try {
+      res.json(await runShopifySync("orders"));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/shopify/sync/payouts", async (req, res) => {
+    try {
+      res.json(await runShopifySync("payouts"));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
   });
 
   app.get("/api/income/summary", (req, res) => {
