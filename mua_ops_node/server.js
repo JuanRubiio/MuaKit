@@ -1102,9 +1102,9 @@ async function syncShopifyPayouts(configInput = null) {
                 id
                 issuedAt
                 status
-                gross { amount currencyCode }
-                fees { amount currencyCode }
+                externalTraceId
                 net { amount currencyCode }
+                transactionType
               }
             }
             pageInfo { hasNextPage endCursor }
@@ -1120,10 +1120,12 @@ async function syncShopifyPayouts(configInput = null) {
         external_id: payout.id,
         payout_date: String(payout.issuedAt || "").slice(0, 10),
         status: normalizePayoutStatus(payout.status || "paid"),
-        currency: payout.net?.currencyCode || payout.gross?.currencyCode || "EUR",
-        gross_amount: n(payout.gross?.amount),
-        fees_amount: n(payout.fees?.amount),
+        currency: payout.net?.currencyCode || "EUR",
+        gross_amount: n(payout.net?.amount),
+        fees_amount: 0,
         net_amount: n(payout.net?.amount),
+        bank_reference: String(payout.externalTraceId || "").trim(),
+        notes: payout.transactionType ? `Shopify payout ${String(payout.transactionType).toLowerCase()}` : "",
         raw_source_file: "shopify_api"
       }, "import");
       rows += 1;
