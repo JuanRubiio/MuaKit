@@ -45,6 +45,7 @@ let shopifySyncState = {
   finishedAt: null,
   lastResult: null
 };
+const shopifyAccessTokenCache = new Map();
 
 let SQL;
 let db;
@@ -123,9 +124,9 @@ function seedSettings() {
 function seedShopifyConnection() {
   exec(
     `INSERT OR IGNORE INTO shopify_connection (
-      id, store_domain, admin_token, api_version, sync_enabled, sync_interval_minutes,
+      id, store_domain, admin_token, client_id, client_secret, api_version, sync_enabled, sync_interval_minutes,
       pull_products, pull_inventory, pull_orders, pull_payouts
-    ) VALUES (1, '', '', $apiVersion, 0, 60, 1, 1, 1, 1)`,
+    ) VALUES (1, '', '', '', '', $apiVersion, 0, 60, 1, 1, 1, 1)`,
     { apiVersion: DEFAULT_SHOPIFY_API_VERSION }
   );
 }
@@ -195,8 +196,12 @@ function shopifyConnectionPayload(row = shopifyConnectionRow()) {
     last_inventory_sync_at: row?.last_inventory_sync_at || "",
     last_orders_sync_at: row?.last_orders_sync_at || "",
     last_payouts_sync_at: row?.last_payouts_sync_at || "",
+    auth_mode: String(row?.client_id || "").trim() ? "client_credentials" : (String(row?.admin_token || "").trim() ? "admin_token" : "none"),
     token_configured: Boolean(String(row?.admin_token || "").trim()),
-    admin_token_masked: maskToken(row?.admin_token)
+    credentials_configured: Boolean(String(row?.client_id || "").trim() && String(row?.client_secret || "").trim()),
+    admin_token_masked: maskToken(row?.admin_token),
+    client_id_masked: maskToken(row?.client_id),
+    client_secret_masked: maskToken(row?.client_secret)
   };
 }
 
@@ -204,6 +209,8 @@ function shopifyConnectionForUse(row = shopifyConnectionRow()) {
   return {
     store_domain: String(row?.store_domain || "").trim(),
     admin_token: String(row?.admin_token || "").trim(),
+    client_id: String(row?.client_id || "").trim(),
+    client_secret: String(row?.client_secret || "").trim(),
     api_version: String(row?.api_version || DEFAULT_SHOPIFY_API_VERSION).trim() || DEFAULT_SHOPIFY_API_VERSION,
     sync_enabled: Boolean(Number(row?.sync_enabled || 0)),
     sync_interval_minutes: Math.max(5, Number(row?.sync_interval_minutes || 60)),
@@ -223,12 +230,20 @@ function shopifyConnectionForUse(row = shopifyConnectionRow()) {
 
 function validateShopifyConnectionConfig(config) {
   if (!String(config.store_domain || "").trim()) throw new Error("Falta el dominio de Shopify");
-  if (!String(config.admin_token || "").trim()) throw new Error("Falta el token de Shopify");
+  const hasToken = Boolean(String(config.admin_token || "").trim());
+  const hasClientCredentials = Boolean(String(config.client_id || "").trim() && String(config.client_secret || "").trim());
+  if (!hasToken && !hasClientCredentials) {
+    throw new Error("Falta el token o las credenciales de Shopify");
+  }
 }
 
 function updateShopifyConnection(payload = {}) {
   const before = shopifyConnectionRow();
   const current = shopifyConnectionForUse(before);
+  const oldCacheKeys = [
+    `${String(current.store_domain || "").trim()}::${String(current.client_id || "").trim()}`,
+    `${String(payload.store_domain || current.store_domain || "").trim()}::${String(payload.client_id || current.client_id || "").trim()}`
+  ];
   const next = {
     ...current,
     store_domain: Object.prototype.hasOwnProperty.call(payload, "store_domain") ? String(payload.store_domain || "").trim() : current.store_domain,
@@ -246,9 +261,21 @@ function updateShopifyConnection(payload = {}) {
   } else {
     next.admin_token = current.admin_token;
   }
+  if (Object.prototype.hasOwnProperty.call(payload, "client_id")) {
+    const incoming = String(payload.client_id || "").trim();
+    next.client_id = incoming ? incoming : current.client_id;
+  } else {
+    next.client_id = current.client_id;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "client_secret")) {
+    const incoming = String(payload.client_secret || "").trim();
+    next.client_secret = incoming ? incoming : current.client_secret;
+  } else {
+    next.client_secret = current.client_secret;
+  }
   exec(
     `UPDATE shopify_connection
-     SET store_domain=$store_domain, admin_token=$admin_token, api_version=$api_version,
+     SET store_domain=$store_domain, admin_token=$admin_token, client_id=$client_id, client_secret=$client_secret, api_version=$api_version,
          sync_enabled=$sync_enabled, sync_interval_minutes=$sync_interval_minutes,
          pull_products=$pull_products, pull_inventory=$pull_inventory,
          pull_orders=$pull_orders, pull_payouts=$pull_payouts,
@@ -256,8 +283,27 @@ function updateShopifyConnection(payload = {}) {
      WHERE id=1`,
     next
   );
+  oldCacheKeys.forEach((key) => {
+    if (key && key !== "::") shopifyAccessTokenCache.delete(key);
+  });
   const after = shopifyConnectionRow();
-  audit("shopify_connection", 1, "update", { ...before, admin_token: before.admin_token ? "***" : "" }, { ...after, admin_token: after.admin_token ? "***" : "" });
+  audit(
+    "shopify_connection",
+    1,
+    "update",
+    {
+      ...before,
+      admin_token: before.admin_token ? "***" : "",
+      client_id: before.client_id ? "***" : "",
+      client_secret: before.client_secret ? "***" : ""
+    },
+    {
+      ...after,
+      admin_token: after.admin_token ? "***" : "",
+      client_id: after.client_id ? "***" : "",
+      client_secret: after.client_secret ? "***" : ""
+    }
+  );
   saveDb();
   return shopifyConnectionPayload(after);
 }
@@ -438,6 +484,8 @@ function migrate() {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       store_domain TEXT DEFAULT '',
       admin_token TEXT DEFAULT '',
+      client_id TEXT DEFAULT '',
+      client_secret TEXT DEFAULT '',
       api_version TEXT NOT NULL DEFAULT '2026-01',
       sync_enabled INTEGER NOT NULL DEFAULT 0,
       sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
@@ -512,6 +560,8 @@ function migrate() {
   ensureColumn("channel_payouts", "reserves_amount", "REAL NOT NULL DEFAULT 0");
   ensureColumn("channel_payouts", "retried_amount", "REAL NOT NULL DEFAULT 0");
   ensureColumn("channel_payouts", "bank_account_hint", "TEXT DEFAULT ''");
+  ensureColumn("shopify_connection", "client_id", "TEXT DEFAULT ''");
+  ensureColumn("shopify_connection", "client_secret", "TEXT DEFAULT ''");
 }
 
 function exec(sql, params = {}) {
@@ -692,13 +742,55 @@ function shopifyGraphqlUrl(config) {
   return `https://${domain.replace(/\/+$/, "")}/admin/api/${config.api_version}/graphql.json`;
 }
 
+function shopifyTokenUrl(config) {
+  const domain = String(config.store_domain || "").trim();
+  if (/^https?:\/\//i.test(domain)) {
+    return `${domain.replace(/\/+$/, "")}/admin/oauth/access_token`;
+  }
+  return `https://${domain.replace(/\/+$/, "")}/admin/oauth/access_token`;
+}
+
+async function acquireShopifyAccessToken(config) {
+  validateShopifyConnectionConfig(config);
+  if (String(config.admin_token || "").trim()) return String(config.admin_token).trim();
+
+  const clientId = String(config.client_id || "").trim();
+  const clientSecret = String(config.client_secret || "").trim();
+  if (!clientId || !clientSecret) throw new Error("Faltan Client ID o Client secret de Shopify");
+
+  const cacheKey = `${String(config.store_domain || "").trim()}::${clientId}`;
+  const cached = shopifyAccessTokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+
+  const response = await fetch(shopifyTokenUrl(config), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret
+    }).toString()
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.access_token) {
+    throw new Error(payload.error_description || payload.error || "No se pudo obtener el access token de Shopify");
+  }
+  const expiresIn = Number(payload.expires_in || 86400);
+  shopifyAccessTokenCache.set(cacheKey, {
+    token: payload.access_token,
+    expiresAt: Date.now() + Math.max(300, expiresIn - 300) * 1000
+  });
+  return payload.access_token;
+}
+
 async function shopifyGraphql(config, queryText, variables = {}) {
   validateShopifyConnectionConfig(config);
+  const accessToken = await acquireShopifyAccessToken(config);
   const response = await fetch(shopifyGraphqlUrl(config), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Shopify-Access-Token": config.admin_token
+      "X-Shopify-Access-Token": accessToken
     },
     body: JSON.stringify({ query: queryText, variables })
   });
@@ -2037,6 +2129,12 @@ function createApp() {
         admin_token: Object.prototype.hasOwnProperty.call(req.body || {}, "admin_token") && String(req.body.admin_token || "").trim()
           ? String(req.body.admin_token || "").trim()
           : current.admin_token,
+        client_id: Object.prototype.hasOwnProperty.call(req.body || {}, "client_id") && String(req.body.client_id || "").trim()
+          ? String(req.body.client_id || "").trim()
+          : current.client_id,
+        client_secret: Object.prototype.hasOwnProperty.call(req.body || {}, "client_secret") && String(req.body.client_secret || "").trim()
+          ? String(req.body.client_secret || "").trim()
+          : current.client_secret,
         api_version: Object.prototype.hasOwnProperty.call(req.body || {}, "api_version") ? String(req.body.api_version || DEFAULT_SHOPIFY_API_VERSION).trim() || DEFAULT_SHOPIFY_API_VERSION : current.api_version
       };
       res.json(await testShopifyConnection(override));

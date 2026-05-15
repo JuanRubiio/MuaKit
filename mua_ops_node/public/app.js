@@ -991,8 +991,10 @@ function renderShopifyConnection() {
   if (!form || !connection || !statusNode) return;
   form.querySelector('[name="store_domain"]').value = connection.store_domain || "";
   form.querySelector('[name="api_version"]').value = connection.api_version || "2026-01";
-  form.querySelector('[name="admin_token"]').value = "";
-  form.querySelector('[name="admin_token"]').placeholder = connection.admin_token_masked || "shpat_...";
+  form.querySelector('[name="client_id"]').value = "";
+  form.querySelector('[name="client_id"]').placeholder = connection.client_id_masked || "shpui_...";
+  form.querySelector('[name="client_secret"]').value = "";
+  form.querySelector('[name="client_secret"]').placeholder = connection.client_secret_masked || "shpss_...";
   form.querySelector('[name="sync_enabled"]').checked = Boolean(connection.sync_enabled);
   form.querySelector('[name="sync_interval_minutes"]').value = connection.sync_interval_minutes || 60;
   form.querySelector('[name="pull_products"]').checked = Boolean(connection.pull_products);
@@ -1011,8 +1013,9 @@ function renderShopifyConnection() {
   statusNode.innerHTML = `
     <article class="row">
       <div class="row-main">
-        <strong>${connection.token_configured ? "Conexión configurada" : "Conexión pendiente"}</strong>
+        <strong>${connection.credentials_configured || connection.token_configured ? "Conexión configurada" : "Conexión pendiente"}</strong>
         <div class="meta">${connection.store_domain ? text(connection.store_domain) : "Todavía no hay dominio configurado"} · API ${text(connection.api_version || "2026-01")}</div>
+        <div class="meta">Autenticación: ${connection.auth_mode === "client_credentials" ? "Dev Dashboard" : (connection.auth_mode === "admin_token" ? "Token admin" : "sin configurar")}</div>
         <div class="meta">Última sync: ${text(status.last_sync_at || "nunca")} · Próxima: ${text(status.next_sync_at || "manual")}</div>
         ${summaryText ? `<p>${text(summaryText)}</p>` : ""}
       </div>
@@ -1608,7 +1611,8 @@ function shopifyConnectionDataFromForm(form) {
   return {
     store_domain: field("store_domain")?.value.trim() || "",
     api_version: field("api_version")?.value.trim() || "2026-01",
-    admin_token: field("admin_token")?.value.trim() || "",
+    client_id: field("client_id")?.value.trim() || "",
+    client_secret: field("client_secret")?.value.trim() || "",
     sync_enabled: Boolean(field("sync_enabled")?.checked),
     sync_interval_minutes: field("sync_interval_minutes")?.value || "",
     pull_products: Boolean(field("pull_products")?.checked),
@@ -1622,7 +1626,8 @@ async function saveShopifyConnection(source) {
   if (source?.preventDefault) source.preventDefault();
   const form = source?.currentTarget || source || $("#shopifyConnectionForm");
   const data = shopifyConnectionDataFromForm(form);
-  if (!data.admin_token) delete data.admin_token;
+  if (!data.client_id) delete data.client_id;
+  if (!data.client_secret) delete data.client_secret;
   state.shopifyConnection = await api("/api/shopify/connection", {
     method: "PATCH",
     body: JSON.stringify(data)

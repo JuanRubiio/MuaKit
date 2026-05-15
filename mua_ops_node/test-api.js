@@ -23,9 +23,35 @@ function cleanTestDir() {
 
 function createMockShopifyServer() {
   const server = http.createServer(async (req, res) => {
+    if (req.method === "POST" && req.url === "/admin/oauth/access_token") {
+      let body = "";
+      for await (const chunk of req) body += chunk.toString();
+      const params = new URLSearchParams(body);
+      if (
+        params.get("grant_type") === "client_credentials"
+        && params.get("client_id") === "shpui_test_client"
+        && params.get("client_secret") === "shpss_test_secret"
+      ) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          access_token: "mock_access_token_1234",
+          scope: "read_products,read_inventory,read_orders,read_shopify_payments_payouts",
+          expires_in: 86399
+        }));
+        return;
+      }
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid_client", error_description: "Client credentials rejected by mock Shopify" }));
+      return;
+    }
     if (req.method !== "POST" || !req.url.includes("/admin/api/2026-01/graphql.json")) {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Not found" }));
+      return;
+    }
+    if (req.headers["x-shopify-access-token"] !== "mock_access_token_1234") {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ errors: [{ message: "Missing or invalid access token" }] }));
       return;
     }
     let body = "";
@@ -227,7 +253,8 @@ async function run() {
 
     const shopifyConnection = await request("PATCH", "/api/shopify/connection", {
       store_domain: `http://127.0.0.1:${SHOPIFY_MOCK_PORT}`,
-      admin_token: "shpat_test_token",
+      client_id: "shpui_test_client",
+      client_secret: "shpss_test_secret",
       api_version: "2026-01",
       sync_enabled: true,
       sync_interval_minutes: 60,
@@ -236,10 +263,12 @@ async function run() {
       pull_orders: true,
       pull_payouts: true
     });
-    assert(shopifyConnection.token_configured === true, "Shopify connection should persist token server-side");
+    assert(shopifyConnection.credentials_configured === true, "Shopify connection should persist client credentials server-side");
 
     const connectionStatus = await request("GET", "/api/shopify/connection");
-    assert(connectionStatus.admin_token_masked.endsWith("oken"), "Shopify connection should only expose a masked token");
+    assert(connectionStatus.client_id_masked.endsWith("ient"), "Shopify connection should only expose a masked client id");
+    assert(connectionStatus.client_secret_masked.endsWith("cret"), "Shopify connection should only expose a masked client secret");
+    assert(connectionStatus.auth_mode === "client_credentials", "Shopify connection should detect client credentials auth");
 
     const connectionTest = await request("POST", "/api/shopify/connection/test", {});
     assert(connectionTest.ok === true, "Shopify connection test should succeed against mock server");

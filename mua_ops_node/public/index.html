@@ -601,7 +601,11 @@
                   <div class="form-grid three">
                     <label>Dominio Shopify<input name="store_domain" placeholder="tu-tienda.myshopify.com"></label>
                     <label>Versión API<input name="api_version" placeholder="2026-01"></label>
-                    <label>Token Admin<input name="admin_token" type="password" placeholder="shpat_..."></label>
+                    <label>Client ID<input name="client_id" placeholder="shpui_..."></label>
+                  </div>
+                  <div class="form-grid two">
+                    <label>Client secret<input name="client_secret" type="password" placeholder="shpss_..."></label>
+                    <div class="inline-note">Usaremos el flujo de Dev Dashboard: el backend pedirá el access token automáticamente cuando haga falta.</div>
                   </div>
                   <div class="form-grid three">
                     <label class="check"><input name="sync_enabled" type="checkbox"> Auto refresco activo</label>
