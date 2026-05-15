@@ -989,16 +989,16 @@ function renderShopifyConnection() {
   const connection = state.shopifyConnection;
   const status = state.shopifySyncStatus;
   if (!form || !connection || !statusNode) return;
-  form.elements.store_domain.value = connection.store_domain || "";
-  form.elements.api_version.value = connection.api_version || "2026-01";
-  form.elements.admin_token.value = "";
-  form.elements.admin_token.placeholder = connection.admin_token_masked || "shpat_...";
-  form.elements.sync_enabled.checked = Boolean(connection.sync_enabled);
-  form.elements.sync_interval_minutes.value = connection.sync_interval_minutes || 60;
-  form.elements.pull_products.checked = Boolean(connection.pull_products);
-  form.elements.pull_inventory.checked = Boolean(connection.pull_inventory);
-  form.elements.pull_orders.checked = Boolean(connection.pull_orders);
-  form.elements.pull_payouts.checked = Boolean(connection.pull_payouts);
+  form.querySelector('[name="store_domain"]').value = connection.store_domain || "";
+  form.querySelector('[name="api_version"]').value = connection.api_version || "2026-01";
+  form.querySelector('[name="admin_token"]').value = "";
+  form.querySelector('[name="admin_token"]').placeholder = connection.admin_token_masked || "shpat_...";
+  form.querySelector('[name="sync_enabled"]').checked = Boolean(connection.sync_enabled);
+  form.querySelector('[name="sync_interval_minutes"]').value = connection.sync_interval_minutes || 60;
+  form.querySelector('[name="pull_products"]').checked = Boolean(connection.pull_products);
+  form.querySelector('[name="pull_inventory"]').checked = Boolean(connection.pull_inventory);
+  form.querySelector('[name="pull_orders"]').checked = Boolean(connection.pull_orders);
+  form.querySelector('[name="pull_payouts"]').checked = Boolean(connection.pull_payouts);
 
   const summary = status.last_sync_summary;
   const summaryText = summary && typeof summary === "object"
@@ -1604,22 +1604,23 @@ async function saveSettings(event) {
 }
 
 function shopifyConnectionDataFromForm(form) {
+  const field = (name) => form?.querySelector(`[name="${name}"]`);
   return {
-    store_domain: form.elements.store_domain.value.trim(),
-    api_version: form.elements.api_version.value.trim() || "2026-01",
-    admin_token: form.elements.admin_token.value.trim(),
-    sync_enabled: form.elements.sync_enabled.checked,
-    sync_interval_minutes: form.elements.sync_interval_minutes.value,
-    pull_products: form.elements.pull_products.checked,
-    pull_inventory: form.elements.pull_inventory.checked,
-    pull_orders: form.elements.pull_orders.checked,
-    pull_payouts: form.elements.pull_payouts.checked
+    store_domain: field("store_domain")?.value.trim() || "",
+    api_version: field("api_version")?.value.trim() || "2026-01",
+    admin_token: field("admin_token")?.value.trim() || "",
+    sync_enabled: Boolean(field("sync_enabled")?.checked),
+    sync_interval_minutes: field("sync_interval_minutes")?.value || "",
+    pull_products: Boolean(field("pull_products")?.checked),
+    pull_inventory: Boolean(field("pull_inventory")?.checked),
+    pull_orders: Boolean(field("pull_orders")?.checked),
+    pull_payouts: Boolean(field("pull_payouts")?.checked)
   };
 }
 
-async function saveShopifyConnection(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
+async function saveShopifyConnection(source) {
+  if (source?.preventDefault) source.preventDefault();
+  const form = source?.currentTarget || source || $("#shopifyConnectionForm");
   const data = shopifyConnectionDataFromForm(form);
   if (!data.admin_token) delete data.admin_token;
   state.shopifyConnection = await api("/api/shopify/connection", {
@@ -1795,6 +1796,7 @@ function bindEvents() {
       if (t.dataset.importEtsyPayouts !== undefined) await runPayoutImport("etsy");
       if (t.dataset.testShopifyConnection !== undefined) await testShopifyConnectionAction();
       if (t.dataset.syncShopifyNow !== undefined) await syncShopifyNow();
+      if (t.dataset.saveShopifyConnection !== undefined) await saveShopifyConnection($("#shopifyConnectionForm"));
       if (t.dataset.newMaterial !== undefined) showMaterialEditor();
       if (t.dataset.closeMaterialPanels !== undefined) closeMaterialPanels();
       if (t.dataset.newSupplier !== undefined) showSupplierEditor();
@@ -1906,13 +1908,12 @@ function bindEvents() {
     }
   });
 
-  $("#materialForm").addEventListener("submit", saveMaterial);
-  $("#supplierForm").addEventListener("submit", saveSupplier);
-  $("#invoiceForm").addEventListener("submit", saveInvoice);
-  $("#kitForm").addEventListener("submit", saveKit);
-  $("#payoutForm").addEventListener("submit", savePayout);
-  $("#settingsForm").addEventListener("submit", saveSettings);
-  $("#shopifyConnectionForm").addEventListener("submit", saveShopifyConnection);
+  $("#materialForm")?.addEventListener("submit", saveMaterial);
+  $("#supplierForm")?.addEventListener("submit", saveSupplier);
+  $("#invoiceForm")?.addEventListener("submit", saveInvoice);
+  $("#kitForm")?.addEventListener("submit", saveKit);
+  $("#payoutForm")?.addEventListener("submit", savePayout);
+  $("#settingsForm")?.addEventListener("submit", saveSettings);
   document.body.addEventListener("submit", (event) => {
     if (event.target.id !== "lineForm") return;
     event.preventDefault();
@@ -1968,11 +1969,11 @@ function bindEvents() {
     node.addEventListener(eventName, debounce(handler, eventName === "input" ? 120 : 0));
   });
 
-  $("#materialsDeleted").addEventListener("change", loadMaterials);
-  $("#suppliersDeleted").addEventListener("change", loadSuppliers);
-  $("#invoicesDeleted").addEventListener("change", loadInvoices);
-  $("#payoutsDeleted").addEventListener("change", loadIncome);
-  $("#auditSearch").addEventListener("click", loadAudit);
+  $("#materialsDeleted")?.addEventListener("change", loadMaterials);
+  $("#suppliersDeleted")?.addEventListener("change", loadSuppliers);
+  $("#invoicesDeleted")?.addEventListener("change", loadInvoices);
+  $("#payoutsDeleted")?.addEventListener("change", loadIncome);
+  $("#auditSearch")?.addEventListener("click", loadAudit);
 
   window.addEventListener("resize", debounce(() => {
     Object.values(state.dashboardCharts).forEach((chart) => {

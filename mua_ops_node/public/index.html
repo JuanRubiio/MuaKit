@@ -597,7 +597,7 @@
                     <p>Conexión directa con Shopify Admin API para catálogo, inventario, pedidos y payouts sin depender de CSV.</p>
                   </div>
                 </div>
-                <form id="shopifyConnectionForm" class="stack-form">
+                <div id="shopifyConnectionForm" class="stack-form">
                   <div class="form-grid three">
                     <label>Dominio Shopify<input name="store_domain" placeholder="tu-tienda.myshopify.com"></label>
                     <label>Versión API<input name="api_version" placeholder="2026-01"></label>
@@ -617,9 +617,9 @@
                   <div class="row-actions">
                     <button type="button" data-test-shopify-connection>Probar conexión</button>
                     <button type="button" class="ghost" data-sync-shopify-now>Sincronizar ahora</button>
-                    <button type="submit" class="ghost">Guardar Shopify</button>
+                    <button type="button" class="ghost" data-save-shopify-connection>Guardar Shopify</button>
                   </div>
-                </form>
+                </div>
                 <div id="shopifySyncStatus" class="list"></div>
               </section>
               <div class="row-actions">
