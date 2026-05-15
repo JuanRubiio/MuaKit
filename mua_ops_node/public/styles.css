@@ -282,6 +282,18 @@ main {
   align-content: start;
 }
 
+.dashboard-trend-head {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.dashboard-trend-head .segmented-control {
+  justify-self: end;
+  max-width: 100%;
+  justify-content: flex-end;
+}
+
 .dashboard-mini-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -451,6 +463,10 @@ main {
 .dashboard-spend-panel .rank-list,
 .dashboard-mini-grid {
   align-content: start;
+}
+
+.dashboard-reorder-panel .chart-surface-small {
+  min-height: 244px;
 }
 
 .dashboard-spend-panel .rank-list {
@@ -1093,10 +1109,16 @@ textarea {
   .dashboard-primary-grid,
   .dashboard-secondary-grid,
   .dashboard-mini-grid,
+  .dashboard-trend-head,
   .split,
   .form-grid.two,
   .form-grid.three {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-trend-head .segmented-control {
+    justify-self: stretch;
+    justify-content: flex-start;
   }
 
   .form-grid.four,

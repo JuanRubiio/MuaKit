@@ -558,7 +558,8 @@ function renderDashboardCharts() {
   const balanceChart = dashboardChart("dashboardBalanceChart");
   const categoryChart = dashboardChart("dashboardCategoryChart");
   const incomeMixChart = dashboardChart("dashboardIncomeMixChart");
-  if (!expenseChart || !incomeChart || !balanceChart || !categoryChart || !incomeMixChart) return;
+  const reorderChart = dashboardChart("dashboardReorderChart");
+  if (!expenseChart || !incomeChart || !balanceChart || !categoryChart || !incomeMixChart || !reorderChart) return;
 
   expenseChart.setOption({
     animationDuration: 400,
@@ -677,14 +678,30 @@ function renderDashboardCharts() {
     animationDuration: 400,
     color: [colors.materiales, colors.marketing, colors.envios, colors.total, "#7c746c", "#dcc8ad"],
     tooltip: { trigger: "item", valueFormatter: (value) => euro.format(Number(value || 0)) },
-    legend: { bottom: 0, textStyle: { color: "#766e68" } },
+    legend: {
+      bottom: 6,
+      left: "center",
+      icon: "roundRect",
+      itemWidth: 14,
+      itemHeight: 10,
+      textStyle: { color: "#5d5650", fontSize: 12, fontWeight: 600 }
+    },
     series: [{
       type: "pie",
-      radius: ["48%", "74%"],
-      center: ["50%", "44%"],
+      radius: ["50%", "72%"],
+      center: ["50%", "38%"],
       avoidLabelOverlap: true,
       itemStyle: { borderRadius: 8, borderColor: "#fff", borderWidth: 2 },
-      label: { color: "#171412", formatter: ({ name, percent }) => `${name}\n${percent}%` },
+      label: { show: false },
+      labelLine: { show: false },
+      emphasis: {
+        label: {
+          show: true,
+          color: "#171412",
+          fontWeight: 700,
+          formatter: ({ name, percent }) => `${name}\n${percent}%`
+        }
+      },
       data: finance.category_spend.map((row) => ({ name: row.category, value: row.total }))
     }]
   }, true);
@@ -693,18 +710,97 @@ function renderDashboardCharts() {
     animationDuration: 400,
     color: [colors.shopify, colors.etsy, colors.bizum, colors.cobros],
     tooltip: { trigger: "item", valueFormatter: (value) => euro.format(Number(value || 0)) },
-    legend: { bottom: 0, textStyle: { color: "#766e68" } },
+    legend: {
+      bottom: 6,
+      left: "center",
+      icon: "roundRect",
+      itemWidth: 14,
+      itemHeight: 10,
+      textStyle: { color: "#5d5650", fontSize: 12, fontWeight: 600 }
+    },
     series: [{
       type: "pie",
-      radius: ["48%", "74%"],
-      center: ["50%", "44%"],
+      radius: ["50%", "72%"],
+      center: ["50%", "38%"],
       avoidLabelOverlap: true,
       itemStyle: { borderRadius: 8, borderColor: "#fff", borderWidth: 2 },
-      label: { color: "#171412", formatter: ({ name, percent }) => `${name}\n${percent}%` },
+      label: { show: false },
+      labelLine: { show: false },
+      emphasis: {
+        label: {
+          show: true,
+          color: "#171412",
+          fontWeight: 700,
+          formatter: ({ name, percent }) => `${name}\n${percent}%`
+        }
+      },
       data: finance.income_channels
         .map((row) => ({ name: channelLabel(row.channel), value: row.net_amount }))
         .filter((row) => number(row.value) > 0)
     }]
+  }, true);
+
+  const reorderRows = (finance.operational?.reorder_materials || []).slice(0, 6);
+  reorderChart.setOption({
+    animationDuration: 400,
+    grid: { left: 18, right: 20, top: 12, bottom: 24, containLabel: true },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      valueFormatter: (value) => `${number(value)} ud`
+    },
+    legend: {
+      bottom: 0,
+      left: "center",
+      itemWidth: 14,
+      itemHeight: 10,
+      icon: "roundRect",
+      textStyle: { color: "#5d5650", fontSize: 12, fontWeight: 600 }
+    },
+    xAxis: {
+      type: "value",
+      axisLabel: { color: "#766e68", formatter: (value) => `${number(value)}` },
+      splitLine: { lineStyle: { color: "#ede7df" } }
+    },
+    yAxis: {
+      type: "category",
+      inverse: true,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        color: "#5d5650",
+        width: 168,
+        overflow: "truncate"
+      },
+      data: reorderRows.map((row) => row.name)
+    },
+    graphic: reorderRows.length ? [] : [{
+      type: "text",
+      left: "center",
+      top: "middle",
+      style: {
+        text: "No hay materiales en reposición",
+        fill: "#766e68",
+        fontSize: 13,
+        fontWeight: 600
+      }
+    }],
+    series: [
+      {
+        name: "Stock Shopify",
+        type: "bar",
+        barMaxWidth: 16,
+        itemStyle: { color: colors.cobros, borderRadius: [0, 6, 6, 0] },
+        data: reorderRows.map((row) => number(row.effective_stock_qty))
+      },
+      {
+        name: "Punto reposición",
+        type: "bar",
+        barMaxWidth: 16,
+        itemStyle: { color: colors.materiales, borderRadius: [0, 6, 6, 0], opacity: 0.78 },
+        data: reorderRows.map((row) => number(row.reorder_point))
+      }
+    ]
   }, true);
 }
 

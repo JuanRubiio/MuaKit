@@ -45,7 +45,7 @@
           <div class="dashboard-layout">
             <div class="dashboard-primary-grid">
               <section class="panel dashboard-expense-panel">
-                <div class="panel-head">
+                <div class="panel-head dashboard-trend-head">
                   <div>
                     <h2 id="dashboardExpenseTitle">Gastos mensuales</h2>
                     <p id="dashboardExpenseText">Lectura mensual del gasto operativo por bloque principal.</p>
@@ -61,7 +61,7 @@
               </section>
 
               <section class="panel dashboard-income-panel">
-                <div class="panel-head">
+                <div class="panel-head dashboard-trend-head">
                   <div>
                     <h2 id="dashboardIncomeTitle">Cobros mensuales</h2>
                     <p id="dashboardIncomeText">Seguimiento del cobro neto y peso por canal.</p>
@@ -113,6 +113,16 @@
                     </div>
                   </div>
                   <div id="dashboardOpsList" class="list compact"></div>
+                </section>
+
+                <section class="panel dashboard-reorder-panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Reposición de materiales</h2>
+                      <p>Stock Shopify frente al punto de reposición para ver qué urge pedir.</p>
+                    </div>
+                  </div>
+                  <div id="dashboardReorderChart" class="chart-surface chart-surface-small"></div>
                 </section>
 
                 <div class="dashboard-mini-grid">
