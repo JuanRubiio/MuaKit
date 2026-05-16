@@ -2,6 +2,7 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
+const initSqlJs = require("sql.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const SERVER = path.join(__dirname, "server.js");
@@ -171,7 +172,7 @@ function createMockShopifyServer() {
   });
 }
 
-async function request(method, route, body) {
+async function requestRaw(method, route, body) {
   const options = { method, headers: {} };
   if (body instanceof FormData) {
     options.body = body;
@@ -189,6 +190,11 @@ async function request(method, route, body) {
       payload = text;
     }
   }
+  return { response, payload, text };
+}
+
+async function request(method, route, body) {
+  const { response, payload, text } = await requestRaw(method, route, body);
   if (!response.ok) {
     throw new Error(`${method} ${route} failed: ${response.status} ${text}`);
   }
@@ -211,20 +217,34 @@ async function waitForServer() {
 async function run() {
   cleanTestDir();
   const mockShopifyServer = await createMockShopifyServer();
-  const child = spawn(process.execPath, [SERVER, "--port", String(PORT)], {
-    cwd: ROOT,
-    env: {
-      ...process.env,
-      MUA_OPS_DATA_DIR: TEST_DIR,
-      MUA_OPS_DB_FILE: path.join(TEST_DIR, "mua_ops_test.sqlite"),
-      MUA_OPS_LEGACY_JSON: path.join(TEST_DIR, "empty.json")
-    },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-
   let serverOutput = "";
-  child.stdout.on("data", (chunk) => { serverOutput += chunk.toString(); });
-  child.stderr.on("data", (chunk) => { serverOutput += chunk.toString(); });
+  let child = null;
+
+  function startTestServer() {
+    const proc = spawn(process.execPath, [SERVER, "--port", String(PORT)], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        MUA_OPS_DATA_DIR: TEST_DIR,
+        MUA_OPS_DB_FILE: path.join(TEST_DIR, "mua_ops_test.sqlite"),
+        MUA_OPS_LEGACY_JSON: path.join(TEST_DIR, "empty.json")
+      },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    proc.stdout.on("data", (chunk) => { serverOutput += chunk.toString(); });
+    proc.stderr.on("data", (chunk) => { serverOutput += chunk.toString(); });
+    return proc;
+  }
+
+  async function stopTestServer() {
+    if (!child) return;
+    const proc = child;
+    child = null;
+    proc.kill();
+    await new Promise((resolve) => proc.once("exit", resolve));
+  }
+
+  child = startTestServer();
 
   try {
     await waitForServer();
@@ -240,6 +260,20 @@ async function run() {
     assert(Array.isArray(initialDashboard.category_spend), "Dashboard finance should include category spend");
     assert(Array.isArray(initialDashboard.top_suppliers), "Dashboard finance should include top suppliers");
     assert(Array.isArray(initialDashboard.top_materials), "Dashboard finance should include top materials");
+
+    const initialHealth = await request("GET", "/api/system/health");
+    assert(initialHealth.ok === true, "System health should be ok on a fresh database");
+    assert(initialHealth.database.integrity === "ok", "System health should expose SQLite integrity");
+    assert(initialHealth.schema.pending_migrations.length === 0, "System health should have no pending migrations");
+    assert(initialHealth.schema.applied_migrations.length >= 2, "System health should expose applied migrations");
+
+    const manualBackup = await request("POST", "/api/system/backup", { reason: "api-test" });
+    assert(manualBackup.created === true, "Manual system backup should be created");
+    assert(fs.existsSync(manualBackup.file), "Manual system backup file should exist");
+
+    const missingPayout = await requestRaw("GET", "/api/channel-payouts/999999");
+    assert(missingPayout.response.status === 404, "API errors should preserve HTTP status");
+    assert(missingPayout.payload.code === "PAYOUT_NOT_FOUND", "API errors should expose a stable code");
 
     const settings = await request("GET", "/api/settings");
     assert(settings.dashboard_monthly_view === "total", "Settings should expose default dashboard monthly view");
@@ -274,6 +308,10 @@ async function run() {
     assert(connectionStatus.client_id_masked.endsWith("ient"), "Shopify connection should only expose a masked client id");
     assert(connectionStatus.client_secret_masked.endsWith("cret"), "Shopify connection should only expose a masked client secret");
     assert(connectionStatus.auth_mode === "client_credentials", "Shopify connection should detect client credentials auth");
+    const healthWithShopify = await request("GET", "/api/system/health");
+    const healthText = JSON.stringify(healthWithShopify);
+    assert(!healthText.includes("shpss_test_secret"), "System health must not expose Shopify client secret");
+    assert(!healthText.includes("mock_access_token_1234"), "System health must not expose Shopify access tokens");
 
     const connectionTest = await request("POST", "/api/shopify/connection/test", {});
     assert(connectionTest.ok === true, "Shopify connection test should succeed against mock server");
@@ -483,10 +521,25 @@ async function run() {
     assert(payoutAudit.some((row) => row.action === "create"), "Audit log should include payout creation");
     assert(payoutAudit.some((row) => row.action === "update"), "Audit log should include payout update");
 
+    await stopTestServer();
+    const dbFile = path.join(TEST_DIR, "mua_ops_test.sqlite");
+    const backupDir = path.join(TEST_DIR, "backups");
+    const backupCountBefore = fs.existsSync(backupDir) ? fs.readdirSync(backupDir).length : 0;
+    const SQL = await initSqlJs({ locateFile: (file) => path.join(ROOT, "node_modules", "sql.js", "dist", file) });
+    const db = new SQL.Database(fs.readFileSync(dbFile));
+    db.run("DELETE FROM schema_migrations WHERE id='002_mvp_operational_columns'");
+    fs.writeFileSync(dbFile, Buffer.from(db.export()));
+    child = startTestServer();
+    await waitForServer();
+    const restartedHealth = await request("GET", "/api/system/health");
+    assert(restartedHealth.ok === true, "Server should restart cleanly with an existing database");
+    assert(restartedHealth.schema.pending_migrations.length === 0, "Migrations should be idempotent after restart");
+    const backupCountAfter = fs.existsSync(backupDir) ? fs.readdirSync(backupDir).length : 0;
+    assert(backupCountAfter > backupCountBefore, "Startup should create a backup before applying pending migrations");
+
     console.log("Mua Ops API test passed");
   } finally {
-    child.kill();
-    await new Promise((resolve) => child.once("exit", resolve));
+    await stopTestServer();
     await new Promise((resolve) => mockShopifyServer.close(resolve));
     if (process.env.MUA_OPS_TEST_DEBUG) {
       console.log(serverOutput);

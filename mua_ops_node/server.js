@@ -3,6 +3,10 @@ const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
 const initSqlJs = require("sql.js");
+const { applyMigrations, hasPendingMigrations } = require("./lib/migrations");
+const { apiError, badRequest, notFound } = require("./lib/http");
+const { createDbBackup, redactSensitive, systemHealth } = require("./lib/system");
+const packageInfo = require("../package.json");
 
 const ROOT = path.resolve(__dirname, "..");
 const DATA_DIR = process.env.MUA_OPS_DATA_DIR || path.join(ROOT, "data", "mua_ops");
@@ -63,6 +67,9 @@ async function openDb() {
   });
   if (fs.existsSync(DB_FILE)) {
     db = new SQL.Database(fs.readFileSync(DB_FILE));
+    if (hasPendingMigrations({ query, migrations: SCHEMA_MIGRATIONS })) {
+      createDbBackup({ dbFile: DB_FILE, dataDir: DATA_DIR, reason: "pre-migration" });
+    }
   } else {
     db = new SQL.Database();
   }
@@ -314,8 +321,12 @@ function updateShopifyConnection(payload = {}) {
   return shopifyConnectionPayload(after);
 }
 
-function migrate() {
-  exec(`
+const SCHEMA_MIGRATIONS = [
+  {
+    id: "001_current_mvp_schema",
+    name: "Create current MVP schema",
+    up: ({ exec }) => {
+      exec(`
     PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS suppliers (
@@ -554,22 +565,35 @@ function migrate() {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-  `);
-  ensureColumn("materials", "image_url_override", "TEXT DEFAULT ''");
-  ensureColumn("materials", "is_outlet", "INTEGER NOT NULL DEFAULT 0");
-  ensureColumn("materials", "usage_type", "TEXT DEFAULT ''");
-  ensureColumn("materials", "family", "TEXT DEFAULT ''");
-  ensureColumn("materials", "subfamily", "TEXT DEFAULT ''");
-  ensureColumn("materials", "variant", "TEXT DEFAULT ''");
-  ensureColumn("materials", "base_material", "TEXT DEFAULT ''");
-  ensureColumn("materials", "finish", "TEXT DEFAULT ''");
-  ensureColumn("kit_recipes", "is_complete", "INTEGER NOT NULL DEFAULT 0");
-  ensureColumn("channel_payouts", "advances_amount", "REAL NOT NULL DEFAULT 0");
-  ensureColumn("channel_payouts", "reserves_amount", "REAL NOT NULL DEFAULT 0");
-  ensureColumn("channel_payouts", "retried_amount", "REAL NOT NULL DEFAULT 0");
-  ensureColumn("channel_payouts", "bank_account_hint", "TEXT DEFAULT ''");
-  ensureColumn("shopify_connection", "client_id", "TEXT DEFAULT ''");
-  ensureColumn("shopify_connection", "client_secret", "TEXT DEFAULT ''");
+      `);
+    }
+  },
+  {
+    id: "002_mvp_operational_columns",
+    name: "Ensure MVP operational columns",
+    up: ({ ensureColumn }) => {
+      ensureColumn("materials", "image_url_override", "TEXT DEFAULT ''");
+      ensureColumn("materials", "is_outlet", "INTEGER NOT NULL DEFAULT 0");
+      ensureColumn("materials", "usage_type", "TEXT DEFAULT ''");
+      ensureColumn("materials", "family", "TEXT DEFAULT ''");
+      ensureColumn("materials", "subfamily", "TEXT DEFAULT ''");
+      ensureColumn("materials", "variant", "TEXT DEFAULT ''");
+      ensureColumn("materials", "base_material", "TEXT DEFAULT ''");
+      ensureColumn("materials", "finish", "TEXT DEFAULT ''");
+      ensureColumn("kit_recipes", "is_complete", "INTEGER NOT NULL DEFAULT 0");
+      ensureColumn("channel_payouts", "advances_amount", "REAL NOT NULL DEFAULT 0");
+      ensureColumn("channel_payouts", "reserves_amount", "REAL NOT NULL DEFAULT 0");
+      ensureColumn("channel_payouts", "retried_amount", "REAL NOT NULL DEFAULT 0");
+      ensureColumn("channel_payouts", "bank_account_hint", "TEXT DEFAULT ''");
+      ensureColumn("shopify_connection", "client_id", "TEXT DEFAULT ''");
+      ensureColumn("shopify_connection", "client_secret", "TEXT DEFAULT ''");
+    }
+  }
+];
+
+function migrate() {
+  exec("PRAGMA foreign_keys = ON");
+  return applyMigrations({ exec, query, migrations: SCHEMA_MIGRATIONS });
 }
 
 function exec(sql, params = {}) {
@@ -609,17 +633,13 @@ function tableCount(table) {
   return Number(one(`SELECT COUNT(*) AS c FROM ${table}`).c);
 }
 
-function ensureColumn(table, column, definition) {
-  const columns = query(`PRAGMA table_info(${table})`).map((row) => row.name);
-  if (columns.includes(column)) return;
-  exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-}
-
 function nowPatch(table, fields) {
   return `${fields.map((field) => `${field} = $${field}`).join(", ")}, updated_at = CURRENT_TIMESTAMP`;
 }
 
 function audit(entityType, entityId, action, beforeRow, afterRow) {
+  const safeBefore = beforeRow ? redactSensitive(beforeRow) : null;
+  const safeAfter = afterRow ? redactSensitive(afterRow) : null;
   insert(
     `INSERT INTO audit_log (entity_type, entity_id, action, actor, before_json, after_json)
      VALUES ($entityType, $entityId, $action, $actor, $before, $after)`,
@@ -628,10 +648,19 @@ function audit(entityType, entityId, action, beforeRow, afterRow) {
       entityId,
       action,
       actor: ACTOR,
-      before: beforeRow ? JSON.stringify(beforeRow) : null,
-      after: afterRow ? JSON.stringify(afterRow) : null
+      before: safeBefore ? JSON.stringify(safeBefore) : null,
+      after: safeAfter ? JSON.stringify(safeAfter) : null
     }
   );
+}
+
+function normalizeAuditAction(value, fallback = "client_event") {
+  const normalized = String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.:-]+/g, "_")
+    .slice(0, 80);
+  return normalized || fallback;
 }
 
 function seedSuppliers() {
@@ -864,11 +893,13 @@ function productInventorySummary(product) {
 
 function upsertShopifyProductFromApi(product, mode = "full") {
   const handle = String(product.handle || "").trim();
-  if (!handle) return false;
+  if (!handle) return { processed: false, created: false, updated: false };
   const existing = one("SELECT * FROM shopify_products WHERE handle=$handle", { handle });
   const summary = productInventorySummary(product);
   const imageUrl = firstAvailableImage(product);
   let productId = existing?.id || null;
+  let created = false;
+  let updated = false;
   if (!existing) {
     productId = insert(
       `INSERT INTO shopify_products (handle, title, status, sku, image_url, shopify_inventory_qty, shopify_available_qty)
@@ -884,23 +915,35 @@ function upsertShopifyProductFromApi(product, mode = "full") {
       }
     );
     audit("shopify_product", productId, "shopify_api_create", null, one("SELECT * FROM shopify_products WHERE id=$id", { id: productId }));
+    created = true;
   } else {
-    const fields = mode === "inventory"
-      ? `shopify_inventory_qty=$qty, shopify_available_qty=$available, sku=COALESCE(NULLIF($sku, ''), sku), updated_at=CURRENT_TIMESTAMP`
-      : `title=$title, status=$status, sku=$sku, image_url=COALESCE(NULLIF($image_url, ''), image_url), shopify_inventory_qty=$qty, shopify_available_qty=$available, updated_at=CURRENT_TIMESTAMP`;
-    exec(
-      `UPDATE shopify_products SET ${fields} WHERE id=$id`,
-      {
-        id: existing.id,
-        title: product.title || existing.title,
-        status: String(product.status || existing.status || ""),
-        sku: summary.sku,
-        image_url: imageUrl,
-        qty: summary.quantity,
-        available: summary.available
-      }
-    );
-    audit("shopify_product", existing.id, mode === "inventory" ? "shopify_api_inventory" : "shopify_api_update", existing, one("SELECT * FROM shopify_products WHERE id=$id", { id: existing.id }));
+    const next = {
+      id: existing.id,
+      title: product.title || existing.title,
+      status: String(product.status || existing.status || ""),
+      sku: mode === "inventory" ? (summary.sku || existing.sku || "") : summary.sku,
+      image_url: mode === "inventory" ? (existing.image_url || "") : (imageUrl || existing.image_url || ""),
+      qty: summary.quantity,
+      available: summary.available
+    };
+    const changed = mode === "inventory"
+      ? n(existing.shopify_inventory_qty) !== n(next.qty)
+        || n(existing.shopify_available_qty) !== n(next.available)
+        || String(existing.sku || "") !== String(next.sku || "")
+      : String(existing.title || "") !== String(next.title || "")
+        || String(existing.status || "") !== String(next.status || "")
+        || String(existing.sku || "") !== String(next.sku || "")
+        || String(existing.image_url || "") !== String(next.image_url || "")
+        || n(existing.shopify_inventory_qty) !== n(next.qty)
+        || n(existing.shopify_available_qty) !== n(next.available);
+    if (changed) {
+      const fields = mode === "inventory"
+        ? `shopify_inventory_qty=$qty, shopify_available_qty=$available, sku=$sku, updated_at=CURRENT_TIMESTAMP`
+        : `title=$title, status=$status, sku=$sku, image_url=$image_url, shopify_inventory_qty=$qty, shopify_available_qty=$available, updated_at=CURRENT_TIMESTAMP`;
+      exec(`UPDATE shopify_products SET ${fields} WHERE id=$id`, next);
+      audit("shopify_product", existing.id, mode === "inventory" ? "shopify_api_inventory" : "shopify_api_update", existing, one("SELECT * FROM shopify_products WHERE id=$id", { id: existing.id }));
+      updated = true;
+    }
   }
   if (productId) {
     const images = [];
@@ -920,7 +963,7 @@ function upsertShopifyProductFromApi(product, mode = "full") {
     const stored = one("SELECT * FROM shopify_products WHERE id=$id", { id: productId });
     if (stored) ensureMaterialForShopifyProduct(stored);
   }
-  return true;
+  return { processed: true, created, updated };
 }
 
 function upsertSalesOrder(payload, source = "shopify_sync") {
@@ -1007,11 +1050,11 @@ async function syncShopifyProducts(configInput = null) {
     });
     const edges = data.products?.edges || [];
     for (const edge of edges) {
-      const before = one("SELECT * FROM shopify_products WHERE handle=$handle", { handle: edge.node.handle });
-      if (upsertShopifyProductFromApi(edge.node, "full")) {
+      const result = upsertShopifyProductFromApi(edge.node, "full");
+      if (result.processed) {
         rows += 1;
-        if (before) updated += 1;
-        else created += 1;
+        if (result.created) created += 1;
+        else if (result.updated) updated += 1;
       }
     }
     cursor = data.products?.pageInfo?.hasNextPage ? data.products?.pageInfo?.endCursor : null;
@@ -1025,6 +1068,7 @@ async function syncShopifyInventory(configInput = null) {
   const updatedAfter = timestampWithOverlap(config.last_inventory_sync_at, 2, 30);
   let cursor = null;
   let rows = 0;
+  let updated = 0;
   do {
     const data = await shopifyGraphql(config, `
       query ShopifyInventory($first: Int!, $after: String, $query: String) {
@@ -1048,12 +1092,16 @@ async function syncShopifyInventory(configInput = null) {
     });
     const edges = data.products?.edges || [];
     for (const edge of edges) {
-      if (upsertShopifyProductFromApi(edge.node, "inventory")) rows += 1;
+      const result = upsertShopifyProductFromApi(edge.node, "inventory");
+      if (result.processed) {
+        rows += 1;
+        if (result.updated) updated += 1;
+      }
     }
     cursor = data.products?.pageInfo?.hasNextPage ? data.products?.pageInfo?.endCursor : null;
   } while (cursor);
   exec("UPDATE shopify_connection SET last_inventory_sync_at=$now, updated_at=CURRENT_TIMESTAMP WHERE id=1", { now: new Date().toISOString() });
-  return { rows, created: 0, updated: rows, skipped: 0 };
+  return { rows, created: 0, updated, skipped: rows - updated };
 }
 
 function moneyAmount(node) {
@@ -1182,6 +1230,31 @@ function shopifySyncStatus() {
   };
 }
 
+async function runShopifySyncStep(summary, name, fn) {
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  try {
+    const result = await fn();
+    summary[name] = {
+      ...result,
+      status: "ok",
+      started_at: startedAt,
+      finished_at: new Date().toISOString(),
+      duration_ms: Date.now() - startedMs
+    };
+    return summary[name];
+  } catch (error) {
+    summary[name] = {
+      status: "error",
+      error: redactSensitive(error.message),
+      started_at: startedAt,
+      finished_at: new Date().toISOString(),
+      duration_ms: Date.now() - startedMs
+    };
+    throw error;
+  }
+}
+
 async function runShopifySync(mode = "all") {
   if (shopifySyncState.running) throw new Error("Ya hay una sincronización Shopify en curso");
   const row = shopifyConnectionRow();
@@ -1206,13 +1279,13 @@ async function runShopifySync(mode = "all") {
   exec("UPDATE shopify_connection SET last_sync_status='running', updated_at=CURRENT_TIMESTAMP WHERE id=1");
   saveDb();
   try {
-    if (tasks.products) summary.products = await syncShopifyProducts(config);
-    if (tasks.inventory) summary.inventory = await syncShopifyInventory(config);
-    if (tasks.orders) summary.orders = await syncShopifyOrders(config);
-    if (tasks.payouts) summary.payouts = await syncShopifyPayouts(config);
+    if (tasks.products) await runShopifySyncStep(summary, "products", () => syncShopifyProducts(config));
+    if (tasks.inventory) await runShopifySyncStep(summary, "inventory", () => syncShopifyInventory(config));
+    if (tasks.orders) await runShopifySyncStep(summary, "orders", () => syncShopifyOrders(config));
+    if (tasks.payouts) await runShopifySyncStep(summary, "payouts", () => syncShopifyPayouts(config));
   } catch (error) {
     summary.status = "error";
-    summary.error = error.message;
+    summary.error = redactSensitive(error.message);
     throw error;
   } finally {
     summary.finished_at = new Date().toISOString();
@@ -2356,6 +2429,29 @@ function createApp() {
     });
   });
 
+  app.get("/api/system/health", (req, res) => {
+    res.json(systemHealth({
+      dbFile: DB_FILE,
+      dataDir: DATA_DIR,
+      uploadDir: UPLOAD_DIR,
+      query,
+      expectedMigrations: SCHEMA_MIGRATIONS,
+      packageInfo,
+      shopifyConnectionPayload
+    }));
+  });
+
+  app.post("/api/system/backup", (req, res) => {
+    try {
+      const backup = createDbBackup({ dbFile: DB_FILE, dataDir: DATA_DIR, reason: req.body?.reason || "manual" });
+      audit("system", 0, "backup_create", null, backup);
+      saveDb();
+      res.json(backup);
+    } catch (error) {
+      badRequest(res, error, "BACKUP_FAILED");
+    }
+  });
+
   app.get("/api/settings", (req, res) => {
     res.json(settingsObject());
   });
@@ -2372,7 +2468,7 @@ function createApp() {
     try {
       res.json(updateShopifyConnection(req.body || {}));
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      badRequest(res, error, "SHOPIFY_CONNECTION_INVALID");
     }
   });
 
@@ -2395,7 +2491,7 @@ function createApp() {
       };
       res.json(await testShopifyConnection(override));
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      badRequest(res, error, "SHOPIFY_CONNECTION_TEST_FAILED");
     }
   });
 
@@ -2408,7 +2504,7 @@ function createApp() {
       const result = await runShopifySync("all");
       res.json(result);
     } catch (error) {
-      res.status(400).json({ error: error.message, status: shopifySyncStatus() });
+      badRequest(res, error, "SHOPIFY_SYNC_FAILED", { status: shopifySyncStatus() });
     }
   });
 
@@ -2416,7 +2512,7 @@ function createApp() {
     try {
       res.json(await runShopifySync("products"));
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      badRequest(res, error, "SHOPIFY_SYNC_PRODUCTS_FAILED");
     }
   });
 
@@ -2424,7 +2520,7 @@ function createApp() {
     try {
       res.json(await runShopifySync("inventory"));
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      badRequest(res, error, "SHOPIFY_SYNC_INVENTORY_FAILED");
     }
   });
 
@@ -2432,7 +2528,7 @@ function createApp() {
     try {
       res.json(await runShopifySync("orders"));
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      badRequest(res, error, "SHOPIFY_SYNC_ORDERS_FAILED");
     }
   });
 
@@ -2440,7 +2536,7 @@ function createApp() {
     try {
       res.json(await runShopifySync("payouts"));
     } catch (error) {
-      res.status(400).json({ error: error.message });
+      badRequest(res, error, "SHOPIFY_SYNC_PAYOUTS_FAILED");
     }
   });
 
@@ -2473,7 +2569,7 @@ function createApp() {
        WHERE p.id=$id`,
       { id: req.params.id }
     );
-    if (!row) return res.status(404).json({ error: "Payout no encontrado" });
+    if (!row) return notFound(res, "Payout no encontrado", "PAYOUT_NOT_FOUND");
     res.json(payoutPayload(row));
   });
 
@@ -2489,7 +2585,7 @@ function createApp() {
 
   app.patch("/api/channel-payouts/:id", (req, res) => {
     const before = one("SELECT * FROM channel_payouts WHERE id=$id", { id: req.params.id });
-    if (!before) return res.status(404).json({ error: "Payout no encontrado" });
+    if (!before) return notFound(res, "Payout no encontrado", "PAYOUT_NOT_FOUND");
     const fields = [
       "channel", "external_id", "payout_date", "status", "currency", "gross_amount", "refunds_amount",
       "adjustments_amount", "advances_amount", "reserves_amount", "fees_amount", "tax_withheld_amount",
@@ -2603,7 +2699,7 @@ function createApp() {
 
   app.patch("/api/materials/:id", (req, res) => {
     const before = one("SELECT * FROM materials WHERE id=$id", { id: req.params.id });
-    if (!before) return res.status(404).json({ error: "Entidad no encontrada" });
+    if (!before) return notFound(res);
     const fields = [
       "name", "category", "unit_label", "preferred_supplier_id", "manual_stock", "is_outlet", "reorder_point", "target_stock",
       "image_url_override", "usage_type", "family", "subfamily", "variant", "base_material", "finish", "notes"
@@ -2639,7 +2735,7 @@ function createApp() {
 
   app.patch("/api/shopify-products/:id", (req, res) => {
     const before = one("SELECT * FROM shopify_products WHERE id=$id", { id: req.params.id });
-    if (!before) return res.status(404).json({ error: "Producto Shopify no encontrado" });
+    if (!before) return notFound(res, "Producto Shopify no encontrado", "SHOPIFY_PRODUCT_NOT_FOUND");
     exec(
       `UPDATE shopify_products SET material_id=$material, notes=$notes, updated_at=CURRENT_TIMESTAMP WHERE id=$id`,
       { id: req.params.id, material: optionalN(req.body.material_id), notes: req.body.notes ?? before.notes }
@@ -2655,9 +2751,9 @@ function createApp() {
   app.post("/api/client-log", (req, res) => {
     const payload = {
       level: req.body.level || "info",
-      action: req.body.action || "client_event",
+      action: normalizeAuditAction(req.body.action || "client_event"),
       message: req.body.message || "",
-      context: req.body.context || {},
+      context: redactSensitive(req.body.context || {}),
       created_at: new Date().toISOString()
     };
     audit("client", 0, payload.action, null, payload);
@@ -2731,7 +2827,7 @@ function createApp() {
        WHERE i.id=$id`,
       { id: req.params.id }
     );
-    if (!invoice) return res.status(404).json({ error: "Factura no encontrada" });
+    if (!invoice) return notFound(res, "Factura no encontrada", "INVOICE_NOT_FOUND");
     const lines = query(
       `SELECT l.*, m.name AS material_name, m.category AS material_category,
               m.usage_type AS material_usage_type, m.family AS material_family, m.subfamily AS material_subfamily,
@@ -2760,7 +2856,7 @@ function createApp() {
 
   app.post("/api/invoices/:id/duplicate", (req, res) => {
     const source = one("SELECT * FROM invoices WHERE id=$id", { id: req.params.id });
-    if (!source) return res.status(404).json({ error: "Factura no encontrada" });
+    if (!source) return notFound(res, "Factura no encontrada", "INVOICE_NOT_FOUND");
     const id = insert(
       `INSERT INTO invoices (supplier_id, document_id, invoice_number, invoice_date, category, subtotal, discount, shipping, tax, total, currency, status, notes)
        VALUES ($supplier_id, $document_id, $invoice_number, $invoice_date, $category, $subtotal, $discount, $shipping, $tax, $total, $currency, 'draft', $notes)`,
@@ -2813,7 +2909,7 @@ function createApp() {
 
   app.post("/api/invoices/:invoiceId/lines/:lineId/duplicate", (req, res) => {
     const line = one("SELECT * FROM invoice_lines WHERE id=$id AND invoice_id=$invoice", { id: req.params.lineId, invoice: req.params.invoiceId });
-    if (!line) return res.status(404).json({ error: "Linea no encontrada" });
+    if (!line) return notFound(res, "Linea no encontrada", "INVOICE_LINE_NOT_FOUND");
     const id = insert(
       `INSERT INTO invoice_lines (invoice_id, material_id, description, package_count, units_per_package, total_units, price_per_package, unit_price, line_total, allocate_shipping, tax, affects_stock, notes)
        VALUES ($invoice, $material, $description, $packages, $unitsPackage, $totalUnits, $pricePackage, $unitPrice, $lineTotal, $shipping, $tax, $stock, $notes)`,
@@ -2843,7 +2939,7 @@ function createApp() {
   app.post("/api/invoices/:invoiceId/lines/:lineId/restore", (req, res) => restore("invoice_lines", "invoice_line", req.params.lineId, res));
 
   app.post("/api/documents", upload.single("document"), (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "Falta archivo" });
+    if (!req.file) return badRequest(res, "Falta archivo", "DOCUMENT_REQUIRED");
     const ext = path.extname(req.file.originalname);
     const storedName = `${Date.now()}-${req.file.filename}${ext}`;
     const finalPath = path.join(UPLOAD_DIR, storedName);
@@ -2899,7 +2995,7 @@ function createApp() {
 
   app.post("/api/kit-recipes/:id/items", (req, res) => {
     const recipe = one("SELECT * FROM kit_recipes WHERE id=$id", { id: req.params.id });
-    if (recipe?.is_complete) return res.status(400).json({ error: "El kit esta marcado como completo" });
+    if (recipe?.is_complete) return badRequest(res, "El kit esta marcado como completo", "KIT_COMPLETE");
     const itemId = insert(
       `INSERT INTO kit_recipe_items (recipe_id, material_id, quantity, notes)
        VALUES ($recipe, $material, $quantity, $notes)`,
@@ -2918,13 +3014,13 @@ function createApp() {
 
   app.patch("/api/kit-recipes/:recipeId/items/:itemId", (req, res) => {
     const recipe = one("SELECT * FROM kit_recipes WHERE id=$id", { id: req.params.recipeId });
-    if (recipe?.is_complete) return res.status(400).json({ error: "El kit esta marcado como completo" });
+    if (recipe?.is_complete) return badRequest(res, "El kit esta marcado como completo", "KIT_COMPLETE");
     updateEntity("kit_recipe_items", "kit_recipe_item", req.params.itemId, req.body, ["material_id", "quantity", "notes"], res);
   });
 
   app.delete("/api/kit-recipes/:recipeId/items/:itemId", (req, res) => {
     const recipe = one("SELECT * FROM kit_recipes WHERE id=$id", { id: req.params.recipeId });
-    if (recipe?.is_complete) return res.status(400).json({ error: "El kit esta marcado como completo" });
+    if (recipe?.is_complete) return badRequest(res, "El kit esta marcado como completo", "KIT_COMPLETE");
     softDelete("kit_recipe_items", "kit_recipe_item", req.params.itemId, res);
   });
   app.post("/api/kit-recipes/:recipeId/items/:itemId/restore", (req, res) => restore("kit_recipe_items", "kit_recipe_item", req.params.itemId, res));
@@ -2932,7 +3028,7 @@ function createApp() {
   app.get("/api/costs/materials", (req, res) => res.json(materialCosts()));
   app.get("/api/costs/materials/:id", (req, res) => {
     const detail = materialCostDetail(req.params.id);
-    if (!detail) return res.status(404).json({ error: "Material no encontrado" });
+    if (!detail) return notFound(res, "Material no encontrado", "MATERIAL_NOT_FOUND");
     res.json(detail);
   });
   app.get("/api/dashboard/finance", (req, res) => res.json(dashboardFinance(req.query || {})));
@@ -2948,6 +3044,11 @@ function createApp() {
        LIMIT 500`,
       { entity, id }
     ));
+  });
+
+  app.use((error, req, res, next) => {
+    if (res.headersSent) return next(error);
+    apiError(res, 500, "INTERNAL_ERROR", error);
   });
 
   return app;
@@ -3005,7 +3106,7 @@ function createInvoiceLine(invoiceId, body) {
 
 function updateEntity(table, entityType, id, body, allowedFields, res) {
   const before = one(`SELECT * FROM ${table} WHERE id=$id`, { id });
-  if (!before) return res.status(404).json({ error: "Entidad no encontrada" });
+  if (!before) return notFound(res);
   const fields = allowedFields.filter((field) => Object.prototype.hasOwnProperty.call(body, field));
   if (!fields.length) return res.json(before);
   const params = { id };
@@ -3019,7 +3120,7 @@ function updateEntity(table, entityType, id, body, allowedFields, res) {
 
 function softDelete(table, entityType, id, res) {
   const before = one(`SELECT * FROM ${table} WHERE id=$id`, { id });
-  if (!before) return res.status(404).json({ error: "Entidad no encontrada" });
+  if (!before) return notFound(res);
   exec(`UPDATE ${table} SET is_deleted=1, updated_at=CURRENT_TIMESTAMP WHERE id=$id`, { id });
   const after = one(`SELECT * FROM ${table} WHERE id=$id`, { id });
   audit(entityType, Number(id), "archive", before, after);
@@ -3029,7 +3130,7 @@ function softDelete(table, entityType, id, res) {
 
 function restore(table, entityType, id, res) {
   const before = one(`SELECT * FROM ${table} WHERE id=$id`, { id });
-  if (!before) return res.status(404).json({ error: "Entidad no encontrada" });
+  if (!before) return notFound(res);
   exec(`UPDATE ${table} SET is_deleted=0, updated_at=CURRENT_TIMESTAMP WHERE id=$id`, { id });
   const after = one(`SELECT * FROM ${table} WHERE id=$id`, { id });
   audit(entityType, Number(id), "restore", before, after);
