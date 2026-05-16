@@ -36,7 +36,8 @@ const DEFAULT_SETTINGS = {
   dashboard_color_fees: "#b85d72",
   dashboard_color_shopify: "#166b5e",
   dashboard_color_etsy: "#9f7234",
-  dashboard_color_bizum: "#c18a3a"
+  dashboard_color_bizum: "#c18a3a",
+  reorder_alert_multiplier: "1.25"
 };
 
 let shopifySyncState = {
@@ -1632,6 +1633,30 @@ function materialCosts() {
   `);
 }
 
+function materialCostDetail(materialId) {
+  const summary = materialCosts().find((row) => Number(row.material_id) === Number(materialId));
+  if (!summary) return null;
+  const lots = query(
+    `SELECT l.id AS line_id, l.description, l.package_count, l.units_per_package, l.total_units,
+            l.price_per_package, l.line_total, l.notes,
+            i.id AS invoice_id, i.invoice_number, i.invoice_date, i.status, i.category,
+            s.name AS supplier_name
+     FROM invoice_lines l
+     JOIN invoices i ON i.id = l.invoice_id
+     LEFT JOIN suppliers s ON s.id = i.supplier_id
+     WHERE l.material_id = $id
+       AND l.is_deleted = 0
+       AND i.is_deleted = 0
+       AND i.status != 'archived'
+     ORDER BY i.invoice_date ASC, l.id ASC`,
+    { id: materialId }
+  ).map((row) => ({
+    ...row,
+    unit_cost: n(row.total_units) > 0 ? n(row.line_total) / n(row.total_units) : null
+  }));
+  return { summary, lots };
+}
+
 function kitRecipes() {
   const costs = new Map(materialCosts().map((row) => [row.material_id, row]));
   const recipes = query("SELECT * FROM kit_recipes WHERE is_deleted=0 ORDER BY name, version");
@@ -1707,8 +1732,8 @@ function payoutImportHistory() {
   );
 }
 
-function incomeSummary() {
-  const payouts = activePayouts();
+function incomeSummary(rows = activePayouts()) {
+  const payouts = rows;
   const currentMonth = new Date().toISOString().slice(0, 7);
   const monthRows = payouts.filter((row) => String(row.payout_date || "").slice(0, 7) === currentMonth);
   return {
@@ -1733,6 +1758,87 @@ function incomeSummary() {
       }, new Map()).values()
     )
   };
+}
+
+function isoMonth(date) {
+  return String(date || "").slice(0, 7);
+}
+
+function startOfMonth(date) {
+  const d = new Date(date);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function formatIsoDate(date) {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function shiftMonths(date, delta) {
+  const d = new Date(date);
+  d.setMonth(d.getMonth() + delta);
+  return d;
+}
+
+function dateInRange(value, from, to) {
+  if (!value) return false;
+  if (from && value < from) return false;
+  if (to && value > to) return false;
+  return true;
+}
+
+function normalizeDashboardWindow(query = {}) {
+  const today = new Date();
+  const preset = String(query.preset || "all").trim() || "all";
+  let from = String(query.from || "").trim();
+  let to = String(query.to || "").trim();
+  let label = "Todo el periodo";
+
+  if (preset === "this_month") {
+    const start = startOfMonth(today);
+    from = formatIsoDate(start);
+    to = formatIsoDate(today);
+    label = "Este mes";
+  } else if (preset === "last_3_months") {
+    const start = startOfMonth(shiftMonths(today, -2));
+    from = formatIsoDate(start);
+    to = formatIsoDate(today);
+    label = "Últimos 3 meses";
+  } else if (preset === "last_6_months") {
+    const start = startOfMonth(shiftMonths(today, -5));
+    from = formatIsoDate(start);
+    to = formatIsoDate(today);
+    label = "Últimos 6 meses";
+  } else if (preset === "this_year") {
+    from = `${today.getFullYear()}-01-01`;
+    to = formatIsoDate(today);
+    label = String(today.getFullYear());
+  } else if (preset === "custom") {
+    label = from || to ? "Ventana personalizada" : "Todo el periodo";
+  } else {
+    from = "";
+    to = "";
+  }
+
+  if (from && to && from > to) {
+    [from, to] = [to, from];
+  }
+
+  return { preset, from, to, label };
+}
+
+function monthSpan(from, to, fallbackMonths = []) {
+  if (!from || !to) return fallbackMonths;
+  const months = [];
+  let cursor = startOfMonth(from);
+  const limit = startOfMonth(to);
+  while (cursor <= limit) {
+    months.push(formatIsoDate(cursor).slice(0, 7));
+    cursor = shiftMonths(cursor, 1);
+  }
+  return months;
 }
 
 function normalizePayoutBody(body = {}) {
@@ -1937,21 +2043,22 @@ function importEtsyPayouts(directory = ETSY_PAYOUTS_DIR) {
   return { ...stats, files_processed: files.length };
 }
 
-function dashboardFinance() {
-  const invoices = activeInvoicesWithMeta();
-  const payouts = activePayouts();
-  const income = incomeSummary();
+function dashboardFinance(options = {}) {
+  const window = normalizeDashboardWindow(options);
+  const allInvoices = activeInvoicesWithMeta();
+  const allPayouts = activePayouts();
+  const invoices = allInvoices.filter((invoice) => dateInRange(invoice.invoice_date, window.from, window.to));
+  const payouts = allPayouts.filter((payout) => dateInRange(payout.payout_date, window.from, window.to));
+  const income = incomeSummary(payouts);
   const payoutImports = payoutImportHistory();
   const costs = materialCosts();
   const kits = kitRecipes();
-  const currentMonth = new Date().toISOString().slice(0, 7);
   const trackedCategories = ["materiales", "marketing", "envios", "servicios", "software", "otros"];
 
   const totalExpense = invoices.reduce((sum, invoice) => sum + n(invoice.total), 0);
-  const currentMonthExpense = invoices
-    .filter((invoice) => String(invoice.invoice_date || "").slice(0, 7) === currentMonth)
-    .reduce((sum, invoice) => sum + n(invoice.total), 0);
-  const draftInvoices = invoices.filter((invoice) => invoice.status === "draft");
+  const totalNetReceived = payouts.reduce((sum, payout) => sum + n(payout.net_amount), 0);
+  const totalFeesReceived = payouts.reduce((sum, payout) => sum + n(payout.fees_amount), 0);
+  const draftInvoices = allInvoices.filter((invoice) => invoice.status === "draft");
 
   const categorySpend = trackedCategories.map((category) => {
     const rows = invoices.filter((invoice) => invoice.category === category);
@@ -1982,8 +2089,9 @@ function dashboardFinance() {
     bucket[`channel_${payout.channel}`] = (bucket[`channel_${payout.channel}`] || 0) + n(payout.net_amount);
     monthlyBreakdownMap.set(key, bucket);
   }
-  const monthlySpend = Array.from(monthlyBreakdownMap.keys())
-    .sort((a, b) => a.localeCompare(b))
+  const baseMonths = Array.from(monthlyBreakdownMap.keys()).sort((a, b) => a.localeCompare(b));
+  const monthsFromWindow = monthSpan(window.from, window.to, baseMonths);
+  const monthlySpend = (monthsFromWindow.length ? monthsFromWindow : baseMonths)
     .slice(-12)
     .map((month) => ({ month, total: n(monthlyMap.get(month)) }));
   const monthlySpendMonths = monthlySpend.map((row) => row.month);
@@ -2006,36 +2114,50 @@ function dashboardFinance() {
     }
   };
 
-  const supplierSpend = query(
-    `SELECT COALESCE(s.name, 'Sin proveedor') AS supplier_name,
-            i.supplier_id,
-            COUNT(*) AS invoice_count,
-            SUM(i.total) AS total_spend
-     FROM invoices i
-     LEFT JOIN suppliers s ON s.id = i.supplier_id
-     WHERE i.is_deleted = 0
-     GROUP BY i.supplier_id, supplier_name
-     ORDER BY total_spend DESC, supplier_name
-     LIMIT 8`
-  ).map((row) => ({
-    supplier_id: row.supplier_id,
-    supplier_name: row.supplier_name,
-    invoice_count: Number(row.invoice_count),
-    total_spend: n(row.total_spend)
-  }));
+  const supplierSpend = Array.from(
+    invoices.reduce((map, invoice) => {
+      const key = String(invoice.supplier_id || "none");
+      const bucket = map.get(key) || {
+        supplier_id: invoice.supplier_id,
+        supplier_name: invoice.supplier_name || "Sin proveedor",
+        invoice_count: 0,
+        total_spend: 0
+      };
+      bucket.invoice_count += 1;
+      bucket.total_spend += n(invoice.total);
+      map.set(key, bucket);
+      return map;
+    }, new Map()).values()
+  )
+    .sort((a, b) => b.total_spend - a.total_spend || a.supplier_name.localeCompare(b.supplier_name, "es"))
+    .slice(0, 8);
 
-  const topMaterials = costs
-    .filter((row) => n(row.total_spend) > 0)
-    .sort((a, b) => n(b.total_spend) - n(a.total_spend))
-    .slice(0, 8)
-    .map((row) => ({
-      material_id: row.material_id,
-      name: row.name,
-      category: row.category,
-      purchase_lots: Number(row.purchase_lots || 0),
-      total_spend: n(row.total_spend),
-      weighted_avg_unit_cost_inc_vat: row.weighted_avg_unit_cost_inc_vat == null ? null : n(row.weighted_avg_unit_cost_inc_vat)
-    }));
+  const topMaterials = query(
+    `SELECT m.id AS material_id, m.name, m.category,
+            COUNT(l.id) AS purchase_lots,
+            SUM(l.line_total) AS total_spend,
+            CASE WHEN SUM(l.total_units) > 0 THEN SUM(l.line_total) / SUM(l.total_units) ELSE NULL END AS weighted_avg_unit_cost_inc_vat
+     FROM materials m
+     JOIN invoice_lines l ON l.material_id = m.id AND l.is_deleted = 0
+     JOIN invoices i ON i.id = l.invoice_id
+     WHERE m.is_deleted = 0
+       AND i.is_deleted = 0
+       AND i.status != 'archived'
+       AND ($from = '' OR i.invoice_date >= $from)
+       AND ($to = '' OR i.invoice_date <= $to)
+     GROUP BY m.id
+     HAVING SUM(l.line_total) > 0
+     ORDER BY total_spend DESC, m.name
+     LIMIT 8`,
+    { from: window.from || "", to: window.to || "" }
+  ).map((row) => ({
+    material_id: row.material_id,
+    name: row.name,
+    category: row.category,
+    purchase_lots: Number(row.purchase_lots || 0),
+    total_spend: n(row.total_spend),
+    weighted_avg_unit_cost_inc_vat: row.weighted_avg_unit_cost_inc_vat == null ? null : n(row.weighted_avg_unit_cost_inc_vat)
+  }));
 
   const materialsWithoutImage = query(
     `SELECT m.id, m.name, m.category
@@ -2071,6 +2193,9 @@ function dashboardFinance() {
       known_cost: n(kit.known_cost)
     }));
 
+  const settings = settingsObject();
+  const reorderAlertMultiplier = Math.max(1, n(settings.reorder_alert_multiplier || 1.25) || 1.25);
+
   const reorderMaterials = query(
     `SELECT m.id, m.name, m.category, m.reorder_point,
             COALESCE((
@@ -2088,9 +2213,19 @@ function dashboardFinance() {
       name: row.name,
       category: row.category,
       reorder_point: n(row.reorder_point),
-      effective_stock_qty: n(row.effective_stock_qty)
+      effective_stock_qty: n(row.effective_stock_qty),
+      reorder_alert_threshold: n(row.reorder_point) * reorderAlertMultiplier
     }))
-    .filter((row) => row.effective_stock_qty <= row.reorder_point);
+    .filter((row) => row.effective_stock_qty <= row.reorder_alert_threshold)
+    .sort((a, b) => {
+      const aUrgent = a.effective_stock_qty <= a.reorder_point ? 0 : 1;
+      const bUrgent = b.effective_stock_qty <= b.reorder_point ? 0 : 1;
+      if (aUrgent !== bUrgent) return aUrgent - bUrgent;
+      const aGap = a.effective_stock_qty - a.reorder_alert_threshold;
+      const bGap = b.effective_stock_qty - b.reorder_alert_threshold;
+      if (aGap !== bGap) return aGap - bGap;
+      return a.name.localeCompare(b.name, "es");
+    });
 
   const incomeChannels = income.channels
     .map((row) => ({
@@ -2103,20 +2238,19 @@ function dashboardFinance() {
     .sort((a, b) => b.net_amount - a.net_amount);
 
   return {
+    window,
     kpis: {
-      total_expense: totalExpense,
-      current_month_expense: currentMonthExpense,
+      period_expense: totalExpense,
       draft_invoice_count: draftInvoices.length,
       materials_expense: n(categorySpend.find((row) => row.category === "materiales")?.total),
       marketing_expense: n(categorySpend.find((row) => row.category === "marketing")?.total),
       shipping_expense: n(categorySpend.find((row) => row.category === "envios")?.total),
       invoice_count: invoices.length,
-      total_net_received: n(income.total_net_amount),
-      current_month_net_received: n(income.current_month_net_amount),
-      current_month_fees_received: n(income.current_month_fees_amount),
+      period_net_received: totalNetReceived,
+      period_fees_received: totalFeesReceived,
       payout_count: Number(income.payout_count || 0),
       pending_payout_count: Number(income.pending_count || 0),
-      current_month_balance: n(income.current_month_net_amount) - currentMonthExpense
+      period_balance: totalNetReceived - totalExpense
     },
     monthly_spend: monthlySpend,
     monthly_breakdown: monthlyBreakdown,
@@ -2134,6 +2268,7 @@ function dashboardFinance() {
     top_suppliers: supplierSpend,
     top_materials: topMaterials,
     operational: {
+      reorder_alert_multiplier: reorderAlertMultiplier,
       draft_invoices: draftInvoices.map((invoice) => ({
         id: invoice.id,
         supplier_name: invoice.supplier_name,
@@ -2754,7 +2889,12 @@ function createApp() {
   app.post("/api/kit-recipes/:recipeId/items/:itemId/restore", (req, res) => restore("kit_recipe_items", "kit_recipe_item", req.params.itemId, res));
 
   app.get("/api/costs/materials", (req, res) => res.json(materialCosts()));
-  app.get("/api/dashboard/finance", (req, res) => res.json(dashboardFinance()));
+  app.get("/api/costs/materials/:id", (req, res) => {
+    const detail = materialCostDetail(req.params.id);
+    if (!detail) return res.status(404).json({ error: "Material no encontrado" });
+    res.json(detail);
+  });
+  app.get("/api/dashboard/finance", (req, res) => res.json(dashboardFinance(req.query || {})));
 
   app.get("/api/audit-log", (req, res) => {
     const entity = req.query.entity || "";

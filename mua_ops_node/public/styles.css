@@ -266,6 +266,21 @@ main {
   gap: 16px;
 }
 
+.dashboard-filter-panel {
+  margin-bottom: 16px;
+}
+
+.dashboard-window-grid {
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  align-items: end;
+}
+
+.dashboard-custom-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .dashboard-primary-grid,
 .dashboard-secondary-grid {
   display: grid;
@@ -435,6 +450,14 @@ main {
 
 .chart-surface-small {
   min-height: 220px;
+}
+
+.row-side {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  align-content: start;
+  text-align: right;
 }
 
 .segmented-control {
@@ -985,7 +1008,7 @@ textarea {
 
 .cost-row {
   display: grid;
-  grid-template-columns: minmax(210px, 1.4fr) minmax(100px, .65fr) minmax(130px, .8fr) repeat(4, minmax(90px, .65fr));
+  grid-template-columns: minmax(210px, 1.4fr) minmax(100px, .65fr) minmax(130px, .8fr) repeat(4, minmax(90px, .65fr)) minmax(84px, .5fr);
   gap: 10px;
   align-items: center;
   border: 1px solid var(--line);
@@ -1001,6 +1024,30 @@ textarea {
   color: var(--muted);
   font-weight: 800;
   padding-top: 0;
+}
+
+.settings-nav {
+  justify-content: flex-start;
+}
+
+.settings-section {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-color-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.settings-color-grid label {
+  gap: 8px;
+}
+
+.settings-color-grid input[type="color"] {
+  height: 40px;
+  padding: 4px;
 }
 
 .empty-state {
@@ -1127,6 +1174,11 @@ textarea {
     justify-self: stretch;
     justify-content: flex-start;
     grid-template-columns: repeat(2, minmax(0, max-content));
+  }
+
+  .dashboard-window-grid,
+  .dashboard-custom-range {
+    grid-template-columns: 1fr;
   }
 
   .form-grid.four,

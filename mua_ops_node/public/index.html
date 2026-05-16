@@ -41,6 +41,30 @@
 
       <main>
         <section id="dashboard" class="view active">
+          <section class="panel dashboard-filter-panel">
+            <div class="panel-head">
+              <div>
+                <h2>Ventana temporal</h2>
+                <p id="dashboardWindowLabel">Todo el periodo</p>
+              </div>
+            </div>
+            <div class="filter-grid dashboard-window-grid">
+              <label>Periodo
+                <select id="dashboardWindowPreset">
+                  <option value="all">Todo el periodo</option>
+                  <option value="this_month">Este mes</option>
+                  <option value="last_3_months">Últimos 3 meses</option>
+                  <option value="last_6_months">Últimos 6 meses</option>
+                  <option value="this_year">Este año</option>
+                  <option value="custom">Ventana personalizada</option>
+                </select>
+              </label>
+              <div id="dashboardCustomRange" class="dashboard-custom-range hidden">
+                <label>Desde<input id="dashboardFrom" type="date"></label>
+                <label>Hasta<input id="dashboardTo" type="date"></label>
+              </div>
+            </div>
+          </section>
           <div id="dashboardCards" class="dashboard-kpis"></div>
           <div class="dashboard-layout">
             <div class="dashboard-primary-grid">
@@ -464,28 +488,31 @@
         </section>
 
         <section id="costs" class="view">
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Costes por material</h2>
-                <p id="costResultText">Coste medio ponderado por compras activas.</p>
+          <div class="entity-page">
+            <section id="costDetailPanel" class="panel entity-module hidden"></section>
+            <section class="panel entity-list-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Costes por material</h2>
+                  <p id="costResultText">Coste medio ponderado por compras activas.</p>
+                </div>
               </div>
-            </div>
-            <div class="filter-grid">
-              <label>Buscar<input id="costSearch" type="search" placeholder="Material o proveedor"></label>
-              <label>Categoria<select id="costCategoryFilter"></select></label>
-              <label>Orden
-                <select id="costSort">
-                  <option value="spend_desc">Mayor gasto</option>
-                  <option value="avg_desc">Mayor coste medio</option>
-                  <option value="name_asc">Nombre A-Z</option>
-                  <option value="lots_desc">Mas lotes</option>
-                </select>
-              </label>
-              <label class="check"><input id="costOnlyWithPurchases" type="checkbox"> Solo con compras</label>
-            </div>
-            <div id="costTable" class="table"></div>
-          </section>
+              <div class="filter-grid">
+                <label>Buscar<input id="costSearch" type="search" placeholder="Material o proveedor"></label>
+                <label>Categoria<select id="costCategoryFilter"></select></label>
+                <label>Orden
+                  <select id="costSort">
+                    <option value="spend_desc">Mayor gasto</option>
+                    <option value="avg_desc">Mayor coste medio</option>
+                    <option value="name_asc">Nombre A-Z</option>
+                    <option value="lots_desc">Mas lotes</option>
+                  </select>
+                </label>
+                <label class="check"><input id="costOnlyWithPurchases" type="checkbox"> Solo con compras</label>
+              </div>
+              <div id="costTable" class="table"></div>
+            </section>
+          </div>
         </section>
 
         <section id="kits" class="view">
@@ -536,78 +563,102 @@
                   <p>Ajustes básicos que hoy están por defecto y más adelante podremos ampliar.</p>
                 </div>
               </div>
-              <div class="form-grid four">
-                <label>Nombre de la app<input name="company_name"></label>
-                <label>Moneda<input name="currency"></label>
-                <label>Estado por defecto
-                  <select name="default_invoice_status">
-                    <option value="draft">Borrador</option>
-                    <option value="posted">Contabilizada</option>
-                    <option value="paid">Pagada</option>
-                    <option value="archived">Archivada</option>
-                  </select>
-                </label>
-                <label>Categoría por defecto
-                  <select name="default_invoice_category">
-                    <option value="materiales">Materiales</option>
-                    <option value="envios">Envíos</option>
-                    <option value="marketing">Marketing</option>
-                    <option value="software">Software</option>
-                    <option value="servicios">Servicios</option>
-                    <option value="otros">Otros</option>
-                  </select>
-                </label>
+              <div class="segmented-control settings-nav">
+                <button type="button" class="ghost is-active" data-settings-section="general">General</button>
+                <button type="button" class="ghost" data-settings-section="dashboard">Dashboard</button>
+                <button type="button" class="ghost" data-settings-section="cobros">Cobros</button>
+                <button type="button" class="ghost" data-settings-section="shopify">Shopify</button>
               </div>
-              <div class="form-grid two">
-                <label>Vista mensual inicial del dashboard
-                  <select name="dashboard_monthly_view">
-                    <option value="total">Gasto total</option>
-                    <option value="materiales">Materiales</option>
-                    <option value="marketing">Marketing</option>
-                    <option value="envios">Envíos</option>
-                  </select>
-                </label>
-                <label>Vista inicial de cobros en dashboard
-                  <select name="dashboard_income_monthly_view">
-                    <option value="cobros">Cobrado neto</option>
-                    <option value="channel_shopify">Shopify</option>
-                    <option value="channel_etsy">Etsy</option>
-                    <option value="channel_bizum">Bizum</option>
-                  </select>
-                </label>
-              </div>
-              <div class="form-grid two">
-                <label>Umbral base de stock bajo<input name="low_stock_default" inputmode="decimal"></label>
-                <div class="inline-note">
-                  La configuración queda preparada para crecer hacia reglas más finas de ingresos, inventario y alertas.
+
+              <section class="settings-section" data-settings-panel="general">
+                <div class="form-grid four">
+                  <label>Nombre de la app<input name="company_name"></label>
+                  <label>Moneda<input name="currency"></label>
+                  <label>Estado por defecto
+                    <select name="default_invoice_status">
+                      <option value="draft">Borrador</option>
+                      <option value="posted">Contabilizada</option>
+                      <option value="paid">Pagada</option>
+                      <option value="archived">Archivada</option>
+                    </select>
+                  </label>
+                  <label>Categoría por defecto
+                    <select name="default_invoice_category">
+                      <option value="materiales">Materiales</option>
+                      <option value="envios">Envíos</option>
+                      <option value="marketing">Marketing</option>
+                      <option value="software">Software</option>
+                      <option value="servicios">Servicios</option>
+                      <option value="otros">Otros</option>
+                    </select>
+                  </label>
                 </div>
-              </div>
-              <div class="form-grid four">
-                <label>Canal payout por defecto
-                  <select name="default_payout_channel">
-                    <option value="shopify">Shopify</option>
-                    <option value="etsy">Etsy</option>
-                    <option value="bizum">Bizum</option>
-                  </select>
-                </label>
-                <label>Estado payout por defecto
-                  <select name="default_payout_status"></select>
-                </label>
-                <label>Color total<input name="dashboard_color_total" type="color"></label>
-                <label>Color materiales<input name="dashboard_color_materiales" type="color"></label>
-                <label>Color marketing<input name="dashboard_color_marketing" type="color"></label>
-                <label>Color envíos<input name="dashboard_color_envios" type="color"></label>
-              </div>
-              <div class="form-grid four">
-                <label>Color cobros<input name="dashboard_color_cobros" type="color"></label>
-                <label>Color fees<input name="dashboard_color_fees" type="color"></label>
-                <label>Color Shopify<input name="dashboard_color_shopify" type="color"></label>
-                <label>Color Etsy<input name="dashboard_color_etsy" type="color"></label>
-              </div>
-              <div class="form-grid two">
-                <label>Color Bizum<input name="dashboard_color_bizum" type="color"></label>
-                <div></div>
-              </div>
+              </section>
+
+              <section class="settings-section hidden" data-settings-panel="dashboard">
+                <div class="form-grid three">
+                  <label>Vista mensual inicial de gastos
+                    <select name="dashboard_monthly_view">
+                      <option value="total">Gasto total</option>
+                      <option value="materiales">Materiales</option>
+                      <option value="marketing">Marketing</option>
+                      <option value="envios">Envíos</option>
+                    </select>
+                  </label>
+                  <label>Vista inicial de cobros
+                    <select name="dashboard_income_monthly_view">
+                      <option value="cobros">Cobrado neto</option>
+                      <option value="channel_shopify">Shopify</option>
+                      <option value="channel_etsy">Etsy</option>
+                      <option value="channel_bizum">Bizum</option>
+                    </select>
+                  </label>
+                  <label>Ventana temporal inicial
+                    <select name="dashboard_window_preset">
+                      <option value="all">Todo el periodo</option>
+                      <option value="this_month">Este mes</option>
+                      <option value="last_3_months">Últimos 3 meses</option>
+                      <option value="last_6_months">Últimos 6 meses</option>
+                      <option value="this_year">Este año</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="form-grid two">
+                  <label>Umbral base de stock bajo<input name="low_stock_default" inputmode="decimal"></label>
+                  <label>Multiplicador preventivo de reposición<input name="reorder_alert_multiplier" inputmode="decimal" placeholder="1.25"></label>
+                </div>
+                <div class="inline-note">
+                  Se mostrarán materiales próximos a reponer cuando su stock Shopify sea menor o igual que `punto de reposición x multiplicador`.
+                </div>
+                <div class="settings-color-grid">
+                  <label>Gasto total<input name="dashboard_color_total" type="color"></label>
+                  <label>Materiales<input name="dashboard_color_materiales" type="color"></label>
+                  <label>Marketing<input name="dashboard_color_marketing" type="color"></label>
+                  <label>Envíos<input name="dashboard_color_envios" type="color"></label>
+                  <label>Cobros<input name="dashboard_color_cobros" type="color"></label>
+                  <label>Fees<input name="dashboard_color_fees" type="color"></label>
+                  <label>Shopify<input name="dashboard_color_shopify" type="color"></label>
+                  <label>Etsy<input name="dashboard_color_etsy" type="color"></label>
+                  <label>Bizum<input name="dashboard_color_bizum" type="color"></label>
+                </div>
+              </section>
+
+              <section class="settings-section hidden" data-settings-panel="cobros">
+                <div class="form-grid two">
+                  <label>Canal payout por defecto
+                    <select name="default_payout_channel">
+                      <option value="shopify">Shopify</option>
+                      <option value="etsy">Etsy</option>
+                      <option value="bizum">Bizum</option>
+                    </select>
+                  </label>
+                  <label>Estado payout por defecto
+                    <select name="default_payout_status"></select>
+                  </label>
+                </div>
+              </section>
+
+              <section class="settings-section hidden" data-settings-panel="shopify">
               <section class="panel inset-panel">
                 <div class="panel-head">
                   <div>
@@ -643,6 +694,7 @@
                   </div>
                 </div>
                 <div id="shopifySyncStatus" class="list"></div>
+              </section>
               </section>
               <div class="row-actions">
                 <button type="submit">Guardar configuración</button>

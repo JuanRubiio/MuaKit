@@ -13,9 +13,14 @@
   dashboardSpendView: "suppliers",
   dashboardExpenseTrendView: "total",
   dashboardIncomeTrendView: "cobros",
+  dashboardWindowPreset: "all",
+  dashboardWindowFrom: "",
+  dashboardWindowTo: "",
+  settingsSection: "general",
   dashboardCharts: {},
   selectedInvoiceId: null,
   selectedPayoutId: null,
+  selectedCostMaterialId: null,
   invoiceLineFormOpen: false,
   shopifyAutoSyncTimer: null
 };
@@ -490,11 +495,19 @@ function sortRows(rows, sort, handlers) {
 
 async function loadSummary() {
   await api("/api/summary");
-  $("#summaryText").textContent = "";
+  const node = $("#summaryText");
+  node.textContent = "";
+  node.classList.add("hidden");
 }
 
 async function loadDashboardFinance() {
-  state.dashboardFinance = await api("/api/dashboard/finance");
+  const params = new URLSearchParams();
+  if (state.dashboardWindowPreset) params.set("preset", state.dashboardWindowPreset);
+  if (state.dashboardWindowPreset === "custom") {
+    if (state.dashboardWindowFrom) params.set("from", state.dashboardWindowFrom);
+    if (state.dashboardWindowTo) params.set("to", state.dashboardWindowTo);
+  }
+  state.dashboardFinance = await api(`/api/dashboard/finance${params.toString() ? `?${params}` : ""}`);
   renderDashboard();
 }
 
@@ -502,6 +515,7 @@ async function loadSettings() {
   state.settings = await api("/api/settings");
   state.dashboardExpenseTrendView = state.settings.dashboard_monthly_view || "total";
   state.dashboardIncomeTrendView = state.settings.dashboard_income_monthly_view || "cobros";
+  state.dashboardWindowPreset = state.settings.dashboard_window_preset || "all";
   renderSettings();
 }
 
@@ -815,21 +829,24 @@ function renderDashboard() {
   const k = finance.kpis;
   const expenseLabel = DASHBOARD_EXPENSE_LABELS[state.dashboardExpenseTrendView] || DASHBOARD_EXPENSE_LABELS.total;
   const incomeLabel = DASHBOARD_INCOME_LABELS[state.dashboardIncomeTrendView] || DASHBOARD_INCOME_LABELS.cobros;
+  $("#dashboardWindowLabel").textContent = finance.window?.label || "Todo el periodo";
+  if ($("#dashboardWindowPreset")) $("#dashboardWindowPreset").value = state.dashboardWindowPreset || "all";
+  if ($("#dashboardFrom")) $("#dashboardFrom").value = state.dashboardWindowFrom || "";
+  if ($("#dashboardTo")) $("#dashboardTo").value = state.dashboardWindowTo || "";
+  $("#dashboardCustomRange")?.classList.toggle("hidden", state.dashboardWindowPreset !== "custom");
   $("#dashboardExpenseTitle").textContent = "Gastos mensuales";
-  $("#dashboardExpenseText").textContent = `Lectura mensual de ${expenseLabel.toLocaleLowerCase("es")} para seguir el peso real de los gastos.`;
+  $("#dashboardExpenseText").textContent = `Lectura mensual de ${expenseLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
   $("#dashboardIncomeTitle").textContent = "Cobros mensuales";
-  $("#dashboardIncomeText").textContent = `Seguimiento de ${incomeLabel.toLocaleLowerCase("es")} con la misma paleta del resto de la app.`;
+  $("#dashboardIncomeText").textContent = `Seguimiento de ${incomeLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
   $("#dashboardCards").innerHTML = [
-    ["Gasto total", euro.format(k.total_expense), `${k.invoice_count} facturas activas`],
-    ["Cobrado neto", euro.format(k.total_net_received || 0), `${k.payout_count || 0} cobros activos`],
-    ["Mes actual gasto", euro.format(k.current_month_expense), "Seguimiento mensual"],
-    ["Mes actual cobrado", euro.format(k.current_month_net_received || 0), "Cobros del mes"],
-    ["Balance del mes", euro.format(k.current_month_balance || 0), "Cobros menos gasto"],
-    ["Fees del mes", euro.format(k.current_month_fees_received || 0), "Coste de cobro"],
-    ["Borrador", k.draft_invoice_count, "Pendientes de cerrar"],
-    ["Cobros pendientes", k.pending_payout_count || 0, "Pendientes o en tránsito"],
-    ["Materiales", euro.format(k.materials_expense), "Coste de compras"],
-    ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia"]
+    ["Gasto del periodo", euro.format(k.period_expense), `${k.invoice_count} facturas imputadas`],
+    ["Ingreso neto", euro.format(k.period_net_received || 0), `${k.payout_count || 0} cobros registrados`],
+    ["Balance", euro.format(k.period_balance || 0), "Ingresos menos gasto"],
+    ["Materiales", euro.format(k.materials_expense), "Compras del periodo"],
+    ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia"],
+    ["Envíos", euro.format(k.shipping_expense), "Coste logístico"],
+    ["Fees", euro.format(k.period_fees_received || 0), "Coste de cobro"],
+    ["Facturas del periodo", k.invoice_count, "Registros incluidos"]
   ].map(([label, value, hint]) => `
     <article class="card dashboard-kpi-card">
       <span>${label}</span>
@@ -1071,6 +1088,12 @@ function renderSettings() {
   });
   $$("[data-dashboard-income-trend-view]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.dashboardIncomeTrendView === state.dashboardIncomeTrendView);
+  });
+  $$("[data-settings-section]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.settingsSection === state.settingsSection);
+  });
+  $$(".settings-section").forEach((section) => {
+    section.classList.toggle("hidden", section.dataset.settingsPanel !== state.settingsSection);
   });
 }
 
@@ -1481,7 +1504,7 @@ function renderCosts() {
   });
   $("#costResultText").textContent = `${rows.length} materiales visibles.`;
   $("#costTable").innerHTML = `
-    <div class="cost-row header"><span>Material</span><span>Categoría</span><span>Proveedor</span><span>Coste medio</span><span>Último coste</span><span>Gasto</span><span>Lotes</span></div>
+    <div class="cost-row header"><span>Material</span><span>Categoría</span><span>Proveedor</span><span>Coste medio</span><span>Último coste</span><span>Gasto</span><span>Lotes</span><span></span></div>
     ${rows.map((row) => `
       <div class="cost-row">
         <strong data-label="Material">${text(row.name)}</strong>
@@ -1491,9 +1514,87 @@ function renderCosts() {
         <span data-label="Último coste">${row.last_unit_cost_inc_vat == null ? "-" : euro.format(number(row.last_unit_cost_inc_vat))}</span>
         <span data-label="Gasto">${euro.format(number(row.total_spend))}</span>
         <span data-label="Lotes">${row.purchase_lots || 0}</span>
+        <span data-label="Detalle"><button type="button" class="ghost" data-open-cost="${row.material_id}">Ver</button></span>
       </div>
     `).join("")}
   `;
+}
+
+async function openCostDetail(materialId) {
+  const detail = await api(`/api/costs/materials/${materialId}`);
+  state.selectedCostMaterialId = Number(materialId);
+  const panel = $("#costDetailPanel");
+  if (!panel) return;
+  const { summary, lots } = detail;
+  panel.classList.remove("hidden");
+  panel.innerHTML = `
+    <div class="panel-head">
+      <div>
+        <h2>${text(summary.name)}</h2>
+        <p>${text(summary.category)} · ${lots.length} lotes activos · coste medio ${summary.weighted_avg_unit_cost_inc_vat == null ? "-" : euro.format(number(summary.weighted_avg_unit_cost_inc_vat))}</p>
+      </div>
+      <button type="button" class="ghost" data-close-cost-detail>Cerrar</button>
+    </div>
+    <div id="costHistoryChart" class="chart-surface chart-surface-small"></div>
+    <div class="list compact">
+      ${lots.length ? lots.map((lot) => `
+        <article class="row">
+          <div class="row-main">
+            <strong>${text(lot.invoice_date)} · ${text(lot.supplier_name || "Sin proveedor")}</strong>
+            <div class="meta">${text(lot.invoice_number || "Sin número")} · ${lot.package_count} paquetes · ${lot.units_per_package} ud/paquete · ${lot.total_units} unidades</div>
+            ${lot.description ? `<p>${text(lot.description)}</p>` : ""}
+          </div>
+          <div class="row-side">
+            <strong>${lot.unit_cost == null ? "-" : euro.format(number(lot.unit_cost))}</strong>
+            <div class="meta">${euro.format(number(lot.line_total))}</div>
+          </div>
+        </article>
+      `).join("") : `<div class="empty-state small">Este material todavía no tiene lotes registrados.</div>`}
+    </div>
+  `;
+  renderCostHistoryChart(lots);
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderCostHistoryChart(lots) {
+  const chart = dashboardChart("costHistoryChart");
+  if (!chart) return;
+  const colors = chartColors();
+  chart.setOption({
+    animationDuration: 350,
+    grid: { left: 54, right: 18, top: 24, bottom: 36 },
+    tooltip: {
+      trigger: "axis",
+      valueFormatter: (value) => euro.format(Number(value || 0))
+    },
+    xAxis: {
+      type: "category",
+      data: lots.map((lot) => `${String(lot.invoice_date || "").slice(2)} · ${lot.invoice_number || "s/n"}`),
+      axisLine: { lineStyle: { color: "#c9bfb5" } },
+      axisLabel: { color: "#766e68", interval: 0, rotate: 18 }
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
+      splitLine: { lineStyle: { color: "#ede7df" } }
+    },
+    series: [{
+      name: "Coste por unidad",
+      type: "line",
+      smooth: true,
+      symbol: "circle",
+      symbolSize: 8,
+      lineStyle: { width: 3, color: colors.materiales },
+      itemStyle: { color: colors.materiales },
+      areaStyle: {
+        color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: `${colors.materiales}33` },
+          { offset: 1, color: `${colors.materiales}08` }
+        ])
+      },
+      data: lots.map((lot) => number(lot.unit_cost))
+    }]
+  }, true);
 }
 
 async function loadKits() {
@@ -1721,6 +1822,7 @@ async function saveSettings(event) {
   state.settings = await api("/api/settings", { method: "PATCH", body: JSON.stringify(data) });
   state.dashboardExpenseTrendView = state.settings.dashboard_monthly_view || "total";
   state.dashboardIncomeTrendView = state.settings.dashboard_income_monthly_view || "cobros";
+  state.dashboardWindowPreset = state.settings.dashboard_window_preset || "all";
   renderSettings();
   if (state.dashboardFinance) renderDashboard();
   toast("Configuración guardada");
@@ -1913,6 +2015,10 @@ function bindEvents() {
         renderSettings();
         renderDashboard();
       }
+      if (t.dataset.settingsSection) {
+        state.settingsSection = t.dataset.settingsSection;
+        renderSettings();
+      }
       if (t.dataset.newInvoice !== undefined) showInvoiceEditor();
       if (t.dataset.closeInvoicePanels !== undefined) closeInvoicePanels();
       if (t.dataset.newPayout !== undefined) showPayoutEditor();
@@ -1935,9 +2041,17 @@ function bindEvents() {
         const item = state.materials.find((m) => m.id == t.dataset.viewMaterial);
         showMaterialEditor(item);
       }
+      if (t.dataset.openCost) {
+        setActiveView("costs");
+        await openCostDetail(t.dataset.openCost);
+      }
       if (t.dataset.viewInvoice) {
         setActiveView("invoices");
         await openInvoiceWorkspace(t.dataset.viewInvoice);
+      }
+      if (t.dataset.closeCostDetail !== undefined) {
+        $("#costDetailPanel")?.classList.add("hidden");
+        state.selectedCostMaterialId = null;
       }
       if (t.dataset.openPayout) {
         setActiveView("income");
@@ -2104,6 +2218,24 @@ function bindEvents() {
   $("#invoicesDeleted")?.addEventListener("change", loadInvoices);
   $("#payoutsDeleted")?.addEventListener("change", loadIncome);
   $("#auditSearch")?.addEventListener("click", loadAudit);
+  $("#dashboardWindowPreset")?.addEventListener("change", async (event) => {
+    state.dashboardWindowPreset = event.currentTarget.value || "all";
+    if (state.dashboardWindowPreset !== "custom") {
+      state.dashboardWindowFrom = "";
+      state.dashboardWindowTo = "";
+    }
+    await loadDashboardFinance();
+  });
+  $("#dashboardFrom")?.addEventListener("change", async (event) => {
+    state.dashboardWindowFrom = event.currentTarget.value || "";
+    state.dashboardWindowPreset = "custom";
+    await loadDashboardFinance();
+  });
+  $("#dashboardTo")?.addEventListener("change", async (event) => {
+    state.dashboardWindowTo = event.currentTarget.value || "";
+    state.dashboardWindowPreset = "custom";
+    await loadDashboardFinance();
+  });
 
   window.addEventListener("resize", debounce(() => {
     Object.values(state.dashboardCharts).forEach((chart) => {

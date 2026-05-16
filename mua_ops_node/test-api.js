@@ -465,9 +465,9 @@ async function run() {
     assert(materialCost.purchase_lots === 2, "Restored invoice should affect costs again");
 
     const dashboard = await request("GET", "/api/dashboard/finance");
-    assert(dashboard.kpis.total_expense > 0, "Dashboard finance should aggregate invoice totals");
+    assert(dashboard.kpis.period_expense > 0, "Dashboard finance should aggregate invoice totals");
     assert(dashboard.kpis.materials_expense > 0, "Dashboard finance should aggregate material spend");
-    assert(dashboard.kpis.total_net_received > 0, "Dashboard finance should aggregate payout income");
+    assert(dashboard.kpis.period_net_received > 0, "Dashboard finance should aggregate payout income");
     assert(Array.isArray(dashboard.income_channels), "Dashboard finance should expose income by channel");
     assert(dashboard.monthly_breakdown.series.cobros.some((value) => value >= 0), "Dashboard finance should expose income monthly series");
     assert(Array.isArray(dashboard.monthly_breakdown.series.balance), "Dashboard finance should expose monthly balance");
