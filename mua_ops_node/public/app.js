@@ -172,7 +172,6 @@ function resetForm(id) {
   if (id === "lineForm") {
     $("#lineFormTitle").textContent = "Nueva línea";
     form.elements.invoice_id.value = state.selectedInvoiceId || "";
-    form.elements.affects_stock.checked = true;
     updateLinePreview();
   }
 }
@@ -863,7 +862,7 @@ function renderDashboard() {
       label: "Materiales a reponer",
       count: operational.reorder_materials.length,
       hint: operational.reorder_materials[0]
-        ? `${text(operational.reorder_materials[0].name)} · stock ${operational.reorder_materials[0].effective_stock_qty} / reposición ${operational.reorder_materials[0].reorder_point}`
+        ? `${text(operational.reorder_materials[0].name)} · stock ${operational.reorder_materials[0].effective_stock_qty} / aviso ${number(operational.reorder_materials[0].reorder_alert_threshold)}`
         : "Sin alertas de reposición",
       action: "materials",
       tone: operational.reorder_materials.length ? "warn" : "ok"
@@ -1388,9 +1387,7 @@ async function openInvoice(id, options = {}) {
         <label>Ud/paquete<input name="units_per_package" inputmode="decimal" value="1"></label>
         <label>Precio/paquete<input name="price_per_package" inputmode="decimal"></label>
       </div>
-      ${materialInvoice
-        ? `<label class="check"><input name="affects_stock" type="checkbox" checked> Afecta a stock</label>`
-        : `<input type="hidden" name="affects_stock" value="0">`}
+      <input type="hidden" name="affects_stock" value="0">
       <label>Notas<textarea name="notes" rows="2"></textarea></label>
       <div id="linePreview" class="calc-preview">
         <span><small>Unidades</small><strong data-preview-units>1</strong></span>
@@ -1803,10 +1800,10 @@ async function saveInvoice(event) {
 
 async function saveLineForm(form) {
   const data = formObject(form);
-    if (isMaterialInvoiceCategory(form.elements.invoice_category?.value || "") && !data.material_id) {
+  if (isMaterialInvoiceCategory(form.elements.invoice_category?.value || "") && !data.material_id) {
     throw new Error("Selecciona el material exacto antes de guardar la línea");
   }
-  data.affects_stock = form.elements.affects_stock?.type === "checkbox" ? form.elements.affects_stock.checked : false;
+  data.affects_stock = false;
   const id = data.id;
   const invoiceId = data.invoice_id || state.selectedInvoiceId;
   clientLog("line_submit_start", { id, invoiceId, data });
@@ -2006,7 +2003,7 @@ function bindEvents() {
         const detail = await api(`/api/invoices/${state.selectedInvoiceId}`);
         const line = detail.lines.find((item) => item.id == t.dataset.editLine);
         await openInvoice(state.selectedInvoiceId, { openForm: true });
-        setForm($("#lineForm"), { ...line, invoice_id: state.selectedInvoiceId, affects_stock: Boolean(line.affects_stock) });
+        setForm($("#lineForm"), { ...line, invoice_id: state.selectedInvoiceId });
         const material = state.materials.find((item) => item.id == line.material_id);
         if (material) {
           for (const field of MATERIAL_HIERARCHY) {
