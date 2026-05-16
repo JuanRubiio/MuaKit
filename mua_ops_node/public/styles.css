@@ -268,16 +268,40 @@ main {
 
 .dashboard-filter-panel {
   margin-bottom: 16px;
+  padding: 12px 16px;
 }
 
-.dashboard-window-grid {
-  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+.dashboard-filter-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.dashboard-filter-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.dashboard-filter-meta strong {
+  font-size: 13px;
+}
+
+.dashboard-filter-meta span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dashboard-filter-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(160px, 190px) minmax(0, 1fr);
+  gap: 12px;
   align-items: end;
 }
 
 .dashboard-custom-range {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(170px, 1fr));
   gap: 12px;
 }
 
@@ -1176,7 +1200,8 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, max-content));
   }
 
-  .dashboard-window-grid,
+  .dashboard-filter-row,
+  .dashboard-filter-controls,
   .dashboard-custom-range {
     grid-template-columns: 1fr;
   }

@@ -16,6 +16,7 @@
   dashboardWindowPreset: "all",
   dashboardWindowFrom: "",
   dashboardWindowTo: "",
+  dashboardGranularity: "auto",
   settingsSection: "general",
   dashboardCharts: {},
   selectedInvoiceId: null,
@@ -507,6 +508,7 @@ async function loadDashboardFinance() {
     if (state.dashboardWindowFrom) params.set("from", state.dashboardWindowFrom);
     if (state.dashboardWindowTo) params.set("to", state.dashboardWindowTo);
   }
+  if (state.dashboardGranularity) params.set("granularity", state.dashboardGranularity);
   state.dashboardFinance = await api(`/api/dashboard/finance${params.toString() ? `?${params}` : ""}`);
   renderDashboard();
 }
@@ -549,6 +551,17 @@ function compactMonths(months = []) {
   });
 }
 
+function compactTimeline(keys = [], mode = "month") {
+  if (mode === "day") {
+    return keys.map((key) => {
+      const [year, month, day] = String(key || "").split("-");
+      if (!year || !month || !day) return key;
+      return `${day}/${month}`;
+    });
+  }
+  return compactMonths(keys);
+}
+
 function renderDashboardCharts() {
   if (!$("#dashboard")?.classList.contains("active")) return;
   const finance = state.dashboardFinance;
@@ -556,15 +569,16 @@ function renderDashboardCharts() {
   const expenseKey = state.dashboardExpenseTrendView || "total";
   const incomeKey = state.dashboardIncomeTrendView || "cobros";
   const colors = chartColors();
-  const months = finance.monthly_breakdown?.months?.length ? finance.monthly_breakdown.months : finance.monthly_spend.map((row) => row.month);
-  const monthLabels = compactMonths(months);
-  const expenseValues = finance.monthly_breakdown?.series?.[expenseKey]?.length
-    ? finance.monthly_breakdown.series[expenseKey]
-    : finance.monthly_spend.map((row) => row.total);
-  const incomeValues = finance.monthly_breakdown?.series?.[incomeKey]?.length
-    ? finance.monthly_breakdown.series[incomeKey]
-    : finance.monthly_breakdown?.series?.cobros || [];
-  const balanceValues = finance.monthly_breakdown?.series?.balance || months.map((_, index) => number(finance.monthly_breakdown?.series?.cobros?.[index]) - number(finance.monthly_breakdown?.series?.total?.[index]));
+  const trend = finance.trend || {};
+  const keys = trend.keys?.length ? trend.keys : finance.monthly_breakdown?.months || [];
+  const labels = compactTimeline(keys, trend.mode || finance.granularity || "month");
+  const expenseValues = trend.series?.[expenseKey]?.length
+    ? trend.series[expenseKey]
+    : finance.monthly_breakdown?.series?.[expenseKey] || finance.monthly_spend.map((row) => row.total);
+  const incomeValues = trend.series?.[incomeKey]?.length
+    ? trend.series[incomeKey]
+    : finance.monthly_breakdown?.series?.[incomeKey] || finance.monthly_breakdown?.series?.cobros || [];
+  const balanceValues = trend.series?.balance || keys.map((_, index) => number(trend.series?.cobros?.[index]) - number(trend.series?.total?.[index]));
 
   const expenseChart = dashboardChart("dashboardExpenseChart");
   const incomeChart = dashboardChart("dashboardIncomeChart");
@@ -582,7 +596,7 @@ function renderDashboardCharts() {
     xAxis: {
       type: "category",
       boundaryGap: false,
-      data: monthLabels,
+      data: labels,
       axisLine: { lineStyle: { color: "#c9bfb5" } },
       axisLabel: { color: "#766e68" }
     },
@@ -617,7 +631,7 @@ function renderDashboardCharts() {
     xAxis: {
       type: "category",
       boundaryGap: false,
-      data: monthLabels,
+      data: labels,
       axisLine: { lineStyle: { color: "#c9bfb5" } },
       axisLabel: { color: "#766e68" }
     },
@@ -651,7 +665,7 @@ function renderDashboardCharts() {
     legend: { top: 0, textStyle: { color: "#766e68" } },
     xAxis: {
       type: "category",
-      data: monthLabels,
+      data: labels,
       axisLine: { lineStyle: { color: "#c9bfb5" } },
       axisLabel: { color: "#766e68" }
     },
@@ -666,14 +680,14 @@ function renderDashboardCharts() {
         type: "bar",
         barMaxWidth: 22,
         itemStyle: { color: colors.fees, borderRadius: [6, 6, 0, 0] },
-        data: finance.monthly_breakdown?.series?.total || []
+        data: trend.series?.total || finance.monthly_breakdown?.series?.total || []
       },
       {
         name: "Cobro neto",
         type: "bar",
         barMaxWidth: 22,
         itemStyle: { color: colors.cobros, borderRadius: [6, 6, 0, 0] },
-        data: finance.monthly_breakdown?.series?.cobros || []
+        data: trend.series?.cobros || finance.monthly_breakdown?.series?.cobros || []
       },
       {
         name: "Balance",
@@ -829,14 +843,16 @@ function renderDashboard() {
   const k = finance.kpis;
   const expenseLabel = DASHBOARD_EXPENSE_LABELS[state.dashboardExpenseTrendView] || DASHBOARD_EXPENSE_LABELS.total;
   const incomeLabel = DASHBOARD_INCOME_LABELS[state.dashboardIncomeTrendView] || DASHBOARD_INCOME_LABELS.cobros;
+  const trendWord = (finance.granularity || "month") === "day" ? "diarios" : "mensuales";
   $("#dashboardWindowLabel").textContent = finance.window?.label || "Todo el periodo";
   if ($("#dashboardWindowPreset")) $("#dashboardWindowPreset").value = state.dashboardWindowPreset || "all";
   if ($("#dashboardFrom")) $("#dashboardFrom").value = state.dashboardWindowFrom || "";
   if ($("#dashboardTo")) $("#dashboardTo").value = state.dashboardWindowTo || "";
+  if ($("#dashboardGranularity")) $("#dashboardGranularity").value = state.dashboardGranularity || "auto";
   $("#dashboardCustomRange")?.classList.toggle("hidden", state.dashboardWindowPreset !== "custom");
-  $("#dashboardExpenseTitle").textContent = "Gastos mensuales";
-  $("#dashboardExpenseText").textContent = `Lectura mensual de ${expenseLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
-  $("#dashboardIncomeTitle").textContent = "Cobros mensuales";
+  $("#dashboardExpenseTitle").textContent = `Gastos ${trendWord}`;
+  $("#dashboardExpenseText").textContent = `Lectura de ${expenseLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
+  $("#dashboardIncomeTitle").textContent = `Cobros ${trendWord}`;
   $("#dashboardIncomeText").textContent = `Seguimiento de ${incomeLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
   $("#dashboardCards").innerHTML = [
     ["Gasto del periodo", euro.format(k.period_expense), `${k.invoice_count} facturas imputadas`],
@@ -2234,6 +2250,10 @@ function bindEvents() {
   $("#dashboardTo")?.addEventListener("change", async (event) => {
     state.dashboardWindowTo = event.currentTarget.value || "";
     state.dashboardWindowPreset = "custom";
+    await loadDashboardFinance();
+  });
+  $("#dashboardGranularity")?.addEventListener("change", async (event) => {
+    state.dashboardGranularity = event.currentTarget.value || "auto";
     await loadDashboardFinance();
   });
 

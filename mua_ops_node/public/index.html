@@ -42,26 +42,33 @@
       <main>
         <section id="dashboard" class="view active">
           <section class="panel dashboard-filter-panel">
-            <div class="panel-head">
-              <div>
-                <h2>Ventana temporal</h2>
-                <p id="dashboardWindowLabel">Todo el periodo</p>
+            <div class="dashboard-filter-row">
+              <div class="dashboard-filter-meta">
+                <strong>Ventana temporal</strong>
+                <span id="dashboardWindowLabel">Todo el periodo</span>
               </div>
-            </div>
-            <div class="filter-grid dashboard-window-grid">
-              <label>Periodo
-                <select id="dashboardWindowPreset">
-                  <option value="all">Todo el periodo</option>
-                  <option value="this_month">Este mes</option>
-                  <option value="last_3_months">Últimos 3 meses</option>
-                  <option value="last_6_months">Últimos 6 meses</option>
-                  <option value="this_year">Este año</option>
-                  <option value="custom">Ventana personalizada</option>
-                </select>
-              </label>
-              <div id="dashboardCustomRange" class="dashboard-custom-range hidden">
-                <label>Desde<input id="dashboardFrom" type="date"></label>
-                <label>Hasta<input id="dashboardTo" type="date"></label>
+              <div class="dashboard-filter-controls">
+                <label>Periodo
+                  <select id="dashboardWindowPreset">
+                    <option value="all">Todo el periodo</option>
+                    <option value="this_month">Este mes</option>
+                    <option value="last_3_months">Últimos 3 meses</option>
+                    <option value="last_6_months">Últimos 6 meses</option>
+                    <option value="this_year">Este año</option>
+                    <option value="custom">Ventana personalizada</option>
+                  </select>
+                </label>
+                <label>Granularidad
+                  <select id="dashboardGranularity">
+                    <option value="auto">Auto</option>
+                    <option value="month">Mensual</option>
+                    <option value="day">Diaria</option>
+                  </select>
+                </label>
+                <div id="dashboardCustomRange" class="dashboard-custom-range hidden">
+                  <label>Desde<input id="dashboardFrom" type="date"></label>
+                  <label>Hasta<input id="dashboardTo" type="date"></label>
+                </div>
               </div>
             </div>
           </section>

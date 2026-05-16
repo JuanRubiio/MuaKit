@@ -1841,6 +1841,40 @@ function monthSpan(from, to, fallbackMonths = []) {
   return months;
 }
 
+function daySpan(from, to, fallbackDays = []) {
+  if (!from || !to) return fallbackDays;
+  const days = [];
+  let cursor = new Date(from);
+  const limit = new Date(to);
+  cursor.setHours(0, 0, 0, 0);
+  limit.setHours(0, 0, 0, 0);
+  while (cursor <= limit) {
+    days.push(formatIsoDate(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+}
+
+function daysBetween(from, to) {
+  if (!from || !to) return null;
+  const start = new Date(from);
+  const end = new Date(to);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  return Math.round((end - start) / 86400000) + 1;
+}
+
+function normalizeTrendGranularity(options = {}, window = {}) {
+  const requested = String(options.granularity || "auto").trim() || "auto";
+  if (requested === "day") return "day";
+  if (requested === "month") return "month";
+  if (window.from && window.to) {
+    const span = daysBetween(window.from, window.to);
+    if (span && span <= 45) return "day";
+  }
+  return "month";
+}
+
 function normalizePayoutBody(body = {}) {
   const channel = String(body.channel || "shopify").trim().toLowerCase();
   const grossAmount = n(body.gross_amount);
@@ -2045,6 +2079,7 @@ function importEtsyPayouts(directory = ETSY_PAYOUTS_DIR) {
 
 function dashboardFinance(options = {}) {
   const window = normalizeDashboardWindow(options);
+  const granularity = normalizeTrendGranularity(options, window);
   const allInvoices = activeInvoicesWithMeta();
   const allPayouts = activePayouts();
   const invoices = allInvoices.filter((invoice) => dateInRange(invoice.invoice_date, window.from, window.to));
@@ -2069,48 +2104,52 @@ function dashboardFinance(options = {}) {
     };
   });
 
-  const monthlyMap = new Map();
-  const monthlyBreakdownMap = new Map();
+  const trendTotalMap = new Map();
+  const trendBreakdownMap = new Map();
+  const bucketKey = (date) => granularity === "day" ? String(date || "").slice(0, 10) : String(date || "").slice(0, 7);
   for (const invoice of invoices) {
-    const key = String(invoice.invoice_date || "").slice(0, 7);
+    const key = bucketKey(invoice.invoice_date);
     if (!key) continue;
-    monthlyMap.set(key, (monthlyMap.get(key) || 0) + n(invoice.total));
-    const bucket = monthlyBreakdownMap.get(key) || { total: 0 };
+    trendTotalMap.set(key, (trendTotalMap.get(key) || 0) + n(invoice.total));
+    const bucket = trendBreakdownMap.get(key) || { total: 0 };
     bucket.total += n(invoice.total);
     bucket[invoice.category] = (bucket[invoice.category] || 0) + n(invoice.total);
-    monthlyBreakdownMap.set(key, bucket);
+    trendBreakdownMap.set(key, bucket);
   }
   for (const payout of payouts) {
-    const key = String(payout.payout_date || "").slice(0, 7);
+    const key = bucketKey(payout.payout_date);
     if (!key) continue;
-    const bucket = monthlyBreakdownMap.get(key) || { total: 0 };
+    const bucket = trendBreakdownMap.get(key) || { total: 0 };
     bucket.cobros = (bucket.cobros || 0) + n(payout.net_amount);
     bucket.fees = (bucket.fees || 0) + n(payout.fees_amount);
     bucket[`channel_${payout.channel}`] = (bucket[`channel_${payout.channel}`] || 0) + n(payout.net_amount);
-    monthlyBreakdownMap.set(key, bucket);
+    trendBreakdownMap.set(key, bucket);
   }
-  const baseMonths = Array.from(monthlyBreakdownMap.keys()).sort((a, b) => a.localeCompare(b));
-  const monthsFromWindow = monthSpan(window.from, window.to, baseMonths);
-  const monthlySpend = (monthsFromWindow.length ? monthsFromWindow : baseMonths)
+  const baseKeys = Array.from(trendBreakdownMap.keys()).sort((a, b) => a.localeCompare(b));
+  const keysFromWindow = granularity === "day"
+    ? daySpan(window.from, window.to, baseKeys)
+    : monthSpan(window.from, window.to, baseKeys);
+  const trendKeys = (keysFromWindow.length ? keysFromWindow : baseKeys)
     .slice(-12)
-    .map((month) => ({ month, total: n(monthlyMap.get(month)) }));
-  const monthlySpendMonths = monthlySpend.map((row) => row.month);
-  const monthlyBreakdown = {
-    months: monthlySpendMonths,
+    .map((key) => ({ key, total: n(trendTotalMap.get(key)) }));
+  const trendLabelKeys = trendKeys.map((row) => row.key);
+  const trend = {
+    mode: granularity,
+    keys: trendLabelKeys,
     series: {
-      total: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.total)),
-      materiales: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.materiales)),
-      marketing: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.marketing)),
-      envios: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.envios)),
-      cobros: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.cobros)),
-      fees: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.fees)),
-      balance: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.cobros) - n(monthlyBreakdownMap.get(month)?.total)),
-      servicios: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.servicios)),
-      software: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.software)),
-      otros: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.otros)),
-      channel_shopify: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.channel_shopify)),
-      channel_etsy: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.channel_etsy)),
-      channel_bizum: monthlySpendMonths.map((month) => n(monthlyBreakdownMap.get(month)?.channel_bizum))
+      total: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.total)),
+      materiales: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.materiales)),
+      marketing: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.marketing)),
+      envios: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.envios)),
+      cobros: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.cobros)),
+      fees: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.fees)),
+      balance: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.cobros) - n(trendBreakdownMap.get(key)?.total)),
+      servicios: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.servicios)),
+      software: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.software)),
+      otros: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.otros)),
+      channel_shopify: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.channel_shopify)),
+      channel_etsy: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.channel_etsy)),
+      channel_bizum: trendLabelKeys.map((key) => n(trendBreakdownMap.get(key)?.channel_bizum))
     }
   };
 
@@ -2239,6 +2278,7 @@ function dashboardFinance(options = {}) {
 
   return {
     window,
+    granularity,
     kpis: {
       period_expense: totalExpense,
       draft_invoice_count: draftInvoices.length,
@@ -2252,8 +2292,9 @@ function dashboardFinance(options = {}) {
       pending_payout_count: Number(income.pending_count || 0),
       period_balance: totalNetReceived - totalExpense
     },
-    monthly_spend: monthlySpend,
-    monthly_breakdown: monthlyBreakdown,
+    monthly_spend: trendKeys,
+    monthly_breakdown: { months: trendLabelKeys, series: trend.series },
+    trend,
     category_spend: categorySpend.filter((row) => row.total > 0 || row.count > 0),
     income,
     income_channels: incomeChannels,
