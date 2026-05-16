@@ -537,7 +537,14 @@ function dashboardChart(id) {
   const node = document.getElementById(id);
   if (!node) return null;
   const existing = state.dashboardCharts[id];
-  if (existing) return existing;
+  if (existing) {
+    const currentDom = typeof existing.getDom === "function" ? existing.getDom() : null;
+    if (currentDom === node) return existing;
+    if (!(typeof existing.isDisposed === "function" && existing.isDisposed())) {
+      existing.dispose();
+    }
+    delete state.dashboardCharts[id];
+  }
   const chart = window.echarts.init(node, null, { renderer: "canvas" });
   state.dashboardCharts[id] = chart;
   return chart;
@@ -966,26 +973,11 @@ async function loadIncome() {
 }
 
 function renderIncome() {
-  const summary = state.incomeSummary;
-  if (!summary) return;
-  $("#incomeSummaryCards").innerHTML = [
-    ["Cobrado neto", euro.format(number(summary.total_net_amount)), `${summary.payout_count || 0} cobros`],
-    ["Bruto", euro.format(number(summary.total_gross_amount)), "Importe antes de fees"],
-    ["Fees", euro.format(number(summary.total_fees_amount)), "Coste acumulado de cobro"],
-    ["Mes actual", euro.format(number(summary.current_month_net_amount)), "Neto cobrado del mes"],
-    ["Fees mes", euro.format(number(summary.current_month_fees_amount)), "Fees del mes"],
-    ["Pendientes", summary.pending_count || 0, summary.last_payout_date ? `Último cobro ${text(summary.last_payout_date)}` : "Sin cobros todavía"]
-  ].map(([label, value, hint]) => `
-    <article class="card dashboard-kpi-card">
-      <span>${label}</span>
-      <strong>${value}</strong>
-      <small>${hint}</small>
-    </article>
-  `).join("");
+  if (!state.incomeSummary) return;
   renderPayouts();
 }
 
-function renderPayouts() {
+function filteredPayoutRows() {
   let rows = [...state.payouts];
   rows = applyTextSearch(rows, $("#payoutSearch")?.value, ["channel", "bank_reference", "raw_source_file", "notes"]);
   const channel = $("#payoutChannelFilter")?.value;
@@ -996,6 +988,29 @@ function renderPayouts() {
   if (status) rows = rows.filter((row) => row.status === status);
   if (from) rows = rows.filter((row) => String(row.payout_date || "") >= from);
   if (to) rows = rows.filter((row) => String(row.payout_date || "") <= to);
+  return rows;
+}
+
+function renderIncomeSummaryCards(rows) {
+  const pending = rows.filter((row) => !["paid", "executed"].includes(String(row.status || "")));
+  const lastPayoutDate = rows.length ? [...rows].sort((a, b) => String(b.payout_date || "").localeCompare(String(a.payout_date || "")))[0].payout_date : "";
+  $("#incomeSummaryCards").innerHTML = [
+    ["Cobrado neto", euro.format(rows.reduce((sum, row) => sum + number(row.net_amount), 0)), `${rows.length} cobros visibles`],
+    ["Bruto", euro.format(rows.reduce((sum, row) => sum + number(row.gross_amount), 0)), "Importe antes de fees"],
+    ["Fees", euro.format(rows.reduce((sum, row) => sum + number(row.fees_amount), 0)), "Coste acumulado de cobro"],
+    ["Pendientes", pending.length, lastPayoutDate ? `Último cobro ${text(lastPayoutDate)}` : "Sin cobros todavía"]
+  ].map(([label, value, hint]) => `
+    <article class="card dashboard-kpi-card">
+      <span>${label}</span>
+      <strong>${value}</strong>
+      <small>${hint}</small>
+    </article>
+  `).join("");
+}
+
+function renderPayouts() {
+  let rows = filteredPayoutRows();
+  renderIncomeSummaryCards(rows);
   rows = sortRows(rows, $("#payoutSort")?.value, {
     date_asc: (a, b) => String(a.payout_date).localeCompare(String(b.payout_date)),
     net_desc: (a, b) => number(b.net_amount) - number(a.net_amount),
