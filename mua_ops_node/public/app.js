@@ -18,6 +18,7 @@
   dashboardWindowFrom: "",
   dashboardWindowTo: "",
   dashboardGranularity: "auto",
+  auditScope: "business",
   settingsSection: "general",
   dashboardCharts: {},
   selectedInvoiceId: null,
@@ -79,6 +80,64 @@ const MATERIAL_HIERARCHY = [
   { key: "base_material", label: "Material", empty: "Todos", materialOnly: false },
   { key: "finish", label: "Acabado", empty: "Todos", materialOnly: false }
 ];
+const AUDIT_ENTITY_LABELS = {
+  material: "Material",
+  supplier: "Proveedor",
+  invoice: "Factura",
+  invoice_line: "Línea de factura",
+  channel_payout: "Cobro",
+  kit_recipe: "Kit",
+  kit_recipe_item: "Material de kit",
+  sales_order: "Pedido",
+  document: "Documento",
+  app_settings: "Configuración",
+  system: "Sistema",
+  shopify_product: "Shopify",
+  client: "Cliente"
+};
+const AUDIT_ACTION_LABELS = {
+  create: "Creación",
+  update: "Edición",
+  archive: "Archivado",
+  restore: "Restauración",
+  duplicate: "Duplicado",
+  backup_create: "Backup",
+  import_create: "Importación",
+  import_update: "Actualización importada",
+  legacy_import: "Importación histórica",
+  shopify_auto_create: "Alta automática Shopify",
+  shopify_api_create: "Alta Shopify",
+  shopify_api_update: "Actualización Shopify",
+  shopify_api_inventory: "Stock Shopify",
+  shopify_sync_create: "Alta sincronizada",
+  shopify_sync_update: "Actualización sincronizada"
+};
+const AUDIT_FIELD_LABELS = {
+  name: "nombre",
+  category: "categoría",
+  unit: "unidad",
+  status: "estado",
+  supplier_id: "proveedor",
+  supplier_name: "proveedor",
+  invoice_number: "número",
+  invoice_date: "fecha",
+  total: "total",
+  subtotal: "subtotal",
+  shipping_fee: "envío",
+  tax_amount: "IVA",
+  gross_amount: "bruto",
+  net_amount: "neto",
+  fees_amount: "fees",
+  payout_date: "fecha cobro",
+  stock_reorder_point: "punto reposición",
+  stock_target_qty: "stock objetivo",
+  effective_stock_qty: "stock Shopify",
+  quantity_per_kit: "cantidad por kit",
+  price_per_package: "precio por paquete",
+  units_per_package: "ud/paquete",
+  package_count: "paquetes",
+  is_complete: "completo"
+};
 
 function chartColors() {
   const settings = state.settings || {};
@@ -312,6 +371,99 @@ function hierarchyParts(material) {
 
 function hierarchySummary(material) {
   return hierarchyParts(material).join(" · ");
+}
+
+function parseAuditJson(value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function auditEntityLabel(value) {
+  return AUDIT_ENTITY_LABELS[value] || value;
+}
+
+function auditActionLabel(value) {
+  return AUDIT_ACTION_LABELS[value] || value;
+}
+
+function formatAuditTimestamp(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return text(value);
+  return text(date.toLocaleString("es-ES", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }));
+}
+
+function normalizeAuditField(field) {
+  return AUDIT_FIELD_LABELS[field] || String(field || "").replaceAll("_", " ");
+}
+
+function auditDiffFields(before, after) {
+  const base = before || {};
+  const next = after || {};
+  const keys = Array.from(new Set([...Object.keys(base), ...Object.keys(next)]));
+  return keys.filter((key) => !["id", "created_at", "updated_at", "synced_at", "last_seen_at", "last_inventory_sync_at"].includes(key))
+    .filter((key) => JSON.stringify(base[key] ?? null) !== JSON.stringify(next[key] ?? null));
+}
+
+function auditEntityTitle(row, before, after) {
+  const source = after || before || {};
+  if (row.entity_type === "material") return source.name || `Material #${row.entity_id}`;
+  if (row.entity_type === "supplier") return source.name || `Proveedor #${row.entity_id}`;
+  if (row.entity_type === "invoice") return source.invoice_number || `Factura #${row.entity_id}`;
+  if (row.entity_type === "invoice_line") return source.description || source.material_name || `Línea #${row.entity_id}`;
+  if (row.entity_type === "channel_payout") return source.bank_reference || `${channelLabel(source.channel || "")} · ${source.payout_date || `Cobro #${row.entity_id}`}`;
+  if (row.entity_type === "kit_recipe") return source.name || `Kit #${row.entity_id}`;
+  if (row.entity_type === "kit_recipe_item") return source.material_name || `Material de kit #${row.entity_id}`;
+  if (row.entity_type === "sales_order") return source.order_number || source.external_id || `Pedido #${row.entity_id}`;
+  if (row.entity_type === "document") return source.original_name || source.stored_name || `Documento #${row.entity_id}`;
+  if (row.entity_type === "shopify_product") return source.title || source.handle || `Producto Shopify #${row.entity_id}`;
+  if (row.entity_type === "app_settings") return "Configuración general";
+  if (row.entity_type === "system") return source.label || "Sistema";
+  if (row.entity_type === "client") return source.message || source.action || "Evento cliente";
+  return `${auditEntityLabel(row.entity_type)} #${row.entity_id}`;
+}
+
+function auditSummary(row, before, after) {
+  const source = after || before || {};
+  const changed = auditDiffFields(before, after).slice(0, 4).map(normalizeAuditField);
+  const changedText = changed.length ? `Cambios: ${changed.join(", ")}.` : "";
+  if (row.action === "create") return `Se creó ${auditEntityLabel(row.entity_type).toLowerCase()}.`;
+  if (row.action === "update") return changedText || `Se actualizó ${auditEntityLabel(row.entity_type).toLowerCase()}.`;
+  if (row.action === "archive") return `Se archivó ${auditEntityLabel(row.entity_type).toLowerCase()}.`;
+  if (row.action === "restore") return `Se restauró ${auditEntityLabel(row.entity_type).toLowerCase()}.`;
+  if (row.action === "duplicate") return `Se duplicó ${auditEntityLabel(row.entity_type).toLowerCase()}.`;
+  if (row.action === "backup_create") return `Se creó una copia de seguridad en ${source.filename || "disco local"}.`;
+  if (row.action === "import_create") return `Entrada incorporada desde importación.`;
+  if (row.action === "import_update") return changedText || `Entrada actualizada desde importación.`;
+  if (row.action === "legacy_import") return `Entrada recuperada desde la migración histórica.`;
+  if (row.action === "shopify_auto_create") return `Material creado automáticamente a partir del inventario de Shopify.`;
+  if (row.action === "shopify_sync_create") return `Pedido o cobro incorporado desde Shopify.`;
+  if (row.action === "shopify_sync_update") return changedText || `Pedido o cobro actualizado desde Shopify.`;
+  if (row.entity_type === "client") return source.message || "Evento técnico registrado desde el navegador.";
+  if (row.entity_type === "system") return source.message || source.filename || "Evento técnico del sistema.";
+  return changedText || auditActionLabel(row.action);
+}
+
+function auditJump(row, before, after) {
+  const source = after || before || {};
+  if (row.entity_type === "material") return { label: "Abrir material", attrs: `data-view-material="${row.entity_id}"` };
+  if (row.entity_type === "supplier") return { label: "Abrir proveedor", attrs: `data-view-supplier="${row.entity_id}"` };
+  if (row.entity_type === "invoice") return { label: "Abrir factura", attrs: `data-view-invoice="${row.entity_id}"` };
+  if (row.entity_type === "invoice_line" && source.invoice_id) return { label: "Abrir factura", attrs: `data-view-invoice="${source.invoice_id}"` };
+  if (row.entity_type === "channel_payout") return { label: "Abrir cobro", attrs: `data-open-payout="${row.entity_id}"` };
+  if (row.entity_type === "kit_recipe") return { label: "Abrir kit", attrs: `data-open-kit="${row.entity_id}"` };
+  if (row.entity_type === "kit_recipe_item" && source.recipe_id) return { label: "Abrir kit", attrs: `data-open-kit="${source.recipe_id}"` };
+  return null;
 }
 
 function activeMaterials() {
@@ -1756,17 +1908,55 @@ function bindKitItemForm() {
 }
 
 async function loadAudit() {
-  const entity = encodeURIComponent($("#auditEntity").value || "");
-  const id = encodeURIComponent($("#auditId").value || "");
-  const rows = await api(`/api/audit-log?entity=${entity}&id=${id}`);
-  $("#auditList").innerHTML = rows.map((row) => `
-    <article class="row">
-      <div class="row-main">
-        <strong>${text(row.entity_type)} #${row.entity_id} · ${text(row.action)}</strong>
-        <div class="meta">${text(row.created_at)} · ${text(row.actor)}</div>
-      </div>
-    </article>
-  `).join("") || `<div class="empty-state">No hay cambios con esos filtros.</div>`;
+  const params = new URLSearchParams({
+    scope: state.auditScope || "business",
+    entity: $("#auditEntity").value || "",
+    action: $("#auditAction").value || "",
+    id: $("#auditId").value || "",
+    q: $("#auditQuery").value || "",
+    from: $("#auditFrom").value || "",
+    to: $("#auditTo").value || "",
+    limit: "200"
+  });
+  const rows = await api(`/api/audit-log?${params.toString()}`);
+  const scopeLabel = state.auditScope === "technical" ? "técnica" : state.auditScope === "all" ? "completa" : "de negocio";
+  $("#auditSummary").textContent = rows.length ? `${rows.length} eventos en la vista ${scopeLabel}.` : `Sin actividad en la vista ${scopeLabel}.`;
+  $("#auditList").innerHTML = rows.map((row) => {
+    const before = parseAuditJson(row.before_json);
+    const after = parseAuditJson(row.after_json);
+    const jump = auditJump(row, before, after);
+    return `
+      <article class="audit-card">
+        <div class="audit-card-head">
+          <div class="row-main">
+            <strong>${text(auditEntityTitle(row, before, after))}</strong>
+            <div class="meta">${formatAuditTimestamp(row.created_at)} · ${text(row.actor)}</div>
+            <div class="tags">
+              ${badge(auditEntityLabel(row.entity_type))}
+              ${badge(auditActionLabel(row.action), row.action === "archive" ? "warn" : row.action === "restore" || row.action === "create" ? "ok" : "")}
+              ${state.auditScope !== "business" && (row.entity_type === "client" || row.entity_type === "shopify_product" || row.entity_type === "system") ? badge("técnico", "warn") : ""}
+              ${row.entity_id ? badge(`ID ${row.entity_id}`) : ""}
+            </div>
+            <div class="audit-note">${text(auditSummary(row, before, after))}</div>
+          </div>
+          <div class="row-actions slim">
+            ${jump ? `<button type="button" ${jump.attrs}>${text(jump.label)}</button>` : ""}
+          </div>
+        </div>
+      </article>
+    `;
+  }).join("") || `<div class="empty-state"><strong>Sin actividad visible</strong>Prueba con otra ventana, entidad o cambia a la vista técnica.</div>`;
+}
+
+function resetAuditFilters() {
+  $("#auditQuery").value = "";
+  $("#auditEntity").value = "";
+  $("#auditAction").value = "";
+  $("#auditId").value = "";
+  $("#auditFrom").value = "";
+  $("#auditTo").value = "";
+  state.auditScope = "business";
+  $$("#auditScopeTabs button").forEach((button) => button.classList.toggle("is-active", button.dataset.auditScope === state.auditScope));
 }
 
 async function saveMaterial(event) {
@@ -2069,6 +2259,11 @@ function bindEvents() {
         state.settingsSection = t.dataset.settingsSection;
         renderSettings();
       }
+      if (t.dataset.auditScope) {
+        state.auditScope = t.dataset.auditScope;
+        $$("#auditScopeTabs button").forEach((button) => button.classList.toggle("is-active", button.dataset.auditScope === state.auditScope));
+        await loadAudit();
+      }
       if (t.dataset.newInvoice !== undefined) showInvoiceEditor();
       if (t.dataset.closeInvoicePanels !== undefined) closeInvoicePanels();
       if (t.dataset.newPayout !== undefined) showPayoutEditor();
@@ -2270,6 +2465,15 @@ function bindEvents() {
   $("#invoicesDeleted")?.addEventListener("change", loadInvoices);
   $("#payoutsDeleted")?.addEventListener("change", loadIncome);
   $("#auditSearch")?.addEventListener("click", loadAudit);
+  $("#auditReset")?.addEventListener("click", () => {
+    resetAuditFilters();
+    loadAudit().catch((error) => toast(error.message));
+  });
+  ["#auditQuery", "#auditEntity", "#auditAction", "#auditId", "#auditFrom", "#auditTo"].forEach((selector) => {
+    $(selector)?.addEventListener(selector === "#auditQuery" || selector === "#auditId" ? "input" : "change", debounce(() => {
+      loadAudit().catch((error) => toast(error.message));
+    }, selector === "#auditQuery" ? 180 : 0));
+  });
   $("#dashboardWindowPreset")?.addEventListener("change", async (event) => {
     state.dashboardWindowPreset = event.currentTarget.value || "all";
     if (state.dashboardWindowPreset !== "custom") {

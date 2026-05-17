@@ -6,7 +6,7 @@ const initSqlJs = require("sql.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const SERVER = path.join(__dirname, "server.js");
-const TEST_DIR = path.join(ROOT, "data", "mua_ops_test");
+const TEST_DIR = path.join(ROOT, "data", `mua_ops_test_${process.pid}_${Date.now()}`);
 const PORT = 5065;
 const SHOPIFY_MOCK_PORT = 5066;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
@@ -15,10 +15,29 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function rmWithRetry(target) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      fs.rmSync(target, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!["EPERM", "EBUSY"].includes(error.code) || attempt === 5) throw error;
+      sleepMs(150 * (attempt + 1));
+    }
+  }
+  if (lastError) throw lastError;
+}
+
 function cleanTestDir() {
   const resolved = path.resolve(TEST_DIR);
   assert(resolved.startsWith(path.join(ROOT, "data")), "Test directory must stay inside data/");
-  fs.rmSync(resolved, { recursive: true, force: true });
+  rmWithRetry(resolved);
   fs.mkdirSync(resolved, { recursive: true });
 }
 

@@ -756,6 +756,69 @@ textarea {
   margin-top: 8px;
 }
 
+.audit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.audit-summary {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.audit-filter-grid {
+  align-items: end;
+}
+
+.audit-filter-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.audit-card {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.audit-card + .audit-card {
+  margin-top: 10px;
+}
+
+.audit-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.audit-card-head strong {
+  display: block;
+  font-size: 17px;
+}
+
+.audit-card .meta {
+  margin-top: 6px;
+}
+
+.audit-note {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.audit-card .tags {
+  margin-top: 10px;
+}
+
 .danger-text {
   color: var(--danger) !important;
 }
@@ -1241,6 +1304,14 @@ textarea {
     justify-self: stretch;
     justify-content: flex-start;
     grid-template-columns: repeat(2, minmax(0, max-content));
+  }
+
+  .audit-filter-actions {
+    justify-content: stretch;
+  }
+
+  .audit-filter-actions button {
+    flex: 1;
   }
 
   .dashboard-filter-row,

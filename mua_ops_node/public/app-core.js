@@ -16,6 +16,7 @@ async function api(path, options = {}) {
 }
 
 function clientLog(action, context = {}, level = "info") {
+  if (["app_init_success", "line_submit_start", "line_submit_success"].includes(String(action || ""))) return;
   fetch("/api/client-log", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

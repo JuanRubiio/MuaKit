@@ -25,7 +25,7 @@
         <button class="tab" data-view="kits">Kits</button>
       </nav>
       <nav class="tabs tabs-meta">
-        <button class="tab" data-view="audit">Historial</button>
+        <button class="tab" data-view="audit">Actividad</button>
         <button class="tab" data-view="settings">Configuración</button>
       </nav>
     </aside>
@@ -741,14 +741,60 @@
           <section class="panel">
             <div class="panel-head">
               <div>
-                <h2>Historial</h2>
-                <p>Cambios registrados por entidad.</p>
+                <h2>Actividad</h2>
+                <p>Seguimiento de cambios recientes para retomar trabajo, revisar ediciones y detectar incidencias.</p>
               </div>
             </div>
-            <div class="filter-grid">
-              <label>Entidad<input id="auditEntity" placeholder="material, invoice, supplier..."></label>
+            <div class="audit-head">
+              <div class="segmented-control" id="auditScopeTabs">
+                <button type="button" data-audit-scope="business" class="is-active">Negocio</button>
+                <button type="button" data-audit-scope="technical">Técnico</button>
+                <button type="button" data-audit-scope="all">Todo</button>
+              </div>
+              <div class="audit-summary" id="auditSummary"></div>
+            </div>
+            <div class="filter-grid audit-filter-grid">
+              <label>Buscar<input id="auditQuery" placeholder="Nombre, número, proveedor, acción..."></label>
+              <label>Entidad
+                <select id="auditEntity">
+                  <option value="">Todas</option>
+                  <option value="material">Materiales</option>
+                  <option value="supplier">Proveedores</option>
+                  <option value="invoice">Facturas</option>
+                  <option value="invoice_line">Líneas de factura</option>
+                  <option value="channel_payout">Cobros</option>
+                  <option value="kit_recipe">Kits</option>
+                  <option value="kit_recipe_item">Materiales de kit</option>
+                  <option value="sales_order">Pedidos</option>
+                  <option value="document">Documentos</option>
+                  <option value="app_settings">Configuración</option>
+                  <option value="system">Sistema</option>
+                  <option value="shopify_product">Shopify</option>
+                  <option value="client">Cliente</option>
+                </select>
+              </label>
+              <label>Acción
+                <select id="auditAction">
+                  <option value="">Todas</option>
+                  <option value="create">Creación</option>
+                  <option value="update">Edición</option>
+                  <option value="archive">Archivado</option>
+                  <option value="restore">Restauración</option>
+                  <option value="duplicate">Duplicado</option>
+                  <option value="backup_create">Backup</option>
+                  <option value="import_create">Importación</option>
+                  <option value="import_update">Actualización importada</option>
+                  <option value="shopify_sync_create">Sync Shopify alta</option>
+                  <option value="shopify_sync_update">Sync Shopify actualización</option>
+                </select>
+              </label>
               <label>ID<input id="auditId" inputmode="numeric" placeholder="ID"></label>
-              <button id="auditSearch" type="button">Buscar</button>
+              <label>Desde<input id="auditFrom" type="date"></label>
+              <label>Hasta<input id="auditTo" type="date"></label>
+              <div class="audit-filter-actions">
+                <button id="auditSearch" type="button">Actualizar</button>
+                <button id="auditReset" type="button" class="ghost">Limpiar</button>
+              </div>
             </div>
             <div id="auditList" class="list"></div>
           </section>
