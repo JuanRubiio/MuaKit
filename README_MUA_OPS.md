@@ -115,6 +115,36 @@ La estabilizacion tecnica se trabaja en:
 codex/technical-stabilization
 ```
 
+## Metodologia SDD
+
+A partir de la estabilizacion tecnica, Mua Ops adopta una metodologia SDD
+ligera. La documentacion principal esta en:
+
+```text
+docs\README.md
+docs\sdd\README.md
+```
+
+Regla practica: si un cambio toca dinero, stock, Shopify, pedidos, margen,
+migraciones o seguridad, debe tener spec antes de implementarse.
+
+Plantillas:
+
+```text
+docs\sdd\spec-template.md
+docs\sdd\adr-template.md
+docs\sdd\hardness-checklist.md
+```
+
+Specs retrospectivas del trabajo ya implementado:
+
+```text
+docs\specs\000-retro-mua-ops-mvp-v0.1.md
+docs\specs\001-retro-shopify-direct-sync.md
+docs\specs\002-retro-income-and-finance-dashboard.md
+docs\specs\003-retro-technical-stabilization-v0.2.md
+```
+
 ## Criterio
 
 Los PDFs e imagenes son soporte documental. La verdad operativa es el dato
