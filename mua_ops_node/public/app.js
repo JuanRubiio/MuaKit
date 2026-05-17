@@ -1425,7 +1425,6 @@ function renderTechnicalLogs() {
       </article>
     `;
   }).join("") || `<div class="empty-state"><strong>Sin eventos técnicos visibles</strong>Ajusta el nivel, el origen o la búsqueda para ampliar la vista.</div>`;
-  }
 }
 
 async function maybeRunShopifyAutoSync() {
