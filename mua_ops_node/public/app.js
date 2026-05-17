@@ -87,7 +87,7 @@ const AUDIT_ENTITY_LABELS = {
   supplier: "Proveedor",
   invoice: "Factura",
   invoice_line: "Línea de factura",
-  channel_payout: "Cobro",
+  channel_payout: "Ingreso",
   kit_recipe: "Kit",
   kit_recipe_item: "Material de kit",
   sales_order: "Pedido",
@@ -436,7 +436,7 @@ function auditEntityTitle(row, before, after) {
   if (row.entity_type === "supplier") return source.name || `Proveedor #${row.entity_id}`;
   if (row.entity_type === "invoice") return source.invoice_number || `Factura #${row.entity_id}`;
   if (row.entity_type === "invoice_line") return source.description || source.material_name || `Línea #${row.entity_id}`;
-  if (row.entity_type === "channel_payout") return source.bank_reference || `${channelLabel(source.channel || "")} · ${source.payout_date || `Cobro #${row.entity_id}`}`;
+  if (row.entity_type === "channel_payout") return source.bank_reference || `${channelLabel(source.channel || "")} · ${source.payout_date || `Ingreso #${row.entity_id}`}`;
   if (row.entity_type === "kit_recipe") return source.name || `Kit #${row.entity_id}`;
   if (row.entity_type === "kit_recipe_item") return source.material_name || `Material de kit #${row.entity_id}`;
   if (row.entity_type === "sales_order") return source.order_number || source.external_id || `Pedido #${row.entity_id}`;
@@ -462,8 +462,8 @@ function auditSummary(row, before, after) {
   if (row.action === "import_update") return changedText || `Entrada actualizada desde importación.`;
   if (row.action === "legacy_import") return `Entrada recuperada desde la migración histórica.`;
   if (row.action === "shopify_auto_create") return `Material creado automáticamente a partir del inventario de Shopify.`;
-  if (row.action === "shopify_sync_create") return `Pedido o cobro incorporado desde Shopify.`;
-  if (row.action === "shopify_sync_update") return changedText || `Pedido o cobro actualizado desde Shopify.`;
+  if (row.action === "shopify_sync_create") return `Pedido o ingreso incorporado desde Shopify.`;
+  if (row.action === "shopify_sync_update") return changedText || `Pedido o ingreso actualizado desde Shopify.`;
   if (row.entity_type === "client") return source.message || "Evento técnico registrado desde el navegador.";
   if (row.entity_type === "system") return source.message || source.filename || "Evento técnico del sistema.";
   return changedText || auditActionLabel(row.action);
@@ -489,13 +489,45 @@ function technicalLogMessage(row) {
   return after.message || auditSummary(row, null, after);
 }
 
+function technicalLogContext(row) {
+  const after = parseAuditJson(row.after_json) || {};
+  return after.context || {};
+}
+
+function buildTechnicalLogClipboardText(row) {
+  const payload = parseAuditJson(row.after_json) || {};
+  const context = payload.context || {};
+  return [
+    `Acción: ${auditActionLabel(row.action)}`,
+    `Origen: ${technicalLogSource(row)}`,
+    `Nivel: ${TECHNICAL_LOG_LEVELS[technicalLogLevel(row)] || technicalLogLevel(row)}`,
+    `Fecha: ${row.created_at}`,
+    `Actor: ${row.actor || ""}`,
+    `Mensaje: ${technicalLogMessage(row)}`,
+    `Contexto: ${JSON.stringify(context, null, 2)}`
+  ].join("\n");
+}
+
+async function copyToClipboard(textValue) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(textValue);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = textValue;
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
+}
+
 function auditJump(row, before, after) {
   const source = after || before || {};
   if (row.entity_type === "material") return { label: "Abrir material", attrs: `data-open-audit-material="${row.entity_id}"` };
   if (row.entity_type === "supplier") return { label: "Abrir proveedor", attrs: `data-open-audit-supplier="${row.entity_id}"` };
   if (row.entity_type === "invoice") return { label: "Abrir factura", attrs: `data-view-invoice="${row.entity_id}"` };
   if (row.entity_type === "invoice_line" && source.invoice_id) return { label: "Abrir factura", attrs: `data-view-invoice="${source.invoice_id}"` };
-  if (row.entity_type === "channel_payout") return { label: "Abrir cobro", attrs: `data-open-payout="${row.entity_id}"` };
+  if (row.entity_type === "channel_payout") return { label: "Abrir ingreso", attrs: `data-open-payout="${row.entity_id}"` };
   if (row.entity_type === "kit_recipe") return { label: "Abrir kit", attrs: `data-open-kit="${row.entity_id}"` };
   if (row.entity_type === "kit_recipe_item" && source.recipe_id) return { label: "Abrir kit", attrs: `data-open-kit="${source.recipe_id}"` };
   return null;
@@ -655,7 +687,7 @@ async function loadShopifyConnection() {
 async function loadSystemHealth() {
   const [health, technicalAudit] = await Promise.all([
     api("/api/system/health"),
-    api("/api/audit-log?scope=technical&limit=12")
+    api("/api/audit-log?scope=technical&limit=50")
   ]);
   state.systemHealth = health;
   state.technicalAudit = technicalAudit;
@@ -821,7 +853,7 @@ function renderDashboardCharts() {
         data: trend.series?.total || finance.monthly_breakdown?.series?.total || []
       },
       {
-        name: "Cobro neto",
+        name: "Ingreso neto",
         type: "bar",
         barMaxWidth: 22,
         itemStyle: { color: colors.cobros, borderRadius: [6, 6, 0, 0] },
@@ -999,7 +1031,7 @@ function renderDashboard() {
     ["Materiales", euro.format(k.materials_expense), "Compras del periodo"],
     ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia"],
     ["Envíos", euro.format(k.shipping_expense), "Coste logístico"],
-    ["Fees", euro.format(k.period_fees_received || 0), "Coste de cobro"],
+    ["Fees", euro.format(k.period_fees_received || 0), "Comisiones de cobro"],
     ["Facturas del periodo", k.invoice_count, "Registros incluidos"]
   ].map(([label, value, hint]) => `
     <article class="card dashboard-kpi-card">
@@ -1128,7 +1160,7 @@ function renderIncomeSummaryCards(rows) {
   $("#incomeSummaryCards").innerHTML = [
     ["Ingreso neto", euro.format(rows.reduce((sum, row) => sum + number(row.net_amount), 0)), `${rows.length} ingresos visibles`],
     ["Bruto", euro.format(rows.reduce((sum, row) => sum + number(row.gross_amount), 0)), "Importe antes de fees"],
-    ["Fees", euro.format(rows.reduce((sum, row) => sum + number(row.fees_amount), 0)), "Coste acumulado de cobro"],
+    ["Fees", euro.format(rows.reduce((sum, row) => sum + number(row.fees_amount), 0)), "Comisiones acumuladas"],
     ["Pendientes", pending.length, lastPayoutDate ? `Último ingreso ${text(lastPayoutDate)}` : "Sin ingresos todavía"]
   ].map(([label, value, hint]) => `
     <article class="card dashboard-kpi-card">
@@ -1198,7 +1230,7 @@ async function openPayout(id) {
         ${badge(payoutStatusLabel(payout.status), ["paid", "executed"].includes(payout.status) ? "ok" : "warn")}
         ${badge(payout.currency || "EUR")}
         ${payout.channel === "etsy" ? badge("Depósito neto", "warn") : ""}
-        ${payout.channel === "bizum" ? badge("Cobro directo", "ok") : ""}
+        ${payout.channel === "bizum" ? badge("Ingreso directo", "ok") : ""}
       </div>
     </div>
     <div class="form-grid three">
@@ -1312,13 +1344,15 @@ function renderSystemHealth() {
   const cards = $("#systemHealthCards");
   const summary = $("#systemHealthSummary");
   const backups = $("#systemHealthBackups");
+  const incidents = $("#systemHealthIncidents");
   const schema = $("#systemHealthSchema");
   const shopify = $("#systemHealthShopify");
-  if (!cards || !summary || !backups || !schema || !shopify) return;
+  if (!cards || !summary || !backups || !incidents || !schema || !shopify) return;
   if (!health) {
     cards.innerHTML = "";
     summary.textContent = "Diagnóstico no disponible.";
     backups.innerHTML = "";
+    incidents.innerHTML = "";
     schema.innerHTML = "";
     shopify.innerHTML = "";
     return;
@@ -1350,6 +1384,22 @@ function renderSystemHealth() {
         <div class="meta">Tamaño · ${health.backups.latest.size_bytes || 0} bytes</div>
         <code>${text(health.backups.latest.name || "")}</code>
       ` : `<div class="meta">Todavía no existe una copia registrada.</div>`}
+    </article>
+  `;
+
+  const recentErrors = (state.technicalAudit || []).filter((row) => technicalLogLevel(row) === "error");
+  const recentWarnings = (state.technicalAudit || []).filter((row) => technicalLogLevel(row) === "warn");
+  const latestIncident = [...(state.technicalAudit || [])]
+    .filter((row) => ["error", "warn"].includes(technicalLogLevel(row)))
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0];
+
+  incidents.innerHTML = `
+    <article class="diagnostics-row">
+      <strong>Incidencias recientes</strong>
+      <div class="meta">Errores · ${recentErrors.length}</div>
+      <div class="meta">Warnings · ${recentWarnings.length}</div>
+      <div class="meta">Última incidencia · ${latestIncident ? formatAuditTimestamp(latestIncident.created_at) : "sin incidencias recientes"}</div>
+      <div class="meta">${latestIncident ? text(technicalLogMessage(latestIncident)) : "El sistema no ha registrado errores o warnings recientes."}</div>
     </article>
   `;
 
@@ -1408,6 +1458,7 @@ function renderTechnicalLogs() {
   list.innerHTML = rows.map((row) => {
     const rowLevel = technicalLogLevel(row);
     const rowSource = technicalLogSource(row);
+    const context = technicalLogContext(row);
     return `
       <article class="audit-card technical-log-card">
         <div class="audit-card-head">
@@ -1419,6 +1470,10 @@ function renderTechnicalLogs() {
               ${badge(rowSource === "client" ? "Cliente" : rowSource === "system" ? "Sistema" : "Shopify")}
             </div>
             <div class="audit-note">${text(technicalLogMessage(row))}</div>
+            ${Object.keys(context).length ? `<div class="meta">Contexto disponible para copia</div>` : ""}
+          </div>
+          <div class="row-actions slim">
+            <button type="button" class="ghost" data-copy-technical-log="${row.id}">Copiar detalle</button>
           </div>
         </div>
       </article>
@@ -2407,6 +2462,12 @@ function bindEvents() {
         const item = state.materials.find((m) => m.id == t.dataset.openAuditMaterial);
         showMaterialEditor(item);
       }
+      if (t.dataset.copyTechnicalLog) {
+        const row = (state.technicalAudit || []).find((item) => String(item.id) === String(t.dataset.copyTechnicalLog));
+        if (!row) throw new Error("No se encontró el log técnico");
+        await copyToClipboard(buildTechnicalLogClipboardText(row));
+        toast("Detalle técnico copiado");
+      }
       if (t.dataset.openCost) {
         setActiveView("costs");
         await openCostDetail(t.dataset.openCost);
@@ -2448,8 +2509,8 @@ function bindEvents() {
       if (t.dataset.restoreMaterial) await archiveOrRestore(`/api/materials/${t.dataset.restoreMaterial}/restore`, "Material restaurado");
       if (t.dataset.deleteSupplier) await archiveOrRestore(`/api/suppliers/${t.dataset.deleteSupplier}`, "Proveedor archivado");
       if (t.dataset.restoreSupplier) await archiveOrRestore(`/api/suppliers/${t.dataset.restoreSupplier}/restore`, "Proveedor restaurado");
-      if (t.dataset.deletePayout) await archiveOrRestore(`/api/channel-payouts/${t.dataset.deletePayout}`, "Cobro archivado");
-      if (t.dataset.restorePayout) await archiveOrRestore(`/api/channel-payouts/${t.dataset.restorePayout}/restore`, "Cobro restaurado");
+      if (t.dataset.deletePayout) await archiveOrRestore(`/api/channel-payouts/${t.dataset.deletePayout}`, "Ingreso archivado");
+      if (t.dataset.restorePayout) await archiveOrRestore(`/api/channel-payouts/${t.dataset.restorePayout}/restore`, "Ingreso restaurado");
       if (t.dataset.openKit) await openKitWorkspace(t.dataset.openKit);
       if (t.dataset.closeKitDetail !== undefined) $("#kitDetailPanel")?.classList.add("hidden");
       if (t.dataset.toggleKitComplete) {
