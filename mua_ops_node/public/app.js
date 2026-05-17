@@ -18,14 +18,15 @@
   dashboardWindowFrom: "",
   dashboardWindowTo: "",
   dashboardGranularity: "auto",
-  auditScope: "business",
+  auditLane: "all",
   settingsSection: "general",
   dashboardCharts: {},
   selectedInvoiceId: null,
   selectedPayoutId: null,
   selectedCostMaterialId: null,
   invoiceLineFormOpen: false,
-  shopifyAutoSyncTimer: null
+  shopifyAutoSyncTimer: null,
+  technicalAudit: []
 };
 
 const CATEGORIES = ["kit", "joya", "cadena", "topping", "packaging", "consumible", "servicio", "material"];
@@ -137,6 +138,13 @@ const AUDIT_FIELD_LABELS = {
   units_per_package: "ud/paquete",
   package_count: "paquetes",
   is_complete: "completo"
+};
+const AUDIT_LANE_ENTITIES = {
+  all: [],
+  invoices: ["invoice", "invoice_line"],
+  income: ["channel_payout", "sales_order"],
+  materials: ["material", "kit_recipe", "kit_recipe_item"],
+  suppliers: ["supplier"]
 };
 
 function chartColors() {
@@ -456,8 +464,8 @@ function auditSummary(row, before, after) {
 
 function auditJump(row, before, after) {
   const source = after || before || {};
-  if (row.entity_type === "material") return { label: "Abrir material", attrs: `data-view-material="${row.entity_id}"` };
-  if (row.entity_type === "supplier") return { label: "Abrir proveedor", attrs: `data-view-supplier="${row.entity_id}"` };
+  if (row.entity_type === "material") return { label: "Abrir material", attrs: `data-open-audit-material="${row.entity_id}"` };
+  if (row.entity_type === "supplier") return { label: "Abrir proveedor", attrs: `data-open-audit-supplier="${row.entity_id}"` };
   if (row.entity_type === "invoice") return { label: "Abrir factura", attrs: `data-view-invoice="${row.entity_id}"` };
   if (row.entity_type === "invoice_line" && source.invoice_id) return { label: "Abrir factura", attrs: `data-view-invoice="${source.invoice_id}"` };
   if (row.entity_type === "channel_payout") return { label: "Abrir cobro", attrs: `data-open-payout="${row.entity_id}"` };
@@ -618,7 +626,12 @@ async function loadShopifyConnection() {
 }
 
 async function loadSystemHealth() {
-  state.systemHealth = await api("/api/system/health");
+  const [health, technicalAudit] = await Promise.all([
+    api("/api/system/health"),
+    api("/api/audit-log?scope=technical&limit=12")
+  ]);
+  state.systemHealth = health;
+  state.technicalAudit = technicalAudit;
   renderSystemHealth();
 }
 
@@ -1270,6 +1283,7 @@ function renderSystemHealth() {
   const backups = $("#systemHealthBackups");
   const schema = $("#systemHealthSchema");
   const shopify = $("#systemHealthShopify");
+  const activity = $("#systemHealthActivity");
   if (!cards || !summary || !backups || !schema || !shopify) return;
   if (!health) {
     cards.innerHTML = "";
@@ -1277,6 +1291,7 @@ function renderSystemHealth() {
     backups.innerHTML = "";
     schema.innerHTML = "";
     shopify.innerHTML = "";
+    if (activity) activity.innerHTML = "";
     return;
   }
   cards.innerHTML = [
@@ -1334,6 +1349,25 @@ function renderSystemHealth() {
         : ""}
     </article>
   `;
+
+  if (activity) {
+    activity.innerHTML = `
+      <article class="diagnostics-row">
+        <strong>Actividad técnica reciente</strong>
+        <div class="meta">Eventos del cliente, sistema y sincronización para diagnóstico.</div>
+      </article>
+      ${state.technicalAudit.map((row) => {
+        const after = parseAuditJson(row.after_json);
+        return `
+          <article class="diagnostics-row">
+            <strong>${text(auditActionLabel(row.action))}</strong>
+            <div class="meta">${formatAuditTimestamp(row.created_at)} · ${text(row.actor)}</div>
+            <div class="meta">${text(auditSummary(row, null, after))}</div>
+          </article>
+        `;
+      }).join("") || `<div class="empty-state small">No hay actividad técnica reciente.</div>`}
+    `;
+  }
 }
 
 async function maybeRunShopifyAutoSync() {
@@ -1909,7 +1943,7 @@ function bindKitItemForm() {
 
 async function loadAudit() {
   const params = new URLSearchParams({
-    scope: state.auditScope || "business",
+    scope: "business",
     entity: $("#auditEntity").value || "",
     action: $("#auditAction").value || "",
     id: $("#auditId").value || "",
@@ -1918,9 +1952,18 @@ async function loadAudit() {
     to: $("#auditTo").value || "",
     limit: "200"
   });
-  const rows = await api(`/api/audit-log?${params.toString()}`);
-  const scopeLabel = state.auditScope === "technical" ? "técnica" : state.auditScope === "all" ? "completa" : "de negocio";
-  $("#auditSummary").textContent = rows.length ? `${rows.length} eventos en la vista ${scopeLabel}.` : `Sin actividad en la vista ${scopeLabel}.`;
+  let rows = await api(`/api/audit-log?${params.toString()}`);
+  const lane = state.auditLane || "all";
+  const allowedEntities = AUDIT_LANE_ENTITIES[lane] || [];
+  if (allowedEntities.length) rows = rows.filter((row) => allowedEntities.includes(row.entity_type));
+  const laneLabels = {
+    all: "toda la actividad de negocio",
+    invoices: "facturas",
+    income: "ingresos",
+    materials: "materiales y kits",
+    suppliers: "proveedores"
+  };
+  $("#auditSummary").textContent = rows.length ? `${rows.length} eventos en ${laneLabels[lane] || "actividad"}.` : `Sin actividad reciente en ${laneLabels[lane] || "esta vista"}.`;
   $("#auditList").innerHTML = rows.map((row) => {
     const before = parseAuditJson(row.before_json);
     const after = parseAuditJson(row.after_json);
@@ -1955,8 +1998,8 @@ function resetAuditFilters() {
   $("#auditId").value = "";
   $("#auditFrom").value = "";
   $("#auditTo").value = "";
-  state.auditScope = "business";
-  $$("#auditScopeTabs button").forEach((button) => button.classList.toggle("is-active", button.dataset.auditScope === state.auditScope));
+  state.auditLane = "all";
+  $$("#auditLaneTabs button").forEach((button) => button.classList.toggle("is-active", button.dataset.auditLane === state.auditLane));
 }
 
 async function saveMaterial(event) {
@@ -2259,9 +2302,9 @@ function bindEvents() {
         state.settingsSection = t.dataset.settingsSection;
         renderSettings();
       }
-      if (t.dataset.auditScope) {
-        state.auditScope = t.dataset.auditScope;
-        $$("#auditScopeTabs button").forEach((button) => button.classList.toggle("is-active", button.dataset.auditScope === state.auditScope));
+      if (t.dataset.auditLane) {
+        state.auditLane = t.dataset.auditLane;
+        $$("#auditLaneTabs button").forEach((button) => button.classList.toggle("is-active", button.dataset.auditLane === state.auditLane));
         await loadAudit();
       }
       if (t.dataset.newInvoice !== undefined) showInvoiceEditor();
@@ -2286,6 +2329,16 @@ function bindEvents() {
       }
       if (t.dataset.viewMaterial) {
         const item = state.materials.find((m) => m.id == t.dataset.viewMaterial);
+        showMaterialEditor(item);
+      }
+      if (t.dataset.openAuditSupplier) {
+        setActiveView("suppliers");
+        const item = state.suppliers.find((s) => s.id == t.dataset.openAuditSupplier);
+        showSupplierEditor(item);
+      }
+      if (t.dataset.openAuditMaterial) {
+        setActiveView("materials");
+        const item = state.materials.find((m) => m.id == t.dataset.openAuditMaterial);
         showMaterialEditor(item);
       }
       if (t.dataset.openCost) {
@@ -2464,7 +2517,6 @@ function bindEvents() {
   $("#suppliersDeleted")?.addEventListener("change", loadSuppliers);
   $("#invoicesDeleted")?.addEventListener("change", loadInvoices);
   $("#payoutsDeleted")?.addEventListener("change", loadIncome);
-  $("#auditSearch")?.addEventListener("click", loadAudit);
   $("#auditReset")?.addEventListener("click", () => {
     resetAuditFilters();
     loadAudit().catch((error) => toast(error.message));

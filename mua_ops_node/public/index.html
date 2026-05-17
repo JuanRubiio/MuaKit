@@ -726,6 +726,7 @@
                     <div class="stack-form">
                       <div id="systemHealthSchema" class="list"></div>
                       <div id="systemHealthShopify" class="list"></div>
+                      <div id="systemHealthActivity" class="list"></div>
                     </div>
                   </div>
                 </section>
@@ -746,10 +747,12 @@
               </div>
             </div>
             <div class="audit-head">
-              <div class="segmented-control" id="auditScopeTabs">
-                <button type="button" data-audit-scope="business" class="is-active">Negocio</button>
-                <button type="button" data-audit-scope="technical">Técnico</button>
-                <button type="button" data-audit-scope="all">Todo</button>
+              <div class="segmented-control" id="auditLaneTabs">
+                <button type="button" data-audit-lane="all" class="is-active">Todo</button>
+                <button type="button" data-audit-lane="invoices">Facturas</button>
+                <button type="button" data-audit-lane="income">Ingresos</button>
+                <button type="button" data-audit-lane="materials">Materiales</button>
+                <button type="button" data-audit-lane="suppliers">Proveedores</button>
               </div>
               <div class="audit-summary" id="auditSummary"></div>
             </div>
@@ -792,7 +795,6 @@
               <label>Desde<input id="auditFrom" type="date"></label>
               <label>Hasta<input id="auditTo" type="date"></label>
               <div class="audit-filter-actions">
-                <button id="auditSearch" type="button">Actualizar</button>
                 <button id="auditReset" type="button" class="ghost">Limpiar</button>
               </div>
             </div>

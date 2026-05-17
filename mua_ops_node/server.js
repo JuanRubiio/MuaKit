@@ -3062,7 +3062,7 @@ function createApp() {
          ) LIKE $q)
          AND (
            ($scope = 'technical' AND entity_type IN ('client', 'shopify_product', 'system'))
-           OR ($scope = 'business' AND entity_type NOT IN ('client', 'shopify_product'))
+           OR ($scope = 'business' AND entity_type NOT IN ('client', 'shopify_product', 'system'))
            OR ($scope = 'all')
          )
        ORDER BY id DESC
