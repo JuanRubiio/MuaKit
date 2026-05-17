@@ -81,7 +81,7 @@
                     <h2 id="dashboardExpenseTitle">Gastos mensuales</h2>
                     <p id="dashboardExpenseText">Lectura mensual del gasto operativo por bloque principal.</p>
                   </div>
-                  <div class="segmented-control">
+                  <div class="segmented-control dashboard-trend-switch">
                     <button type="button" class="ghost is-active" data-dashboard-expense-trend-view="total">Total</button>
                     <button type="button" class="ghost" data-dashboard-expense-trend-view="materiales">Materiales</button>
                     <button type="button" class="ghost" data-dashboard-expense-trend-view="marketing">Marketing</button>
@@ -97,7 +97,7 @@
                     <h2 id="dashboardIncomeTitle">Ingresos mensuales</h2>
                     <p id="dashboardIncomeText">Seguimiento del ingreso neto y peso por canal.</p>
                   </div>
-                  <div class="segmented-control">
+                  <div class="segmented-control dashboard-trend-switch">
                     <button type="button" class="ghost is-active" data-dashboard-income-trend-view="cobros">Cobrado neto</button>
                     <button type="button" class="ghost" data-dashboard-income-trend-view="channel_shopify">Shopify</button>
                     <button type="button" class="ghost" data-dashboard-income-trend-view="channel_etsy">Etsy</button>
@@ -221,6 +221,7 @@
                 <label class="check"><input id="invoicesDeleted" type="checkbox"> Archivadas</label>
               </div>
               <div id="invoiceList" class="invoice-list table-list"></div>
+              <div id="invoicePagination" class="pagination-bar"></div>
             </section>
 
             <form id="invoiceForm" class="panel invoice-module hidden">
@@ -317,6 +318,7 @@
                 <label class="check"><input id="payoutsDeleted" type="checkbox"> Archivados</label>
               </div>
               <div id="payoutList" class="invoice-list table-list"></div>
+              <div id="payoutPagination" class="pagination-bar"></div>
             </section>
 
             <form id="payoutForm" class="panel entity-module hidden">
@@ -400,6 +402,7 @@
                 <label class="check"><input id="materialsDeleted" type="checkbox"> Archivados</label>
               </div>
               <div id="materialList" class="list material-list"></div>
+              <div id="materialPagination" class="pagination-bar"></div>
             </section>
 
             <form id="materialForm" class="panel entity-module hidden">
@@ -468,6 +471,7 @@
                 <label class="check"><input id="suppliersDeleted" type="checkbox"> Archivados</label>
               </div>
               <div id="supplierList" class="list"></div>
+              <div id="supplierPagination" class="pagination-bar"></div>
             </section>
 
             <form id="supplierForm" class="panel entity-module hidden">
@@ -518,6 +522,7 @@
                 <label class="check"><input id="costOnlyWithPurchases" type="checkbox"> Solo con compras</label>
               </div>
               <div id="costTable" class="table"></div>
+              <div id="costPagination" class="pagination-bar"></div>
             </section>
           </div>
         </section>
@@ -535,6 +540,7 @@
                 </div>
               </div>
               <div id="kitList" class="list"></div>
+              <div id="kitPagination" class="pagination-bar"></div>
             </section>
 
             <form id="kitForm" class="panel entity-module hidden">
@@ -771,6 +777,7 @@
                     </div>
                   </div>
                   <div id="technicalLogList" class="list"></div>
+                  <div id="technicalLogPagination" class="pagination-bar"></div>
                 </section>
               </section>
               <div class="row-actions" id="settingsSubmitRow">
@@ -841,6 +848,7 @@
               </div>
             </div>
             <div id="auditList" class="list"></div>
+            <div id="auditPagination" class="pagination-bar"></div>
           </section>
         </section>
       </main>

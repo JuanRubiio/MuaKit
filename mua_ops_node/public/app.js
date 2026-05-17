@@ -27,7 +27,17 @@
   invoiceLineFormOpen: false,
   shopifyAutoSyncTimer: null,
   technicalAudit: [],
-  technicalLogLevel: "relevant"
+  technicalLogLevel: "relevant",
+  pagination: {
+    invoices: { page: 1, pageSize: 20 },
+    payouts: { page: 1, pageSize: 20 },
+    materials: { page: 1, pageSize: 24 },
+    suppliers: { page: 1, pageSize: 20 },
+    costs: { page: 1, pageSize: 20 },
+    kits: { page: 1, pageSize: 12 },
+    audit: { page: 1, pageSize: 20 },
+    technicalLogs: { page: 1, pageSize: 20 }
+  }
 };
 
 const CATEGORIES = ["kit", "joya", "cadena", "topping", "packaging", "consumible", "servicio", "material"];
@@ -153,6 +163,7 @@ const TECHNICAL_LOG_LEVELS = {
   info: "Info",
   debug: "Debug"
 };
+const PAGINATION_PAGE_SIZES = [10, 20, 50, 100];
 
 function chartColors() {
   const settings = state.settings || {};
@@ -170,6 +181,91 @@ function chartColors() {
     channel_etsy: settings.dashboard_color_etsy || "#9f7234",
     channel_bizum: settings.dashboard_color_bizum || "#c18a3a"
   };
+}
+
+function ensurePaginationState(key) {
+  if (!state.pagination[key]) {
+    state.pagination[key] = { page: 1, pageSize: 20 };
+  }
+  return state.pagination[key];
+}
+
+function resetPagination(key) {
+  ensurePaginationState(key).page = 1;
+}
+
+function paginateRows(key, rows) {
+  const pagination = ensurePaginationState(key);
+  const total = rows.length;
+  const pageSize = Math.max(1, Number(pagination.pageSize) || 20);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  pagination.page = Math.min(Math.max(1, Number(pagination.page) || 1), totalPages);
+  const startIndex = total ? (pagination.page - 1) * pageSize : 0;
+  const endIndex = total ? Math.min(total, startIndex + pageSize) : 0;
+  return {
+    rows: rows.slice(startIndex, endIndex),
+    total,
+    page: pagination.page,
+    pageSize,
+    totalPages,
+    startIndex,
+    endIndex
+  };
+}
+
+function renderPagination(targetId, key, meta) {
+  const node = $(targetId);
+  if (!node) return;
+  const pageState = ensurePaginationState(key);
+  const pageButtons = [];
+  const pages = new Set([1, meta.page - 1, meta.page, meta.page + 1, meta.totalPages].filter((value) => value >= 1 && value <= meta.totalPages));
+  [...pages]
+    .sort((a, b) => a - b)
+    .forEach((pageNumber, index, array) => {
+      const previous = array[index - 1];
+      if (previous && pageNumber - previous > 1) {
+        pageButtons.push(`<span class="meta">…</span>`);
+      }
+      pageButtons.push(`
+        <button
+          type="button"
+          class="ghost ${pageNumber === meta.page ? "is-active" : ""}"
+          data-page-target="${key}"
+          data-page-number="${pageNumber}"
+        >${pageNumber}</button>
+      `);
+    });
+  node.classList.toggle("hidden", meta.total <= meta.pageSize && meta.totalPages <= 1);
+  node.innerHTML = `
+    <div class="pagination-meta">
+      ${meta.total ? `Mostrando ${meta.startIndex + 1}-${meta.endIndex} de ${meta.total}` : "Sin resultados"}
+    </div>
+    <div class="pagination-controls">
+      <label>Por página
+        <select data-page-size-target="${key}">
+          ${PAGINATION_PAGE_SIZES.map((size) => `<option value="${size}" ${Number(pageState.pageSize) === size ? "selected" : ""}>${size}</option>`).join("")}
+        </select>
+      </label>
+      <div class="pagination-buttons">
+        <button type="button" class="ghost" data-page-target="${key}" data-page-action="prev" ${meta.page <= 1 ? "disabled" : ""}>Anterior</button>
+        ${pageButtons.join("")}
+        <button type="button" class="ghost" data-page-target="${key}" data-page-action="next" ${meta.page >= meta.totalPages ? "disabled" : ""}>Siguiente</button>
+      </div>
+    </div>
+  `;
+}
+
+function rerenderPaginatedSection(key) {
+  ({
+    invoices: renderInvoices,
+    payouts: renderPayouts,
+    materials: renderMaterials,
+    suppliers: renderSuppliers,
+    costs: renderCosts,
+    kits: renderKits,
+    audit: () => loadAudit().catch((error) => toast(error.message)),
+    technicalLogs: renderTechnicalLogs
+  }[key] || (() => {}))();
 }
 
 function resetForm(id) {
@@ -1182,8 +1278,9 @@ function renderPayouts() {
     channel_asc: (a, b) => lower(a.channel).localeCompare(lower(b.channel)) || String(b.payout_date).localeCompare(String(a.payout_date)),
     default: (a, b) => String(b.payout_date).localeCompare(String(a.payout_date))
   });
-  $("#incomeResultText").textContent = `${rows.length} ingresos visibles.`;
-  $("#payoutList").innerHTML = rows.map((payout) => `
+  const meta = paginateRows("payouts", rows);
+  $("#incomeResultText").textContent = `${meta.total} ingresos visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+  $("#payoutList").innerHTML = meta.rows.map((payout) => `
     <article class="invoice-card ${payout.is_deleted ? "deleted" : ""} ${state.selectedPayoutId == payout.id ? "active" : ""}">
       <button type="button" class="invoice-open" data-open-payout="${payout.id}">
         <span>
@@ -1204,6 +1301,7 @@ function renderPayouts() {
       </div>
     </article>
   `).join("") || `<div class="empty-state">No hay ingresos con esos filtros.</div>`;
+  renderPagination("#payoutPagination", "payouts", meta);
 }
 
 async function openPayout(id) {
@@ -1455,7 +1553,8 @@ function renderTechnicalLogs() {
     debug: rows.filter((row) => technicalLogLevel(row) === "debug").length
   };
   summary.textContent = `${rows.length} eventos · ${counts.error} errores · ${counts.warn} warnings · ${counts.info} info${level === "all" ? ` · ${counts.debug} debug` : ""}`;
-  list.innerHTML = rows.map((row) => {
+  const meta = paginateRows("technicalLogs", rows);
+  list.innerHTML = meta.rows.map((row) => {
     const rowLevel = technicalLogLevel(row);
     const rowSource = technicalLogSource(row);
     const context = technicalLogContext(row);
@@ -1479,6 +1578,7 @@ function renderTechnicalLogs() {
       </article>
     `;
   }).join("") || `<div class="empty-state"><strong>Sin eventos técnicos visibles</strong>Ajusta el nivel, el origen o la búsqueda para ampliar la vista.</div>`;
+  renderPagination("#technicalLogPagination", "technicalLogs", meta);
 }
 
 function technicalLogFilterValues() {
@@ -1556,8 +1656,9 @@ function renderSuppliers() {
     default: (a, b) => lower(a.name).localeCompare(lower(b.name)),
     name_asc: (a, b) => lower(a.name).localeCompare(lower(b.name))
   });
-  $("#supplierResultText").textContent = `${rows.length} proveedores visibles.`;
-  $("#supplierList").innerHTML = rows.map((supplier) => `
+  const meta = paginateRows("suppliers", rows);
+  $("#supplierResultText").textContent = `${meta.total} proveedores visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+  $("#supplierList").innerHTML = meta.rows.map((supplier) => `
     <article class="row ${supplier.is_deleted ? "deleted" : ""}">
       <div class="row-main">
         <strong>${text(supplier.name)}</strong>
@@ -1571,6 +1672,7 @@ function renderSuppliers() {
       </div>
     </article>
   `).join("") || `<div class="empty-state">No hay proveedores con esos filtros.</div>`;
+  renderPagination("#supplierPagination", "suppliers", meta);
 }
 
 async function loadMaterials() {
@@ -1617,8 +1719,9 @@ function renderMaterials() {
     default: (a, b) => lower(a.name).localeCompare(lower(b.name)),
     name_asc: (a, b) => lower(a.name).localeCompare(lower(b.name))
   });
-  $("#materialResultText").textContent = `${rows.length} materiales visibles.`;
-  $("#materialList").innerHTML = rows.map((material) => `
+  const meta = paginateRows("materials", rows);
+  $("#materialResultText").textContent = `${meta.total} materiales visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+  $("#materialList").innerHTML = meta.rows.map((material) => `
     <article class="row material-row ${material.is_deleted ? "deleted" : ""}">
       <div class="material-thumb">${img(material.image_url)}</div>
       <div class="row-main">
@@ -1645,6 +1748,7 @@ function renderMaterials() {
       </div>
     </article>
   `).join("") || `<div class="empty-state">No hay materiales con esos filtros.</div>`;
+  renderPagination("#materialPagination", "materials", meta);
 }
 
 async function loadInvoices() {
@@ -1678,8 +1782,9 @@ function renderInvoices() {
     default: (a, b) => String(b.invoice_date).localeCompare(String(a.invoice_date)) || b.id - a.id,
     date_desc: (a, b) => String(b.invoice_date).localeCompare(String(a.invoice_date)) || b.id - a.id
   });
-  $("#invoiceResultText").textContent = `${rows.length} facturas visibles.`;
-  $("#invoiceList").innerHTML = rows.map((invoice) => {
+  const meta = paginateRows("invoices", rows);
+  $("#invoiceResultText").textContent = `${meta.total} facturas visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+  $("#invoiceList").innerHTML = meta.rows.map((invoice) => {
     const active = String(invoice.id) === String(state.selectedInvoiceId) ? "active" : "";
     const lineTone = invoice.line_count ? "ok" : "warn";
     return `
@@ -1706,6 +1811,7 @@ function renderInvoices() {
       </article>
     `;
   }).join("") || `<div class="empty-state">No hay facturas con esos filtros.</div>`;
+  renderPagination("#invoicePagination", "invoices", meta);
 }
 
 async function openInvoice(id, options = {}) {
@@ -1852,10 +1958,11 @@ function renderCosts() {
     default: (a, b) => number(b.total_spend) - number(a.total_spend),
     spend_desc: (a, b) => number(b.total_spend) - number(a.total_spend)
   });
-  $("#costResultText").textContent = `${rows.length} materiales visibles.`;
+  const meta = paginateRows("costs", rows);
+  $("#costResultText").textContent = `${meta.total} materiales visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
   $("#costTable").innerHTML = `
     <div class="cost-row header"><span>Material</span><span>Categoría</span><span>Proveedor</span><span>Coste medio</span><span>Último coste</span><span>Gasto</span><span>Lotes</span><span></span></div>
-    ${rows.map((row) => `
+    ${meta.rows.length ? meta.rows.map((row) => `
       <div class="cost-row">
         <strong data-label="Material">${text(row.name)}</strong>
         <span data-label="Categoría">${text(row.category)}</span>
@@ -1866,8 +1973,9 @@ function renderCosts() {
         <span data-label="Lotes">${row.purchase_lots || 0}</span>
         <span data-label="Detalle"><button type="button" class="ghost" data-open-cost="${row.material_id}">Ver</button></span>
       </div>
-    `).join("")}
+    `).join("") : `<div class="empty-state"><strong>Sin costes visibles</strong>Ajusta la búsqueda o los filtros para ver materiales con compras.</div>`}
   `;
+  renderPagination("#costPagination", "costs", meta);
 }
 
 async function openCostDetail(materialId) {
@@ -1955,8 +2063,9 @@ async function loadKits() {
 function renderKits() {
   const list = $("#kitList");
   if (!list) return;
-  $("#kitResultText").textContent = `${state.kits.length} versiones definidas.`;
-  list.innerHTML = state.kits.map((kit) => `
+  const meta = paginateRows("kits", [...state.kits]);
+  $("#kitResultText").textContent = `${meta.total} versiones definidas.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+  list.innerHTML = meta.rows.map((kit) => `
     <article class="row">
       <div class="row-main">
         <strong>${text(kit.name)} ${kit.version ? `· ${text(kit.version)}` : ""}</strong>
@@ -1969,6 +2078,7 @@ function renderKits() {
       </div>
     </article>
   `).join("") || `<div class="empty-state">No hay composiciones de kit todavía.</div>`;
+  renderPagination("#kitPagination", "kits", meta);
 }
 
 async function openKit(id) {
@@ -2084,8 +2194,11 @@ async function loadAudit() {
     materials: "materiales y kits",
     suppliers: "proveedores"
   };
-  $("#auditSummary").textContent = rows.length ? `${rows.length} eventos en ${laneLabels[lane] || "actividad"}.` : `Sin actividad reciente en ${laneLabels[lane] || "esta vista"}.`;
-  $("#auditList").innerHTML = rows.map((row) => {
+  const meta = paginateRows("audit", rows);
+  $("#auditSummary").textContent = meta.total
+    ? `${meta.total} eventos en ${laneLabels[lane] || "actividad"}. Mostrando ${meta.startIndex + 1}-${meta.endIndex}.`
+    : `Sin actividad reciente en ${laneLabels[lane] || "esta vista"}.`;
+  $("#auditList").innerHTML = meta.rows.map((row) => {
     const before = parseAuditJson(row.before_json);
     const after = parseAuditJson(row.after_json);
     const jump = auditJump(row, before, after);
@@ -2110,6 +2223,7 @@ async function loadAudit() {
       </article>
     `;
   }).join("") || `<div class="empty-state"><strong>Sin actividad visible</strong>Prueba con otra ventana, entidad o cambia a la vista técnica.</div>`;
+  renderPagination("#auditPagination", "audit", meta);
 }
 
 function resetAuditFilters() {
@@ -2425,8 +2539,19 @@ function bindEvents() {
       }
       if (t.dataset.auditLane) {
         state.auditLane = t.dataset.auditLane;
+        resetPagination("audit");
         $$("#auditLaneTabs button").forEach((button) => button.classList.toggle("is-active", button.dataset.auditLane === state.auditLane));
         await loadAudit();
+      }
+      if (t.dataset.pageTarget && t.dataset.pageAction) {
+        const pagination = ensurePaginationState(t.dataset.pageTarget);
+        if (t.dataset.pageAction === "prev") pagination.page = Math.max(1, pagination.page - 1);
+        if (t.dataset.pageAction === "next") pagination.page += 1;
+        rerenderPaginatedSection(t.dataset.pageTarget);
+      }
+      if (t.dataset.pageTarget && t.dataset.pageNumber) {
+        ensurePaginationState(t.dataset.pageTarget).page = Number(t.dataset.pageNumber) || 1;
+        rerenderPaginatedSection(t.dataset.pageTarget);
       }
       if (t.dataset.newInvoice !== undefined) showInvoiceEditor();
       if (t.dataset.closeInvoicePanels !== undefined) closeInvoicePanels();
@@ -2598,58 +2723,82 @@ function bindEvents() {
     if (event.target.closest("#lineForm") && event.target.name === "material_id") syncMaterialPicker($("#lineForm"), "line", { required: true });
     if (event.target.closest("#kitItemForm") && event.target.name?.startsWith("kit_")) syncMaterialPicker($("#kitItemForm"), "kit", { required: true });
     if (event.target.closest("#kitItemForm") && event.target.name === "material_id") syncMaterialPicker($("#kitItemForm"), "kit", { required: true });
+    if (event.target.matches("[data-page-size-target]")) {
+      const key = event.target.dataset.pageSizeTarget;
+      const pagination = ensurePaginationState(key);
+      pagination.pageSize = Number(event.target.value) || pagination.pageSize;
+      pagination.page = 1;
+      rerenderPaginatedSection(key);
+    }
   });
 
   [
-    ["#materialSearch", renderMaterials],
-    ["#materialCategoryFilter", renderMaterials],
-    ["#materialSupplierFilter", renderMaterials],
-    ["#materialUsageFilter", renderMaterials],
-    ["#materialFamilyFilter", renderMaterials],
-    ["#materialSubfamilyFilter", renderMaterials],
-    ["#materialVariantFilter", renderMaterials],
-    ["#materialBaseFilter", renderMaterials],
-    ["#materialFinishFilter", renderMaterials],
-    ["#materialOutletFilter", renderMaterials],
-    ["#materialSort", renderMaterials],
-    ["#supplierSearch", renderSuppliers],
-    ["#supplierCategoryFilter", renderSuppliers],
-    ["#supplierSort", renderSuppliers],
-    ["#invoiceSearch", renderInvoices],
-    ["#invoiceSupplierFilter", renderInvoices],
-    ["#invoiceCategoryFilter", renderInvoices],
-    ["#invoiceStatusFilter", renderInvoices],
-    ["#invoiceLineFilter", renderInvoices],
-    ["#invoiceFromFilter", renderInvoices],
-    ["#invoiceToFilter", renderInvoices],
-    ["#invoiceSort", renderInvoices],
-    ["#payoutSearch", renderPayouts],
-    ["#payoutChannelFilter", renderPayouts],
-    ["#payoutStatusFilter", renderPayouts],
-    ["#payoutFromFilter", renderPayouts],
-    ["#payoutToFilter", renderPayouts],
-    ["#payoutSort", renderPayouts],
-    ["#costSearch", renderCosts],
-    ["#costCategoryFilter", renderCosts],
-    ["#costSort", renderCosts],
-    ["#costOnlyWithPurchases", renderCosts],
-  ].forEach(([selector, handler]) => {
+    ["#materialSearch", renderMaterials, "materials"],
+    ["#materialCategoryFilter", renderMaterials, "materials"],
+    ["#materialSupplierFilter", renderMaterials, "materials"],
+    ["#materialUsageFilter", renderMaterials, "materials"],
+    ["#materialFamilyFilter", renderMaterials, "materials"],
+    ["#materialSubfamilyFilter", renderMaterials, "materials"],
+    ["#materialVariantFilter", renderMaterials, "materials"],
+    ["#materialBaseFilter", renderMaterials, "materials"],
+    ["#materialFinishFilter", renderMaterials, "materials"],
+    ["#materialOutletFilter", renderMaterials, "materials"],
+    ["#materialSort", renderMaterials, "materials"],
+    ["#supplierSearch", renderSuppliers, "suppliers"],
+    ["#supplierCategoryFilter", renderSuppliers, "suppliers"],
+    ["#supplierSort", renderSuppliers, "suppliers"],
+    ["#invoiceSearch", renderInvoices, "invoices"],
+    ["#invoiceSupplierFilter", renderInvoices, "invoices"],
+    ["#invoiceCategoryFilter", renderInvoices, "invoices"],
+    ["#invoiceStatusFilter", renderInvoices, "invoices"],
+    ["#invoiceLineFilter", renderInvoices, "invoices"],
+    ["#invoiceFromFilter", renderInvoices, "invoices"],
+    ["#invoiceToFilter", renderInvoices, "invoices"],
+    ["#invoiceSort", renderInvoices, "invoices"],
+    ["#payoutSearch", renderPayouts, "payouts"],
+    ["#payoutChannelFilter", renderPayouts, "payouts"],
+    ["#payoutStatusFilter", renderPayouts, "payouts"],
+    ["#payoutFromFilter", renderPayouts, "payouts"],
+    ["#payoutToFilter", renderPayouts, "payouts"],
+    ["#payoutSort", renderPayouts, "payouts"],
+    ["#costSearch", renderCosts, "costs"],
+    ["#costCategoryFilter", renderCosts, "costs"],
+    ["#costSort", renderCosts, "costs"],
+    ["#costOnlyWithPurchases", renderCosts, "costs"],
+  ].forEach(([selector, handler, pageKey]) => {
     const node = $(selector);
     if (!node) return;
     const eventName = node.tagName === "INPUT" && node.type !== "checkbox" ? "input" : "change";
-    node.addEventListener(eventName, debounce(handler, eventName === "input" ? 120 : 0));
+    node.addEventListener(eventName, debounce(() => {
+      if (pageKey) resetPagination(pageKey);
+      handler();
+    }, eventName === "input" ? 120 : 0));
   });
 
-  $("#materialsDeleted")?.addEventListener("change", loadMaterials);
-  $("#suppliersDeleted")?.addEventListener("change", loadSuppliers);
-  $("#invoicesDeleted")?.addEventListener("change", loadInvoices);
-  $("#payoutsDeleted")?.addEventListener("change", loadIncome);
+  $("#materialsDeleted")?.addEventListener("change", () => {
+    resetPagination("materials");
+    loadMaterials();
+  });
+  $("#suppliersDeleted")?.addEventListener("change", () => {
+    resetPagination("suppliers");
+    loadSuppliers();
+  });
+  $("#invoicesDeleted")?.addEventListener("change", () => {
+    resetPagination("invoices");
+    loadInvoices();
+  });
+  $("#payoutsDeleted")?.addEventListener("change", () => {
+    resetPagination("payouts");
+    loadIncome();
+  });
   $("#auditReset")?.addEventListener("click", () => {
     resetAuditFilters();
+    resetPagination("audit");
     loadAudit().catch((error) => toast(error.message));
   });
   ["#auditQuery", "#auditEntity", "#auditAction", "#auditId", "#auditFrom", "#auditTo"].forEach((selector) => {
     $(selector)?.addEventListener(selector === "#auditQuery" || selector === "#auditId" ? "input" : "change", debounce(() => {
+      resetPagination("audit");
       loadAudit().catch((error) => toast(error.message));
     }, selector === "#auditQuery" ? 180 : 0));
   });
@@ -2660,11 +2809,13 @@ function bindEvents() {
     $("#technicalLogFrom").value = "";
     $("#technicalLogTo").value = "";
     state.technicalLogLevel = "relevant";
+    resetPagination("technicalLogs");
     renderTechnicalLogs();
   });
   ["#technicalLogQuery", "#technicalLogSource", "#technicalLogLevel", "#technicalLogFrom", "#technicalLogTo"].forEach((selector) => {
     $(selector)?.addEventListener(selector === "#technicalLogQuery" ? "input" : "change", debounce(() => {
       if (selector === "#technicalLogLevel") state.technicalLogLevel = $("#technicalLogLevel")?.value || "relevant";
+      resetPagination("technicalLogs");
       renderTechnicalLogs();
     }, selector === "#technicalLogQuery" ? 180 : 0));
   });

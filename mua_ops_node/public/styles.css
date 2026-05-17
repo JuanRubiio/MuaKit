@@ -340,6 +340,39 @@ main {
   align-content: start;
 }
 
+.dashboard-trend-switch {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  justify-self: end;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.dashboard-trend-switch button {
+  min-height: 34px;
+  padding: 7px 14px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(23, 20, 18, .04);
+}
+
+.dashboard-trend-switch button:hover {
+  background: var(--surface-soft);
+  border-color: var(--line-strong);
+}
+
+.dashboard-trend-switch button.is-active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: white;
+}
+
 .dashboard-mini-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1157,6 +1190,65 @@ textarea {
   min-width: 110px;
 }
 
+.pagination-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+}
+
+.pagination-bar.hidden {
+  display: none !important;
+}
+
+.pagination-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pagination-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pagination-controls select {
+  width: auto;
+  min-width: 78px;
+}
+
+.pagination-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pagination-buttons button {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 6px 10px;
+}
+
+.pagination-buttons button.is-active {
+  background: var(--ink);
+  color: white;
+  border-color: var(--ink);
+}
+
 .diagnostics-row {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -1324,6 +1416,16 @@ textarea {
     justify-self: stretch;
     justify-content: flex-start;
     grid-template-columns: repeat(2, minmax(0, max-content));
+  }
+
+  .dashboard-trend-switch {
+    justify-self: stretch;
+    justify-content: flex-start;
+  }
+
+  .pagination-bar,
+  .pagination-controls {
+    justify-content: flex-start;
   }
 
   .audit-filter-actions {
