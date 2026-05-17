@@ -1137,6 +1137,18 @@ textarea {
   gap: 10px;
 }
 
+.technical-log-head {
+  margin-bottom: 6px;
+}
+
+.technical-log-filters {
+  margin-bottom: 14px;
+}
+
+.technical-log-card .audit-note {
+  margin-top: 8px;
+}
+
 .diagnostics-row {
   border: 1px solid var(--line);
   border-radius: var(--radius);

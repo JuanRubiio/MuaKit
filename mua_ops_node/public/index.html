@@ -576,6 +576,7 @@
                 <button type="button" class="ghost" data-settings-section="cobros">Cobros</button>
                 <button type="button" class="ghost" data-settings-section="shopify">Shopify</button>
                 <button type="button" class="ghost" data-settings-section="diagnostico">Diagnóstico</button>
+                <button type="button" class="ghost" data-settings-section="logs">Logs</button>
               </div>
 
               <section class="settings-section" data-settings-panel="general">
@@ -726,9 +727,49 @@
                     <div class="stack-form">
                       <div id="systemHealthSchema" class="list"></div>
                       <div id="systemHealthShopify" class="list"></div>
-                      <div id="systemHealthActivity" class="list"></div>
                     </div>
                   </div>
+                </section>
+              </section>
+
+              <section class="settings-section hidden" data-settings-panel="logs">
+                <section class="panel inset-panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Logs técnicos</h2>
+                      <p>Eventos de cliente, sistema y sincronización para soporte y diagnóstico.</p>
+                    </div>
+                  </div>
+                  <div class="audit-head technical-log-head">
+                    <div class="audit-summary" id="technicalLogSummary"></div>
+                  </div>
+                  <div class="filter-grid technical-log-filters">
+                    <label>Buscar<input id="technicalLogQuery" placeholder="acción, mensaje, origen..."></label>
+                    <label>Origen
+                      <select id="technicalLogSource">
+                        <option value="">Todos</option>
+                        <option value="client">Cliente</option>
+                        <option value="system">Sistema</option>
+                        <option value="shopify">Shopify</option>
+                      </select>
+                    </label>
+                    <label>Nivel
+                      <select id="technicalLogLevel">
+                        <option value="relevant">Relevante</option>
+                        <option value="error">Error</option>
+                        <option value="warn">Warning</option>
+                        <option value="info">Info</option>
+                        <option value="debug">Debug</option>
+                        <option value="all">Todo</option>
+                      </select>
+                    </label>
+                    <label>Desde<input id="technicalLogFrom" type="date"></label>
+                    <label>Hasta<input id="technicalLogTo" type="date"></label>
+                    <div class="audit-filter-actions">
+                      <button id="technicalLogReset" type="button" class="ghost">Limpiar</button>
+                    </div>
+                  </div>
+                  <div id="technicalLogList" class="list"></div>
                 </section>
               </section>
               <div class="row-actions">

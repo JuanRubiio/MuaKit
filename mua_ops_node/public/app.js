@@ -26,7 +26,8 @@
   selectedCostMaterialId: null,
   invoiceLineFormOpen: false,
   shopifyAutoSyncTimer: null,
-  technicalAudit: []
+  technicalAudit: [],
+  technicalLogLevel: "relevant"
 };
 
 const CATEGORIES = ["kit", "joya", "cadena", "topping", "packaging", "consumible", "servicio", "material"];
@@ -145,6 +146,12 @@ const AUDIT_LANE_ENTITIES = {
   income: ["channel_payout", "sales_order"],
   materials: ["material", "kit_recipe", "kit_recipe_item"],
   suppliers: ["supplier"]
+};
+const TECHNICAL_LOG_LEVELS = {
+  error: "Error",
+  warn: "Warning",
+  info: "Info",
+  debug: "Debug"
 };
 
 function chartColors() {
@@ -460,6 +467,26 @@ function auditSummary(row, before, after) {
   if (row.entity_type === "client") return source.message || "Evento técnico registrado desde el navegador.";
   if (row.entity_type === "system") return source.message || source.filename || "Evento técnico del sistema.";
   return changedText || auditActionLabel(row.action);
+}
+
+function technicalLogSource(row) {
+  if (row.entity_type === "shopify_product") return "shopify";
+  if (row.entity_type === "system") return "system";
+  return "client";
+}
+
+function technicalLogLevel(row) {
+  const after = parseAuditJson(row.after_json) || {};
+  if (after.level && TECHNICAL_LOG_LEVELS[after.level]) return after.level;
+  if (String(row.action || "").includes("error")) return "error";
+  if (String(row.action || "").includes("warn")) return "warn";
+  if (row.action === "app_init_success") return "debug";
+  return "info";
+}
+
+function technicalLogMessage(row) {
+  const after = parseAuditJson(row.after_json) || {};
+  return after.message || auditSummary(row, null, after);
 }
 
 function auditJump(row, before, after) {
@@ -1230,6 +1257,7 @@ function renderSettings() {
     section.classList.toggle("hidden", section.dataset.settingsPanel !== state.settingsSection);
   });
   renderSystemHealth();
+  renderTechnicalLogs();
 }
 
 function renderShopifyConnection() {
@@ -1283,7 +1311,6 @@ function renderSystemHealth() {
   const backups = $("#systemHealthBackups");
   const schema = $("#systemHealthSchema");
   const shopify = $("#systemHealthShopify");
-  const activity = $("#systemHealthActivity");
   if (!cards || !summary || !backups || !schema || !shopify) return;
   if (!health) {
     cards.innerHTML = "";
@@ -1291,7 +1318,6 @@ function renderSystemHealth() {
     backups.innerHTML = "";
     schema.innerHTML = "";
     shopify.innerHTML = "";
-    if (activity) activity.innerHTML = "";
     return;
   }
   cards.innerHTML = [
@@ -1349,24 +1375,56 @@ function renderSystemHealth() {
         : ""}
     </article>
   `;
+}
 
-  if (activity) {
-    activity.innerHTML = `
-      <article class="diagnostics-row">
-        <strong>Actividad técnica reciente</strong>
-        <div class="meta">Eventos del cliente, sistema y sincronización para diagnóstico.</div>
-      </article>
-      ${state.technicalAudit.map((row) => {
-        const after = parseAuditJson(row.after_json);
-        return `
-          <article class="diagnostics-row">
+function renderTechnicalLogs() {
+  const summary = $("#technicalLogSummary");
+  const list = $("#technicalLogList");
+  if (!summary || !list) return;
+  const source = $("#technicalLogSource")?.value || "";
+  const level = $("#technicalLogLevel")?.value || state.technicalLogLevel || "relevant";
+  const queryText = String($("#technicalLogQuery")?.value || "").trim().toLowerCase();
+  const from = $("#technicalLogFrom")?.value || "";
+  const to = $("#technicalLogTo")?.value || "";
+  let rows = [...(state.technicalAudit || [])];
+  rows = rows.filter((row) => {
+    const rowSource = technicalLogSource(row);
+    const rowLevel = technicalLogLevel(row);
+    const haystack = `${row.action || ""} ${technicalLogMessage(row)} ${rowSource}`.toLowerCase();
+    if (source && rowSource !== source) return false;
+    if (level === "relevant" && !["error", "warn", "info"].includes(rowLevel)) return false;
+    if (["error", "warn", "info", "debug"].includes(level) && rowLevel !== level) return false;
+    if (queryText && !haystack.includes(queryText)) return false;
+    if (from && String(row.created_at || "").slice(0, 10) < from) return false;
+    if (to && String(row.created_at || "").slice(0, 10) > to) return false;
+    return true;
+  });
+  const counts = {
+    error: rows.filter((row) => technicalLogLevel(row) === "error").length,
+    warn: rows.filter((row) => technicalLogLevel(row) === "warn").length,
+    info: rows.filter((row) => technicalLogLevel(row) === "info").length,
+    debug: rows.filter((row) => technicalLogLevel(row) === "debug").length
+  };
+  summary.textContent = `${rows.length} eventos · ${counts.error} errores · ${counts.warn} warnings · ${counts.info} info${level === "all" ? ` · ${counts.debug} debug` : ""}`;
+  list.innerHTML = rows.map((row) => {
+    const rowLevel = technicalLogLevel(row);
+    const rowSource = technicalLogSource(row);
+    return `
+      <article class="audit-card technical-log-card">
+        <div class="audit-card-head">
+          <div class="row-main">
             <strong>${text(auditActionLabel(row.action))}</strong>
             <div class="meta">${formatAuditTimestamp(row.created_at)} · ${text(row.actor)}</div>
-            <div class="meta">${text(auditSummary(row, null, after))}</div>
-          </article>
-        `;
-      }).join("") || `<div class="empty-state small">No hay actividad técnica reciente.</div>`}
+            <div class="tags">
+              ${badge(TECHNICAL_LOG_LEVELS[rowLevel] || rowLevel, rowLevel === "error" ? "warn" : rowLevel === "info" ? "ok" : "")}
+              ${badge(rowSource === "client" ? "Cliente" : rowSource === "system" ? "Sistema" : "Shopify")}
+            </div>
+            <div class="audit-note">${text(technicalLogMessage(row))}</div>
+          </div>
+        </div>
+      </article>
     `;
+  }).join("") || `<div class="empty-state"><strong>Sin eventos técnicos visibles</strong>Ajusta el nivel, el origen o la búsqueda para ampliar la vista.</div>`;
   }
 }
 
@@ -2525,6 +2583,21 @@ function bindEvents() {
     $(selector)?.addEventListener(selector === "#auditQuery" || selector === "#auditId" ? "input" : "change", debounce(() => {
       loadAudit().catch((error) => toast(error.message));
     }, selector === "#auditQuery" ? 180 : 0));
+  });
+  $("#technicalLogReset")?.addEventListener("click", () => {
+    $("#technicalLogQuery").value = "";
+    $("#technicalLogSource").value = "";
+    $("#technicalLogLevel").value = "relevant";
+    $("#technicalLogFrom").value = "";
+    $("#technicalLogTo").value = "";
+    state.technicalLogLevel = "relevant";
+    renderTechnicalLogs();
+  });
+  ["#technicalLogQuery", "#technicalLogSource", "#technicalLogLevel", "#technicalLogFrom", "#technicalLogTo"].forEach((selector) => {
+    $(selector)?.addEventListener(selector === "#technicalLogQuery" ? "input" : "change", debounce((event) => {
+      if (selector === "#technicalLogLevel") state.technicalLogLevel = event.currentTarget.value || "relevant";
+      renderTechnicalLogs();
+    }, selector === "#technicalLogQuery" ? 180 : 0));
   });
   $("#dashboardWindowPreset")?.addEventListener("change", async (event) => {
     state.dashboardWindowPreset = event.currentTarget.value || "all";
