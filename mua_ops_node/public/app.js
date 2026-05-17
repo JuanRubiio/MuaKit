@@ -1951,7 +1951,7 @@ async function loadCosts() {
 }
 
 function renderCosts() {
-  let rows = [...state.costs];
+  let rows = state.costs.filter((row) => !row.is_outlet);
   rows = applyTextSearch(rows, $("#costSearch")?.value, ["name", "category", "preferred_supplier_name", "main_supplier_name"]);
   const category = $("#costCategoryFilter")?.value;
   if (category) rows = rows.filter((row) => row.category === category);
