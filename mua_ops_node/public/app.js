@@ -9,6 +9,7 @@
   settings: null,
   shopifyConnection: null,
   shopifySyncStatus: null,
+  systemHealth: null,
   dashboardFinance: null,
   dashboardSpendView: "suppliers",
   dashboardExpenseTrendView: "total",
@@ -462,6 +463,11 @@ async function loadShopifyConnection() {
   state.shopifySyncStatus = status;
   renderShopifyConnection();
   setupShopifyAutoSync();
+}
+
+async function loadSystemHealth() {
+  state.systemHealth = await api("/api/system/health");
+  renderSystemHealth();
 }
 
 function dashboardChart(id) {
@@ -1058,6 +1064,7 @@ function renderSettings() {
   $$(".settings-section").forEach((section) => {
     section.classList.toggle("hidden", section.dataset.settingsPanel !== state.settingsSection);
   });
+  renderSystemHealth();
 }
 
 function renderShopifyConnection() {
@@ -1104,6 +1111,79 @@ function renderShopifyConnection() {
   `;
 }
 
+function renderSystemHealth() {
+  const health = state.systemHealth;
+  const cards = $("#systemHealthCards");
+  const summary = $("#systemHealthSummary");
+  const backups = $("#systemHealthBackups");
+  const schema = $("#systemHealthSchema");
+  const shopify = $("#systemHealthShopify");
+  if (!cards || !summary || !backups || !schema || !shopify) return;
+  if (!health) {
+    cards.innerHTML = "";
+    summary.textContent = "Diagnóstico no disponible.";
+    backups.innerHTML = "";
+    schema.innerHTML = "";
+    shopify.innerHTML = "";
+    return;
+  }
+  cards.innerHTML = [
+    ["Base", health.database?.exists ? "Disponible" : "Ausente", health.database?.integrity === "ok" ? "Integridad ok" : (health.database?.integrity || "Sin comprobar")],
+    ["Backups", health.backups?.latest ? "Activos" : "Sin backup", health.backups?.latest ? text(health.backups.latest.created_at || "") : "Todavía no hay copia"],
+    ["Migraciones", `${(health.schema?.applied_migrations || []).length}`, (health.schema?.pending_migrations || []).length ? `${health.schema.pending_migrations.length} pendientes` : "Sin pendientes"],
+    ["Shopify", health.shopify?.credentials_configured || health.shopify?.token_configured ? "Configurado" : "Pendiente", health.shopify?.last_sync_status || "Sin sync"]
+  ].map(([label, value, hint]) => `
+    <article class="card dashboard-kpi-card">
+      <span>${label}</span>
+      <strong>${value}</strong>
+      <small>${hint}</small>
+    </article>
+  `).join("");
+
+  summary.innerHTML = `
+    <strong>${health.ok ? "Estado general correcto" : "Hay elementos técnicos a revisar"}</strong>
+    <span>DB ${text(health.database?.path || "-")} · tamaño ${health.database?.size_bytes || 0} bytes · actualizada ${text(health.database?.updated_at || "-")}</span>
+  `;
+
+  backups.innerHTML = `
+    <article class="diagnostics-row">
+      <strong>Backups</strong>
+      <div class="meta">Carpeta · ${text(health.backups?.directory || "-")}</div>
+      ${health.backups?.latest ? `
+        <div class="meta">Último · ${text(health.backups.latest.created_at || "-")}</div>
+        <div class="meta">Tamaño · ${health.backups.latest.size_bytes || 0} bytes</div>
+        <code>${text(health.backups.latest.name || "")}</code>
+      ` : `<div class="meta">Todavía no existe una copia registrada.</div>`}
+    </article>
+  `;
+
+  schema.innerHTML = `
+    <article class="diagnostics-row">
+      <strong>Migraciones</strong>
+      <div class="meta">Aplicadas · ${(health.schema?.applied_migrations || []).length}</div>
+      <div class="meta">Esperadas · ${(health.schema?.expected_migrations || []).length}</div>
+      <div class="meta">Pendientes · ${(health.schema?.pending_migrations || []).length}</div>
+      ${(health.schema?.applied_migrations || []).slice(-4).map((row) => `<code>${text(row.id)} · ${text(row.applied_at || "")}</code>`).join("")}
+    </article>
+  `;
+
+  shopify.innerHTML = `
+    <article class="diagnostics-row">
+      <strong>Shopify</strong>
+      <div class="meta">Dominio · ${text(health.shopify?.store_domain || "sin configurar")}</div>
+      <div class="meta">Auth · ${text(health.shopify?.auth_mode || "none")}</div>
+      <div class="meta">Última sync · ${text(health.shopify?.last_sync_at || "nunca")}</div>
+      <div class="meta">Estado sync · ${text(health.shopify?.last_sync_status || "sin estado")}</div>
+      ${(health.shopify?.last_sync_summary && typeof health.shopify.last_sync_summary === "object")
+        ? Object.entries(health.shopify.last_sync_summary)
+            .filter(([key, value]) => ["products", "inventory", "orders", "payouts"].includes(key) && value)
+            .map(([key, value]) => `<code>${text(key)} · ${value.status || "ok"} · ${value.duration_ms || 0} ms</code>`)
+            .join("")
+        : ""}
+    </article>
+  `;
+}
+
 async function maybeRunShopifyAutoSync() {
   if (!state.shopifySyncStatus?.sync_enabled) return;
   if (document.visibilityState !== "visible") return;
@@ -1112,7 +1192,7 @@ async function maybeRunShopifyAutoSync() {
   renderShopifyConnection();
   if (!status.due || status.running) return;
   await api("/api/shopify/sync", { method: "POST", body: "{}" });
-  await Promise.all([loadShopifyConnection(), loadMaterials(), loadIncome(), loadSummary(), loadDashboardFinance()]);
+  await Promise.all([loadShopifyConnection(), loadSystemHealth(), loadMaterials(), loadIncome(), loadSummary(), loadDashboardFinance()]);
   toast("Shopify sincronizado automáticamente");
 }
 
@@ -1817,7 +1897,7 @@ async function saveShopifyConnection(source) {
     method: "PATCH",
     body: JSON.stringify(data)
   });
-  await loadShopifyConnection();
+  await Promise.all([loadShopifyConnection(), loadSystemHealth()]);
   toast("Configuración Shopify guardada");
 }
 
@@ -1833,8 +1913,14 @@ async function testShopifyConnectionAction() {
 
 async function syncShopifyNow() {
   await api("/api/shopify/sync", { method: "POST", body: "{}" });
-  await Promise.all([loadShopifyConnection(), loadMaterials(), loadIncome(), loadSummary(), loadDashboardFinance()]);
+  await Promise.all([loadShopifyConnection(), loadSystemHealth(), loadMaterials(), loadIncome(), loadSummary(), loadDashboardFinance()]);
   toast("Shopify sincronizado");
+}
+
+async function createSystemBackup() {
+  const backup = await api("/api/system/backup", { method: "POST", body: JSON.stringify({ reason: "ui-manual" }) });
+  await loadSystemHealth();
+  toast(`Backup creado · ${backup.reason}`);
 }
 
 async function uploadDocumentIfNeeded() {
@@ -1935,6 +2021,7 @@ async function refreshAll() {
   await loadSummary();
   await loadSettings();
   await loadShopifyConnection();
+  await loadSystemHealth();
   await loadDashboardFinance();
   await loadIncome();
   await loadSuppliers();
@@ -1989,6 +2076,8 @@ function bindEvents() {
       if (t.dataset.testShopifyConnection !== undefined) await testShopifyConnectionAction();
       if (t.dataset.syncShopifyNow !== undefined) await syncShopifyNow();
       if (t.dataset.saveShopifyConnection !== undefined) await saveShopifyConnection($("#shopifyConnectionForm"));
+      if (t.dataset.refreshDiagnostics !== undefined) await loadSystemHealth();
+      if (t.dataset.createBackup !== undefined) await createSystemBackup();
       if (t.dataset.newMaterial !== undefined) showMaterialEditor();
       if (t.dataset.closeMaterialPanels !== undefined) closeMaterialPanels();
       if (t.dataset.newSupplier !== undefined) showSupplierEditor();

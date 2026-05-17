@@ -1059,6 +1059,48 @@ textarea {
   gap: 14px;
 }
 
+.diagnostics-kpis {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 16px;
+}
+
+.diagnostics-grid .list {
+  display: grid;
+  gap: 10px;
+}
+
+.diagnostics-row {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: white;
+  padding: 12px 14px;
+  display: grid;
+  gap: 4px;
+}
+
+.diagnostics-row strong {
+  color: var(--ink);
+}
+
+.diagnostics-row .meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnostics-row code {
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface-soft);
+  padding: 2px 6px;
+  border-radius: 999px;
+  width: fit-content;
+}
+
 .settings-color-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
@@ -1187,6 +1229,7 @@ textarea {
   .dashboard-primary-grid,
   .dashboard-secondary-grid,
   .dashboard-mini-grid,
+  .diagnostics-grid,
   .dashboard-trend-head,
   .split,
   .form-grid.two,
@@ -1228,6 +1271,10 @@ textarea {
 
   .dashboard-kpis {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .diagnostics-kpis {
+    grid-template-columns: 1fr 1fr;
   }
 
   .dashboard-spend-panel .rank-list {

@@ -575,6 +575,7 @@
                 <button type="button" class="ghost" data-settings-section="dashboard">Dashboard</button>
                 <button type="button" class="ghost" data-settings-section="cobros">Cobros</button>
                 <button type="button" class="ghost" data-settings-section="shopify">Shopify</button>
+                <button type="button" class="ghost" data-settings-section="diagnostico">Diagnóstico</button>
               </div>
 
               <section class="settings-section" data-settings-panel="general">
@@ -702,6 +703,32 @@
                 </div>
                 <div id="shopifySyncStatus" class="list"></div>
               </section>
+              </section>
+
+              <section class="settings-section hidden" data-settings-panel="diagnostico">
+                <section class="panel inset-panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Diagnóstico técnico</h2>
+                      <p>Estado interno de base de datos, backups, migraciones y conexión Shopify.</p>
+                    </div>
+                    <div class="row-actions">
+                      <button type="button" class="ghost" data-refresh-diagnostics>Actualizar</button>
+                      <button type="button" data-create-backup>Crear backup</button>
+                    </div>
+                  </div>
+                  <div id="systemHealthCards" class="dashboard-kpis diagnostics-kpis"></div>
+                  <div class="diagnostics-grid">
+                    <div class="stack-form">
+                      <div class="inline-note" id="systemHealthSummary">Cargando diagnóstico...</div>
+                      <div id="systemHealthBackups" class="list"></div>
+                    </div>
+                    <div class="stack-form">
+                      <div id="systemHealthSchema" class="list"></div>
+                      <div id="systemHealthShopify" class="list"></div>
+                    </div>
+                  </div>
+                </section>
               </section>
               <div class="row-actions">
                 <button type="submit">Guardar configuración</button>
