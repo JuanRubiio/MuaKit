@@ -94,8 +94,8 @@
               <section class="panel dashboard-income-panel">
                 <div class="panel-head dashboard-trend-head">
                   <div>
-                    <h2 id="dashboardIncomeTitle">Cobros mensuales</h2>
-                    <p id="dashboardIncomeText">Seguimiento del cobro neto y peso por canal.</p>
+                    <h2 id="dashboardIncomeTitle">Ingresos mensuales</h2>
+                    <p id="dashboardIncomeText">Seguimiento del ingreso neto y peso por canal.</p>
                   </div>
                   <div class="segmented-control">
                     <button type="button" class="ghost is-active" data-dashboard-income-trend-view="cobros">Cobrado neto</button>
@@ -170,8 +170,8 @@
                   <section class="panel dashboard-income-mix-panel">
                     <div class="panel-head">
                       <div>
-                        <h2>Canales de cobro</h2>
-                        <p>Composición actual de cobros entre Shopify, Etsy y Bizum.</p>
+                        <h2>Canales de ingreso</h2>
+                        <p>Composición actual de ingresos entre Shopify, Etsy y Bizum.</p>
                       </div>
                     </div>
                     <div id="dashboardIncomeMixChart" class="chart-surface chart-surface-small"></div>
@@ -284,11 +284,11 @@
             <section class="panel entity-list-panel">
               <div class="panel-head invoice-head">
                 <div>
-                  <h2>Cobros</h2>
-                  <p id="incomeResultText">Seguimiento de cobros por canal.</p>
+                  <h2>Ingresos</h2>
+                  <p id="incomeResultText">Seguimiento de ingresos por canal.</p>
                 </div>
                 <div class="row-actions">
-                  <button type="button" data-new-payout>Nuevo cobro</button>
+                  <button type="button" data-new-payout>Nuevo ingreso</button>
                 </div>
               </div>
               <div class="filter-grid">
@@ -322,8 +322,8 @@
             <form id="payoutForm" class="panel entity-module hidden">
               <div class="panel-head">
                 <div>
-                  <h2 id="payoutFormTitle">Nuevo cobro</h2>
-                  <p>Alta manual de cobros netos por canal.</p>
+                  <h2 id="payoutFormTitle">Nuevo ingreso</h2>
+                  <p>Alta manual de ingresos netos por canal.</p>
                 </div>
                 <button type="button" class="ghost" data-close-payout-panels>Cerrar</button>
               </div>
@@ -351,7 +351,7 @@
                 <label>Notas<textarea name="notes" rows="1"></textarea></label>
               </div>
               <div class="row-actions">
-                <button type="submit">Guardar cobro</button>
+                <button type="submit">Guardar ingreso</button>
                 <button type="button" class="ghost" data-reset-form="payoutForm">Limpiar</button>
               </div>
             </form>
@@ -573,7 +573,7 @@
               <div class="segmented-control settings-nav">
                 <button type="button" class="ghost is-active" data-settings-section="general">General</button>
                 <button type="button" class="ghost" data-settings-section="dashboard">Dashboard</button>
-                <button type="button" class="ghost" data-settings-section="cobros">Cobros</button>
+                <button type="button" class="ghost" data-settings-section="cobros">Ingresos</button>
                 <button type="button" class="ghost" data-settings-section="shopify">Shopify</button>
                 <button type="button" class="ghost" data-settings-section="diagnostico">Diagnóstico</button>
                 <button type="button" class="ghost" data-settings-section="logs">Logs</button>
@@ -614,7 +614,7 @@
                       <option value="envios">Envíos</option>
                     </select>
                   </label>
-                  <label>Vista inicial de cobros
+                  <label>Vista inicial de ingresos
                     <select name="dashboard_income_monthly_view">
                       <option value="cobros">Cobrado neto</option>
                       <option value="channel_shopify">Shopify</option>
@@ -644,7 +644,7 @@
                   <label>Materiales<input name="dashboard_color_materiales" type="color"></label>
                   <label>Marketing<input name="dashboard_color_marketing" type="color"></label>
                   <label>Envíos<input name="dashboard_color_envios" type="color"></label>
-                  <label>Cobros<input name="dashboard_color_cobros" type="color"></label>
+                  <label>Ingresos<input name="dashboard_color_cobros" type="color"></label>
                   <label>Fees<input name="dashboard_color_fees" type="color"></label>
                   <label>Shopify<input name="dashboard_color_shopify" type="color"></label>
                   <label>Etsy<input name="dashboard_color_etsy" type="color"></label>
@@ -772,7 +772,7 @@
                   <div id="technicalLogList" class="list"></div>
                 </section>
               </section>
-              <div class="row-actions">
+              <div class="row-actions" id="settingsSubmitRow">
                 <button type="submit">Guardar configuración</button>
               </div>
             </form>
@@ -806,7 +806,7 @@
                   <option value="supplier">Proveedores</option>
                   <option value="invoice">Facturas</option>
                   <option value="invoice_line">Líneas de factura</option>
-                  <option value="channel_payout">Cobros</option>
+                  <option value="channel_payout">Ingresos</option>
                   <option value="kit_recipe">Kits</option>
                   <option value="kit_recipe_item">Materiales de kit</option>
                   <option value="sales_order">Pedidos</option>

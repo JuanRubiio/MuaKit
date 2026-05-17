@@ -181,7 +181,7 @@ function resetForm(id) {
   if (id === "supplierForm") $("#supplierFormTitle").textContent = "Nuevo proveedor";
   if (id === "invoiceForm") $("#invoiceFormTitle").textContent = "Nueva factura";
   if (id === "kitForm") $("#kitFormTitle").textContent = "Nuevo kit";
-  if (id === "payoutForm") $("#payoutFormTitle").textContent = "Nuevo cobro";
+  if (id === "payoutForm") $("#payoutFormTitle").textContent = "Nuevo ingreso";
   if (id === "lineForm") {
     $("#lineFormTitle").textContent = "Nueva línea";
     form.elements.invoice_id.value = state.selectedInvoiceId || "";
@@ -316,9 +316,9 @@ function showPayoutEditor(payout = null, keepDetail = false) {
   resetForm("payoutForm");
   if (payout) {
     setForm(form, payout);
-    $("#payoutFormTitle").textContent = `Editar cobro #${payout.id}`;
+    $("#payoutFormTitle").textContent = `Editar ingreso #${payout.id}`;
   } else {
-    $("#payoutFormTitle").textContent = "Nuevo cobro";
+    $("#payoutFormTitle").textContent = "Nuevo ingreso";
     if (state.settings) {
       if (form.elements.channel) form.elements.channel.value = state.settings.default_payout_channel || "shopify";
       if (form.elements.status) form.elements.status.value = state.settings.default_payout_status || "paid";
@@ -660,6 +660,7 @@ async function loadSystemHealth() {
   state.systemHealth = health;
   state.technicalAudit = technicalAudit;
   renderSystemHealth();
+  renderTechnicalLogs();
 }
 
 function dashboardChart(id) {
@@ -989,11 +990,11 @@ function renderDashboard() {
   $("#dashboardCustomRange")?.classList.toggle("hidden", state.dashboardWindowPreset !== "custom");
   $("#dashboardExpenseTitle").textContent = `Gastos ${trendWord}`;
   $("#dashboardExpenseText").textContent = `Lectura de ${expenseLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
-  $("#dashboardIncomeTitle").textContent = `Cobros ${trendWord}`;
+  $("#dashboardIncomeTitle").textContent = `Ingresos ${trendWord}`;
   $("#dashboardIncomeText").textContent = `Seguimiento de ${incomeLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
   $("#dashboardCards").innerHTML = [
     ["Gasto del periodo", euro.format(k.period_expense), `${k.invoice_count} facturas imputadas`],
-    ["Ingreso neto", euro.format(k.period_net_received || 0), `${k.payout_count || 0} cobros registrados`],
+    ["Ingreso neto", euro.format(k.period_net_received || 0), `${k.payout_count || 0} ingresos registrados`],
     ["Balance", euro.format(k.period_balance || 0), "Ingresos menos gasto"],
     ["Materiales", euro.format(k.materials_expense), "Compras del periodo"],
     ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia"],
@@ -1011,11 +1012,11 @@ function renderDashboard() {
   const operational = finance.operational;
   const opsRows = [
     {
-      label: "Cobros pendientes",
+      label: "Ingresos pendientes",
       count: operational.pending_payouts.length,
       hint: operational.pending_payouts[0]
         ? `${channelLabel(operational.pending_payouts[0].channel)} · ${text(operational.pending_payouts[0].payout_date)}`
-        : "Todos los cobros están ejecutados",
+        : "Todos los ingresos están ejecutados",
       action: "income",
       tone: operational.pending_payouts.length ? "warn" : "ok"
     },
@@ -1125,10 +1126,10 @@ function renderIncomeSummaryCards(rows) {
   const pending = rows.filter((row) => !["paid", "executed"].includes(String(row.status || "")));
   const lastPayoutDate = rows.length ? [...rows].sort((a, b) => String(b.payout_date || "").localeCompare(String(a.payout_date || "")))[0].payout_date : "";
   $("#incomeSummaryCards").innerHTML = [
-    ["Cobrado neto", euro.format(rows.reduce((sum, row) => sum + number(row.net_amount), 0)), `${rows.length} cobros visibles`],
+    ["Ingreso neto", euro.format(rows.reduce((sum, row) => sum + number(row.net_amount), 0)), `${rows.length} ingresos visibles`],
     ["Bruto", euro.format(rows.reduce((sum, row) => sum + number(row.gross_amount), 0)), "Importe antes de fees"],
     ["Fees", euro.format(rows.reduce((sum, row) => sum + number(row.fees_amount), 0)), "Coste acumulado de cobro"],
-    ["Pendientes", pending.length, lastPayoutDate ? `Último cobro ${text(lastPayoutDate)}` : "Sin cobros todavía"]
+    ["Pendientes", pending.length, lastPayoutDate ? `Último ingreso ${text(lastPayoutDate)}` : "Sin ingresos todavía"]
   ].map(([label, value, hint]) => `
     <article class="card dashboard-kpi-card">
       <span>${label}</span>
@@ -1149,7 +1150,7 @@ function renderPayouts() {
     channel_asc: (a, b) => lower(a.channel).localeCompare(lower(b.channel)) || String(b.payout_date).localeCompare(String(a.payout_date)),
     default: (a, b) => String(b.payout_date).localeCompare(String(a.payout_date))
   });
-  $("#incomeResultText").textContent = `${rows.length} cobros visibles.`;
+  $("#incomeResultText").textContent = `${rows.length} ingresos visibles.`;
   $("#payoutList").innerHTML = rows.map((payout) => `
     <article class="invoice-card ${payout.is_deleted ? "deleted" : ""} ${state.selectedPayoutId == payout.id ? "active" : ""}">
       <button type="button" class="invoice-open" data-open-payout="${payout.id}">
@@ -1170,7 +1171,7 @@ function renderPayouts() {
         ${payout.is_deleted ? `<button data-restore-payout="${payout.id}" type="button">Restaurar</button>` : `<button class="ghost danger-text" data-delete-payout="${payout.id}" type="button">Archivar</button>`}
       </div>
     </article>
-  `).join("") || `<div class="empty-state">No hay cobros con esos filtros.</div>`;
+  `).join("") || `<div class="empty-state">No hay ingresos con esos filtros.</div>`;
 }
 
 async function openPayout(id) {
@@ -1188,7 +1189,7 @@ async function openPayout(id) {
           <p>${euro.format(number(payout.net_amount))} netos · ${payout.bank_reference ? text(payout.bank_reference) : "sin referencia bancaria"}</p>
         </div>
         <div class="row-actions">
-          <button type="button" data-edit-payout-details="${payout.id}">Editar cobro</button>
+          <button type="button" data-edit-payout-details="${payout.id}">Editar ingreso</button>
           <button type="button" class="ghost" data-close-payout-panels>Cerrar</button>
         </div>
       </div>
@@ -1256,6 +1257,8 @@ function renderSettings() {
   $$(".settings-section").forEach((section) => {
     section.classList.toggle("hidden", section.dataset.settingsPanel !== state.settingsSection);
   });
+  if ($("#technicalLogLevel")) $("#technicalLogLevel").value = state.technicalLogLevel || "relevant";
+  $("#settingsSubmitRow")?.classList.toggle("hidden", ["shopify", "diagnostico", "logs"].includes(state.settingsSection));
   renderSystemHealth();
   renderTechnicalLogs();
 }
@@ -1381,11 +1384,7 @@ function renderTechnicalLogs() {
   const summary = $("#technicalLogSummary");
   const list = $("#technicalLogList");
   if (!summary || !list) return;
-  const source = $("#technicalLogSource")?.value || "";
-  const level = $("#technicalLogLevel")?.value || state.technicalLogLevel || "relevant";
-  const queryText = String($("#technicalLogQuery")?.value || "").trim().toLowerCase();
-  const from = $("#technicalLogFrom")?.value || "";
-  const to = $("#technicalLogTo")?.value || "";
+  const { source, level, query: queryText, from, to } = technicalLogFilterValues();
   let rows = [...(state.technicalAudit || [])];
   rows = rows.filter((row) => {
     const rowSource = technicalLogSource(row);
@@ -1425,6 +1424,16 @@ function renderTechnicalLogs() {
       </article>
     `;
   }).join("") || `<div class="empty-state"><strong>Sin eventos técnicos visibles</strong>Ajusta el nivel, el origen o la búsqueda para ampliar la vista.</div>`;
+}
+
+function technicalLogFilterValues() {
+  return {
+    source: $("#technicalLogSource")?.value || "",
+    level: $("#technicalLogLevel")?.value || state.technicalLogLevel || "relevant",
+    query: String($("#technicalLogQuery")?.value || "").trim().toLowerCase(),
+    from: $("#technicalLogFrom")?.value || "",
+    to: $("#technicalLogTo")?.value || ""
+  };
 }
 
 async function maybeRunShopifyAutoSync() {
@@ -2142,7 +2151,7 @@ async function savePayout(event) {
   });
   await Promise.all([loadIncome(), loadSummary(), loadDashboardFinance()]);
   await openPayout(saved.id);
-  toast("Cobro guardado");
+  toast("Ingreso guardado");
 }
 
 async function saveSettings(event) {
@@ -2593,8 +2602,8 @@ function bindEvents() {
     renderTechnicalLogs();
   });
   ["#technicalLogQuery", "#technicalLogSource", "#technicalLogLevel", "#technicalLogFrom", "#technicalLogTo"].forEach((selector) => {
-    $(selector)?.addEventListener(selector === "#technicalLogQuery" ? "input" : "change", debounce((event) => {
-      if (selector === "#technicalLogLevel") state.technicalLogLevel = event.currentTarget.value || "relevant";
+    $(selector)?.addEventListener(selector === "#technicalLogQuery" ? "input" : "change", debounce(() => {
+      if (selector === "#technicalLogLevel") state.technicalLogLevel = $("#technicalLogLevel")?.value || "relevant";
       renderTechnicalLogs();
     }, selector === "#technicalLogQuery" ? 180 : 0));
   });
