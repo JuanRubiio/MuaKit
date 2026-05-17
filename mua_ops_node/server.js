@@ -89,12 +89,22 @@ function saveDb() {
   fs.writeFileSync(DB_FILE, Buffer.from(db.export()));
 }
 
+function normalizeUsageType(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw === "material_kit") return "material kit";
+  return raw;
+}
+
 function backfillMaterialHierarchy() {
   for (const material of query("SELECT * FROM materials")) {
     const inferred = inferMaterialHierarchy(material.name, material.category);
     const patch = {};
     for (const key of ["usage_type", "family", "subfamily", "variant", "base_material", "finish"]) {
       if (!String(material[key] || "").trim() && String(inferred[key] || "").trim()) patch[key] = inferred[key];
+    }
+    if (normalizeUsageType(material.usage_type) !== String(material.usage_type || "")) {
+      patch.usage_type = normalizeUsageType(material.usage_type);
     }
     if (!Number(material.is_outlet || 0) && /\boutlet\b/i.test(String(material.name || ""))) patch.is_outlet = 1;
     if (!Object.keys(patch).length) continue;
@@ -115,7 +125,7 @@ function materialPayload(row) {
     shopify_available_qty: optionalN(row.shopify_available_qty),
     effective_stock_qty: optionalN(row.effective_stock_qty),
     is_outlet: Boolean(Number(row.is_outlet || 0)),
-    usage_type: row.usage_type || "",
+    usage_type: normalizeUsageType(row.usage_type),
     family: row.family || "",
     subfamily: row.subfamily || "",
     variant: row.variant || "",
@@ -1363,7 +1373,7 @@ function inferMaterialHierarchy(title, category = "") {
     finish: ""
   };
 
-  if (["joya", "cadena", "topping", "material", "consumible"].includes(category)) out.usage_type = "material_kit";
+  if (["joya", "cadena", "topping", "material", "consumible"].includes(category)) out.usage_type = "material kit";
   else if (category === "packaging") out.usage_type = "packaging";
   else if (category === "kit") out.usage_type = "kit";
 
