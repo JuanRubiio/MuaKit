@@ -1430,6 +1430,26 @@ function normalizeName(value) {
     .trim();
 }
 
+function normalizeOutletComparableName(value) {
+  return normalizeName(value)
+    .replace(/\boutlet\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function materialEquivalenceKey(material = {}) {
+  return [
+    normalizeOutletComparableName(material.name),
+    String(material.category || "").trim().toLowerCase(),
+    String(material.usage_type || "").trim().toLowerCase(),
+    String(material.family || "").trim().toLowerCase(),
+    String(material.subfamily || "").trim().toLowerCase(),
+    String(material.variant || "").trim().toLowerCase(),
+    String(material.base_material || "").trim().toLowerCase(),
+    String(material.finish || "").trim().toLowerCase()
+  ].join("|");
+}
+
 function findMaterialByNormalizedName(name) {
   const target = normalizeName(name);
   return query("SELECT * FROM materials WHERE is_deleted=0").find((material) => normalizeName(material.name) === target) || null;
@@ -1648,7 +1668,7 @@ function migrateLegacyJson() {
   }
 }
 
-function materialCosts() {
+function rawMaterialCosts() {
   return query(`
     WITH active_lines AS (
       SELECT l.*
@@ -1663,6 +1683,13 @@ function materialCosts() {
       m.name,
       m.category,
       m.unit_label,
+      m.is_outlet,
+      m.usage_type,
+      m.family,
+      m.subfamily,
+      m.variant,
+      m.base_material,
+      m.finish,
       s.name AS preferred_supplier_name,
       COUNT(l.id) AS purchase_lots,
       COALESCE(SUM(l.total_units), 0) AS total_units_purchased,
@@ -1708,9 +1735,49 @@ function materialCosts() {
   `);
 }
 
+function materialCosts() {
+  const rows = rawMaterialCosts();
+  const byKey = new Map();
+  for (const row of rows) {
+    if (row.is_outlet) continue;
+    if (row.weighted_avg_unit_cost_inc_vat == null && row.last_unit_cost_inc_vat == null) continue;
+    const key = materialEquivalenceKey(row);
+    if (!byKey.has(key)) byKey.set(key, row);
+  }
+  return rows.map((row) => {
+    if (!row.is_outlet) {
+      return {
+        ...row,
+        cost_reference_material_id: row.material_id,
+        cost_reference_material_name: row.name,
+        inherited_cost: 0
+      };
+    }
+    const base = byKey.get(materialEquivalenceKey(row));
+    if (!base || Number(base.material_id) === Number(row.material_id)) {
+      return {
+        ...row,
+        cost_reference_material_id: row.material_id,
+        cost_reference_material_name: row.name,
+        inherited_cost: 0
+      };
+    }
+    return {
+      ...row,
+      weighted_avg_unit_cost_inc_vat: base.weighted_avg_unit_cost_inc_vat,
+      last_unit_cost_inc_vat: base.last_unit_cost_inc_vat,
+      main_supplier_name: base.main_supplier_name || row.main_supplier_name,
+      cost_reference_material_id: base.material_id,
+      cost_reference_material_name: base.name,
+      inherited_cost: 1
+    };
+  });
+}
+
 function materialCostDetail(materialId) {
   const summary = materialCosts().find((row) => Number(row.material_id) === Number(materialId));
   if (!summary) return null;
+  const sourceMaterialId = Number(summary.cost_reference_material_id || summary.material_id);
   const lots = query(
     `SELECT l.id AS line_id, l.description, l.package_count, l.units_per_package, l.total_units,
             l.price_per_package, l.line_total, l.notes,
@@ -1724,7 +1791,7 @@ function materialCostDetail(materialId) {
        AND i.is_deleted = 0
        AND i.status != 'archived'
      ORDER BY i.invoice_date ASC, l.id ASC`,
-    { id: materialId }
+    { id: sourceMaterialId }
   ).map((row) => ({
     ...row,
     unit_cost: n(row.total_units) > 0 ? n(row.line_total) / n(row.total_units) : null

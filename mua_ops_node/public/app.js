@@ -629,23 +629,23 @@ function auditJump(row, before, after) {
   return null;
 }
 
-function activeMaterials() {
-  return state.materials.filter((material) => !material.is_deleted);
+function activeMaterials({ includeOutlet = true } = {}) {
+  return state.materials.filter((material) => !material.is_deleted && (includeOutlet || !material.is_outlet));
 }
 
-function materialsMatching(filters = {}) {
-  return activeMaterials().filter((material) => MATERIAL_HIERARCHY.every((field) => {
+function materialsMatching(filters = {}, options = {}) {
+  return activeMaterials(options).filter((material) => MATERIAL_HIERARCHY.every((field) => {
     const wanted = String(filters[field.key] || "").trim();
     if (!wanted) return true;
     return String(material[field.key] || "").trim() === wanted;
   }));
 }
 
-function hierarchyValueOptions(key, filters = {}) {
+function hierarchyValueOptions(key, filters = {}, options = {}) {
   const scopedFilters = { ...filters };
   delete scopedFilters[key];
   return Array.from(new Set(
-    materialsMatching(scopedFilters)
+    materialsMatching(scopedFilters, options)
       .map((material) => String(material[key] || "").trim())
       .filter(Boolean)
   )).sort((a, b) => a.localeCompare(b, "es"));
@@ -669,11 +669,12 @@ function materialPickerMarkup({ context, required = true, includePreview = true 
 
 function syncMaterialPicker(form, context, { required = true } = {}) {
   if (!form) return;
+  const includeOutlet = context !== "line";
   const filters = Object.fromEntries(MATERIAL_HIERARCHY.map((field) => [field.key, form.elements[`${context}_${field.key}`]?.value || ""]));
   for (const field of MATERIAL_HIERARCHY) {
     const select = form.elements[`${context}_${field.key}`];
     if (!select) continue;
-    const options = hierarchyValueOptions(field.key, filters);
+    const options = hierarchyValueOptions(field.key, filters, { includeOutlet });
     const current = select.value;
     select.innerHTML = optionList(options, current, field.empty);
     if (current && !options.includes(current)) select.value = "";
@@ -682,12 +683,16 @@ function syncMaterialPicker(form, context, { required = true } = {}) {
   const materialSelect = form.elements.material_id;
   if (!materialSelect) return;
   const selectedMaterialId = materialSelect.value;
-  const matches = materialsMatching(narrowedFilters);
-  materialSelect.innerHTML = filteredMaterialOptions(selectedMaterialId, required ? "Selecciona material" : "Sin material", matches);
-  if (selectedMaterialId && !matches.some((material) => String(material.id) === String(selectedMaterialId))) {
+  const selectedMaterial = state.materials.find((material) => String(material.id) === String(selectedMaterialId)) || null;
+  const matches = materialsMatching(narrowedFilters, { includeOutlet });
+  const optionsSource = selectedMaterial && !matches.some((material) => String(material.id) === String(selectedMaterialId))
+    ? [selectedMaterial, ...matches]
+    : matches;
+  materialSelect.innerHTML = filteredMaterialOptions(selectedMaterialId, required ? "Selecciona material" : "Sin material", optionsSource);
+  if (selectedMaterialId && !optionsSource.some((material) => String(material.id) === String(selectedMaterialId))) {
     materialSelect.value = "";
   }
-  const selected = activeMaterials().find((material) => String(material.id) === String(materialSelect.value));
+  const selected = state.materials.find((material) => String(material.id) === String(materialSelect.value));
   const preview = form.querySelector(`[data-material-preview="${context}"]`);
   if (!preview) return;
   if (!selected) {
@@ -1967,8 +1972,8 @@ function renderCosts() {
         <strong data-label="Material">${text(row.name)}</strong>
         <span data-label="Categoría">${text(row.category)}</span>
         <span data-label="Proveedor">${text(row.main_supplier_name || row.preferred_supplier_name || "")}</span>
-        <span data-label="Coste medio">${row.weighted_avg_unit_cost_inc_vat == null ? "-" : euro.format(number(row.weighted_avg_unit_cost_inc_vat))}</span>
-        <span data-label="Último coste">${row.last_unit_cost_inc_vat == null ? "-" : euro.format(number(row.last_unit_cost_inc_vat))}</span>
+        <span data-label="Coste medio">${row.weighted_avg_unit_cost_inc_vat == null ? "-" : `${euro.format(number(row.weighted_avg_unit_cost_inc_vat))}${row.inherited_cost ? " *" : ""}`}</span>
+        <span data-label="Último coste">${row.last_unit_cost_inc_vat == null ? "-" : `${euro.format(number(row.last_unit_cost_inc_vat))}${row.inherited_cost ? " *" : ""}`}</span>
         <span data-label="Gasto">${euro.format(number(row.total_spend))}</span>
         <span data-label="Lotes">${row.purchase_lots || 0}</span>
         <span data-label="Detalle"><button type="button" class="ghost" data-open-cost="${row.material_id}">Ver</button></span>
@@ -1993,6 +1998,7 @@ async function openCostDetail(materialId) {
       </div>
       <button type="button" class="ghost" data-close-cost-detail>Cerrar</button>
     </div>
+    ${summary.inherited_cost ? `<div class="inline-note">Este material outlet hereda el coste de <strong>${text(summary.cost_reference_material_name)}</strong>.</div>` : ""}
     <div id="costHistoryChart" class="chart-surface chart-surface-small"></div>
     <div class="list compact">
       ${lots.length ? lots.map((lot) => `
