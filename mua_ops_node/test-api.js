@@ -513,7 +513,7 @@ async function run() {
     assert(archivedInvoice.is_deleted === 1, "Invoice should be archived");
     costs = await request("GET", "/api/costs/materials");
     materialCost = costs.find((row) => row.material_id === material.id);
-    assert(materialCost.purchase_lots === 0, "Archived invoice should stop affecting costs");
+    assert(materialCost.purchase_lots === 2, "Archived material invoice should keep contributing to costs");
 
     const restoredInvoice = await request("POST", `/api/invoices/${invoice.id}/restore`);
     assert(restoredInvoice.is_deleted === 0, "Invoice should be restored");

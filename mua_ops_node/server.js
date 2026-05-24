@@ -1447,6 +1447,13 @@ function normalizeOutletComparableName(value) {
     .trim();
 }
 
+function materialCostInvoicePredicate(alias) {
+  return `(
+    (${alias}.is_deleted = 0 OR LOWER(COALESCE(${alias}.category, '')) = 'materiales')
+    AND (${alias}.status != 'archived' OR LOWER(COALESCE(${alias}.category, '')) = 'materiales')
+  )`;
+}
+
 function materialEquivalenceKey(material = {}) {
   return [
     normalizeOutletComparableName(material.name),
@@ -1679,14 +1686,16 @@ function migrateLegacyJson() {
 }
 
 function rawMaterialCosts() {
+  const invoiceScope = materialCostInvoicePredicate("i");
+  const invoiceScope2 = materialCostInvoicePredicate("i2");
+  const invoiceScope3 = materialCostInvoicePredicate("i3");
   return query(`
     WITH active_lines AS (
       SELECT l.*
       FROM invoice_lines l
       JOIN invoices i ON i.id = l.invoice_id
       WHERE l.is_deleted = 0
-        AND i.is_deleted = 0
-        AND i.status != 'archived'
+        AND ${invoiceScope}
     )
     SELECT
       m.id AS material_id,
@@ -1718,8 +1727,7 @@ function rawMaterialCosts() {
         JOIN invoices i2 ON i2.id = l2.invoice_id
         WHERE l2.material_id = m.id
           AND l2.is_deleted = 0
-          AND i2.is_deleted = 0
-          AND i2.status != 'archived'
+          AND ${invoiceScope2}
         ORDER BY i2.invoice_date DESC, l2.id DESC
         LIMIT 1
       ) AS last_unit_cost_inc_vat,
@@ -1730,8 +1738,7 @@ function rawMaterialCosts() {
         LEFT JOIN suppliers s2 ON s2.id = i3.supplier_id
         WHERE l3.material_id = m.id
           AND l3.is_deleted = 0
-          AND i3.is_deleted = 0
-          AND i3.status != 'archived'
+          AND ${invoiceScope3}
         GROUP BY s2.id
         ORDER BY SUM(l3.line_total) DESC
         LIMIT 1
@@ -1788,6 +1795,7 @@ function materialCostDetail(materialId) {
   const summary = materialCosts().find((row) => Number(row.material_id) === Number(materialId));
   if (!summary) return null;
   const sourceMaterialId = Number(summary.cost_reference_material_id || summary.material_id);
+  const invoiceScope = materialCostInvoicePredicate("i");
   const lots = query(
     `SELECT l.id AS line_id, l.description, l.package_count, l.units_per_package, l.total_units,
             l.price_per_package, l.line_total, l.notes,
@@ -1798,8 +1806,7 @@ function materialCostDetail(materialId) {
      LEFT JOIN suppliers s ON s.id = i.supplier_id
      WHERE l.material_id = $id
        AND l.is_deleted = 0
-       AND i.is_deleted = 0
-       AND i.status != 'archived'
+       AND ${invoiceScope}
      ORDER BY i.invoice_date ASC, l.id ASC`,
     { id: sourceMaterialId }
   ).map((row) => ({
