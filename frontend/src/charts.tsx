@@ -24,14 +24,16 @@ export const ChartSurface: FunctionalComponent<{ option: echarts.EChartsCoreOpti
 
 export function buildExpenseChart(finance: DashboardFinance | null) {
   if (!finance) return null;
+  const keys = finance.monthly_breakdown?.keys ?? [];
+  const total = finance.monthly_breakdown?.series?.total ?? [];
   return {
     tooltip: { trigger: "axis" },
     grid: { left: 48, right: 18, top: 20, bottom: 30 },
-    xAxis: { type: "category", data: finance.monthly_breakdown.keys },
+    xAxis: { type: "category", data: keys },
     yAxis: { type: "value" },
     series: [
       {
-        data: finance.monthly_breakdown.series.total,
+        data: total,
         type: "line",
         smooth: true,
         areaStyle: {
@@ -49,14 +51,16 @@ export function buildExpenseChart(finance: DashboardFinance | null) {
 
 export function buildIncomeChart(finance: DashboardFinance | null) {
   if (!finance) return null;
+  const keys = finance.monthly_breakdown?.keys ?? [];
+  const income = finance.monthly_breakdown?.series?.cobros ?? [];
   return {
     tooltip: { trigger: "axis" },
     grid: { left: 48, right: 18, top: 20, bottom: 30 },
-    xAxis: { type: "category", data: finance.monthly_breakdown.keys },
+    xAxis: { type: "category", data: keys },
     yAxis: { type: "value" },
     series: [
       {
-        data: finance.monthly_breakdown.series.cobros,
+        data: income,
         type: "line",
         smooth: true,
         areaStyle: {
@@ -74,41 +78,47 @@ export function buildIncomeChart(finance: DashboardFinance | null) {
 
 export function buildBalanceChart(finance: DashboardFinance | null) {
   if (!finance) return null;
+  const keys = finance.monthly_breakdown?.keys ?? [];
+  const total = finance.monthly_breakdown?.series?.total ?? [];
+  const income = finance.monthly_breakdown?.series?.cobros ?? [];
+  const balance = finance.monthly_breakdown?.series?.balance ?? [];
   return {
     tooltip: { trigger: "axis" },
     legend: { top: 0 },
     grid: { left: 48, right: 18, top: 36, bottom: 30 },
-    xAxis: { type: "category", data: finance.monthly_breakdown.keys },
+    xAxis: { type: "category", data: keys },
     yAxis: { type: "value" },
     series: [
-      { name: "Gasto", data: finance.monthly_breakdown.series.total, type: "bar", itemStyle: { color: "#b85d72" } },
-      { name: "Ingreso", data: finance.monthly_breakdown.series.cobros, type: "bar", itemStyle: { color: "#166b5e" } },
-      { name: "Balance", data: finance.monthly_breakdown.series.balance, type: "line", smooth: true, itemStyle: { color: "#c18a3a" }, lineStyle: { color: "#c18a3a", width: 3 } }
+      { name: "Gasto", data: total, type: "bar", itemStyle: { color: "#b85d72" } },
+      { name: "Ingreso", data: income, type: "bar", itemStyle: { color: "#166b5e" } },
+      { name: "Balance", data: balance, type: "line", smooth: true, itemStyle: { color: "#c18a3a" }, lineStyle: { color: "#c18a3a", width: 3 } }
     ]
   } as echarts.EChartsCoreOption;
 }
 
 export function buildCategoryChart(finance: DashboardFinance | null) {
   if (!finance) return null;
+  const categories = finance.expense_categories ?? [];
   return {
     tooltip: { trigger: "item" },
     legend: { bottom: 0 },
-    series: [{ type: "pie", radius: ["48%", "70%"], center: ["50%", "42%"], label: { show: false }, data: finance.expense_categories.map((row) => ({ name: row.category, value: row.total })) }]
+    series: [{ type: "pie", radius: ["48%", "70%"], center: ["50%", "42%"], label: { show: false }, data: categories.map((row) => ({ name: row.category, value: row.total })) }]
   } as echarts.EChartsCoreOption;
 }
 
 export function buildIncomeMixChart(finance: DashboardFinance | null) {
   if (!finance) return null;
+  const channels = finance.income_channels ?? [];
   return {
     tooltip: { trigger: "item" },
     legend: { bottom: 0 },
-    series: [{ type: "pie", radius: ["48%", "70%"], center: ["50%", "42%"], label: { show: false }, data: finance.income_channels.map((row) => ({ name: row.channel, value: row.net_amount })) }]
+    series: [{ type: "pie", radius: ["48%", "70%"], center: ["50%", "42%"], label: { show: false }, data: channels.map((row) => ({ name: row.channel, value: row.net_amount })) }]
   } as echarts.EChartsCoreOption;
 }
 
 export function buildReorderChart(finance: DashboardFinance | null) {
   if (!finance) return null;
-  const rows = finance.reorder_alerts.slice(0, 8);
+  const rows = (finance.reorder_alerts ?? []).slice(0, 8);
   return {
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
     grid: { left: 132, right: 18, top: 16, bottom: 30 },
