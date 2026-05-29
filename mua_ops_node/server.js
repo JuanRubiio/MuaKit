@@ -14,6 +14,7 @@ const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 const DB_FILE = process.env.MUA_OPS_DB_FILE || path.join(DATA_DIR, "mua_ops.sqlite");
 const LEGACY_JSON = process.env.MUA_OPS_LEGACY_JSON || path.join(DATA_DIR, "mua_ops.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
+const NEXT_PUBLIC_DIR = path.join(ROOT, "frontend", "dist");
 const WORKSPACE_PRODUCTS_CSV = path.join(ROOT, "shopify", "inventario", "products_export_1.csv");
 const DOWNLOAD_PRODUCTS_CSV = "C:\\Users\\Portatil\\Downloads\\products_export_1.csv";
 const PRODUCTS_CSV = process.env.MUA_OPS_PRODUCTS_CSV || (fs.existsSync(WORKSPACE_PRODUCTS_CSV) ? WORKSPACE_PRODUCTS_CSV : DOWNLOAD_PRODUCTS_CSV);
@@ -2501,6 +2502,12 @@ function createApp() {
   app.use("/img", express.static(path.join(ROOT, "img")));
   app.use("/uploads", express.static(UPLOAD_DIR));
   app.use("/vendor/echarts", express.static(path.join(ROOT, "node_modules", "echarts", "dist")));
+  if (fs.existsSync(NEXT_PUBLIC_DIR)) {
+    app.use("/next", express.static(NEXT_PUBLIC_DIR));
+    app.get(/^\/next(?:\/.*)?$/, (_req, res) => {
+      res.sendFile(path.join(NEXT_PUBLIC_DIR, "index.html"));
+    });
+  }
   app.use(express.static(PUBLIC_DIR));
 
   app.get("/api/summary", (req, res) => {

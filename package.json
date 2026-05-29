@@ -8,7 +8,11 @@
   },
   "scripts": {
     "start": "node mua_ops_node/server.js --port 5055",
-    "test": "node mua_ops_node/test-api.js"
+    "test": "node mua_ops_node/test-api.js",
+    "frontend:dev": "vite --config frontend/vite.config.ts",
+    "frontend:build": "vite build --config frontend/vite.config.ts",
+    "frontend:preview": "vite preview --config frontend/vite.config.ts",
+    "test:ui": "npm run frontend:build && playwright test"
   },
   "keywords": [],
   "author": "",
@@ -17,6 +21,15 @@
     "echarts": "^6.0.0",
     "express": "^5.2.1",
     "multer": "^2.1.1",
+    "preact": "^10.29.2",
     "sql.js": "^1.14.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@preact/preset-vite": "^2.10.2",
+    "@types/node": "^25.9.1",
+    "playwright": "^1.60.0",
+    "typescript": "^6.0.3",
+    "vite": "^5.4.19"
   }
 }
