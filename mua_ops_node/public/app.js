@@ -164,6 +164,56 @@ const TECHNICAL_LOG_LEVELS = {
   debug: "Debug"
 };
 const PAGINATION_PAGE_SIZES = [10, 20, 50, 100];
+const viewModules = {
+  dashboard: null,
+  income: null,
+  system: null
+};
+
+function createViewContext() {
+  return {
+    state,
+    $,
+    $$,
+    api,
+    euro,
+    text,
+    number,
+    lower,
+    badge,
+    channelLabel,
+    payoutStatusLabel,
+    setForm,
+    chartColors,
+    compactTimeline,
+    dashboardChart,
+    DASHBOARD_EXPENSE_LABELS,
+    DASHBOARD_INCOME_LABELS,
+    applyTextSearch,
+    sortRows,
+    paginateRows,
+    renderPagination,
+    auditActionLabel,
+    formatAuditTimestamp,
+    technicalLogLevel,
+    technicalLogSource,
+    technicalLogMessage,
+    technicalLogContext,
+    TECHNICAL_LOG_LEVELS
+  };
+}
+
+async function loadViewModules() {
+  const context = createViewContext();
+  const [dashboardModule, incomeModule, systemModule] = await Promise.all([
+    import("/views-dashboard.mjs"),
+    import("/views-income.mjs"),
+    import("/views-system.mjs")
+  ]);
+  viewModules.dashboard = dashboardModule.createDashboardViews(context);
+  viewModules.income = incomeModule.createIncomeViews(context);
+  viewModules.system = systemModule.createSystemViews(context);
+}
 
 function chartColors() {
   const settings = state.settings || {};
@@ -834,395 +884,11 @@ function compactTimeline(keys = [], mode = "month") {
 }
 
 function renderDashboardCharts() {
-  if (!$("#dashboard")?.classList.contains("active")) return;
-  const finance = state.dashboardFinance;
-  if (!finance || !window.echarts) return;
-  const expenseKey = state.dashboardExpenseTrendView || "total";
-  const incomeKey = state.dashboardIncomeTrendView || "cobros";
-  const colors = chartColors();
-  const trend = finance.trend || {};
-  const keys = trend.keys?.length ? trend.keys : finance.monthly_breakdown?.months || [];
-  const labels = compactTimeline(keys, trend.mode || finance.granularity || "month");
-  const expenseValues = trend.series?.[expenseKey]?.length
-    ? trend.series[expenseKey]
-    : finance.monthly_breakdown?.series?.[expenseKey] || finance.monthly_spend.map((row) => row.total);
-  const incomeValues = trend.series?.[incomeKey]?.length
-    ? trend.series[incomeKey]
-    : finance.monthly_breakdown?.series?.[incomeKey] || finance.monthly_breakdown?.series?.cobros || [];
-  const balanceValues = trend.series?.balance || keys.map((_, index) => number(trend.series?.cobros?.[index]) - number(trend.series?.total?.[index]));
-
-  const expenseChart = dashboardChart("dashboardExpenseChart");
-  const incomeChart = dashboardChart("dashboardIncomeChart");
-  const balanceChart = dashboardChart("dashboardBalanceChart");
-  const categoryChart = dashboardChart("dashboardCategoryChart");
-  const incomeMixChart = dashboardChart("dashboardIncomeMixChart");
-  const reorderChart = dashboardChart("dashboardReorderChart");
-  if (!expenseChart || !incomeChart || !balanceChart || !categoryChart || !incomeMixChart || !reorderChart) return;
-
-  expenseChart.setOption({
-    animationDuration: 400,
-    grid: { left: 50, right: 18, top: 28, bottom: 32 },
-    tooltip: { trigger: "axis", valueFormatter: (value) => euro.format(Number(value || 0)) },
-    color: [colors[expenseKey] || colors.total],
-    xAxis: {
-      type: "category",
-      boundaryGap: false,
-      data: labels,
-      axisLine: { lineStyle: { color: "#c9bfb5" } },
-      axisLabel: { color: "#766e68" }
-    },
-    yAxis: {
-      type: "value",
-      axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
-      splitLine: { lineStyle: { color: "#ede7df" } }
-    },
-    series: [{
-      name: DASHBOARD_EXPENSE_LABELS[expenseKey] || DASHBOARD_EXPENSE_LABELS.total,
-      data: expenseValues,
-      type: "line",
-      smooth: true,
-      symbol: "circle",
-      symbolSize: 8,
-      lineStyle: { width: 3, color: colors[expenseKey] || colors.total },
-      itemStyle: { color: colors[expenseKey] || colors.total },
-      areaStyle: {
-        color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: `${(colors[expenseKey] || colors.total)}33` },
-          { offset: 1, color: `${(colors[expenseKey] || colors.total)}08` }
-        ])
-      }
-    }]
-  }, true);
-
-  incomeChart.setOption({
-    animationDuration: 400,
-    grid: { left: 50, right: 18, top: 28, bottom: 32 },
-    tooltip: { trigger: "axis", valueFormatter: (value) => euro.format(Number(value || 0)) },
-    color: [colors[incomeKey] || colors.cobros],
-    xAxis: {
-      type: "category",
-      boundaryGap: false,
-      data: labels,
-      axisLine: { lineStyle: { color: "#c9bfb5" } },
-      axisLabel: { color: "#766e68" }
-    },
-    yAxis: {
-      type: "value",
-      axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
-      splitLine: { lineStyle: { color: "#ede7df" } }
-    },
-    series: [{
-      name: DASHBOARD_INCOME_LABELS[incomeKey] || DASHBOARD_INCOME_LABELS.cobros,
-      data: incomeValues,
-      type: "line",
-      smooth: true,
-      symbol: "circle",
-      symbolSize: 7,
-      lineStyle: { width: 3, color: colors[incomeKey] || colors.cobros },
-      itemStyle: { color: colors[incomeKey] || colors.cobros },
-      areaStyle: {
-        color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: `${(colors[incomeKey] || colors.cobros)}33` },
-          { offset: 1, color: `${(colors[incomeKey] || colors.cobros)}08` }
-        ])
-      }
-    }]
-  }, true);
-
-  balanceChart.setOption({
-    animationDuration: 400,
-    grid: { left: 54, right: 24, top: 26, bottom: 34 },
-    tooltip: { trigger: "axis", valueFormatter: (value) => euro.format(Number(value || 0)) },
-    legend: { top: 0, textStyle: { color: "#766e68" } },
-    xAxis: {
-      type: "category",
-      data: labels,
-      axisLine: { lineStyle: { color: "#c9bfb5" } },
-      axisLabel: { color: "#766e68" }
-    },
-    yAxis: {
-      type: "value",
-      axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
-      splitLine: { lineStyle: { color: "#ede7df" } }
-    },
-    series: [
-      {
-        name: "Gasto",
-        type: "bar",
-        barMaxWidth: 22,
-        itemStyle: { color: colors.fees, borderRadius: [6, 6, 0, 0] },
-        data: trend.series?.total || finance.monthly_breakdown?.series?.total || []
-      },
-      {
-        name: "Ingreso neto",
-        type: "bar",
-        barMaxWidth: 22,
-        itemStyle: { color: colors.cobros, borderRadius: [6, 6, 0, 0] },
-        data: trend.series?.cobros || finance.monthly_breakdown?.series?.cobros || []
-      },
-      {
-        name: "Balance",
-        type: "line",
-        smooth: true,
-        symbolSize: 7,
-        lineStyle: { width: 3, color: colors.channel_bizum || "#c18a3a" },
-        itemStyle: { color: colors.channel_bizum || "#c18a3a" },
-        data: balanceValues
-      }
-    ]
-  }, true);
-
-  categoryChart.setOption({
-    animationDuration: 400,
-    color: [colors.materiales, colors.marketing, colors.envios, colors.total, "#7c746c", "#dcc8ad"],
-    tooltip: { trigger: "item", valueFormatter: (value) => euro.format(Number(value || 0)) },
-    legend: {
-      bottom: 6,
-      left: "center",
-      icon: "roundRect",
-      itemWidth: 14,
-      itemHeight: 10,
-      textStyle: { color: "#5d5650", fontSize: 12, fontWeight: 600 }
-    },
-    series: [{
-      type: "pie",
-      radius: ["50%", "72%"],
-      center: ["50%", "38%"],
-      avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 8, borderColor: "#fff", borderWidth: 2 },
-      label: { show: false },
-      labelLine: { show: false },
-      emphasis: {
-        label: {
-          show: true,
-          color: "#171412",
-          fontWeight: 700,
-          formatter: ({ name, percent }) => `${name}\n${percent}%`
-        }
-      },
-      data: finance.category_spend.map((row) => ({ name: row.category, value: row.total }))
-    }]
-  }, true);
-
-  incomeMixChart.setOption({
-    animationDuration: 400,
-    color: [colors.shopify, colors.etsy, colors.bizum, colors.cobros],
-    tooltip: { trigger: "item", valueFormatter: (value) => euro.format(Number(value || 0)) },
-    legend: {
-      bottom: 6,
-      left: "center",
-      icon: "roundRect",
-      itemWidth: 14,
-      itemHeight: 10,
-      textStyle: { color: "#5d5650", fontSize: 12, fontWeight: 600 }
-    },
-    series: [{
-      type: "pie",
-      radius: ["50%", "72%"],
-      center: ["50%", "38%"],
-      avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 8, borderColor: "#fff", borderWidth: 2 },
-      label: { show: false },
-      labelLine: { show: false },
-      emphasis: {
-        label: {
-          show: true,
-          color: "#171412",
-          fontWeight: 700,
-          formatter: ({ name, percent }) => `${name}\n${percent}%`
-        }
-      },
-      data: finance.income_channels
-        .map((row) => ({ name: channelLabel(row.channel), value: row.net_amount }))
-        .filter((row) => number(row.value) > 0)
-    }]
-  }, true);
-
-  const reorderRows = (finance.operational?.reorder_materials || []).slice(0, 6);
-  reorderChart.setOption({
-    animationDuration: 400,
-    grid: { left: 36, right: 18, top: 18, bottom: 60, containLabel: true },
-    tooltip: {
-      trigger: "axis",
-      axisPointer: { type: "cross" },
-      valueFormatter: (value) => `${number(value)} ud`
-    },
-    legend: {
-      bottom: 8,
-      left: "center",
-      itemWidth: 14,
-      itemHeight: 10,
-      icon: "roundRect",
-      textStyle: { color: "#5d5650", fontSize: 12, fontWeight: 600 }
-    },
-    xAxis: {
-      type: "category",
-      axisLine: { lineStyle: { color: "#c9bfb5" } },
-      axisLabel: {
-        color: "#766e68",
-        interval: 0,
-        rotate: 18,
-        formatter: (value) => String(value || "").length > 18 ? `${String(value).slice(0, 18)}…` : value
-      },
-      data: reorderRows.map((row) => row.name)
-    },
-    yAxis: {
-      type: "value",
-      axisLabel: { color: "#766e68", formatter: (value) => `${number(value)}` },
-      splitLine: { lineStyle: { color: "#ede7df" } }
-    },
-    graphic: reorderRows.length ? [] : [{
-      type: "text",
-      left: "center",
-      top: "middle",
-      style: {
-        text: "No hay materiales en reposición",
-        fill: "#766e68",
-        fontSize: 13,
-        fontWeight: 600
-      }
-    }],
-    series: [
-      {
-        name: "Stock Shopify",
-        type: "bar",
-        barMaxWidth: 28,
-        itemStyle: { color: colors.cobros, borderRadius: [6, 6, 0, 0] },
-        data: reorderRows.map((row) => number(row.effective_stock_qty))
-      },
-      {
-        name: "Punto reposición",
-        type: "line",
-        smooth: true,
-        symbol: "circle",
-        symbolSize: 8,
-        lineStyle: { width: 3, color: colors.materiales },
-        itemStyle: { color: colors.materiales },
-        data: reorderRows.map((row) => number(row.reorder_point))
-      }
-    ]
-  }, true);
+  return viewModules.dashboard?.renderDashboardCharts();
 }
 
 function renderDashboard() {
-  const finance = state.dashboardFinance;
-  if (!finance) return;
-  if (!["cobros", "channel_shopify", "channel_etsy", "channel_bizum"].includes(state.dashboardIncomeTrendView)) {
-    state.dashboardIncomeTrendView = "cobros";
-  }
-
-  const k = finance.kpis;
-  const expenseLabel = DASHBOARD_EXPENSE_LABELS[state.dashboardExpenseTrendView] || DASHBOARD_EXPENSE_LABELS.total;
-  const incomeLabel = DASHBOARD_INCOME_LABELS[state.dashboardIncomeTrendView] || DASHBOARD_INCOME_LABELS.cobros;
-  const trendWord = (finance.granularity || "month") === "day" ? "diarios" : "mensuales";
-  $("#dashboardWindowLabel").textContent = finance.window?.label || "Todo el periodo";
-  if ($("#dashboardWindowPreset")) $("#dashboardWindowPreset").value = state.dashboardWindowPreset || "all";
-  if ($("#dashboardFrom")) $("#dashboardFrom").value = state.dashboardWindowFrom || "";
-  if ($("#dashboardTo")) $("#dashboardTo").value = state.dashboardWindowTo || "";
-  if ($("#dashboardGranularity")) $("#dashboardGranularity").value = state.dashboardGranularity || "auto";
-  $("#dashboardCustomRange")?.classList.toggle("hidden", state.dashboardWindowPreset !== "custom");
-  $("#dashboardExpenseTitle").textContent = `Gastos ${trendWord}`;
-  $("#dashboardExpenseText").textContent = `Lectura de ${expenseLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
-  $("#dashboardIncomeTitle").textContent = `Ingresos ${trendWord}`;
-  $("#dashboardIncomeText").textContent = `Seguimiento de ${incomeLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
-  $("#dashboardCards").innerHTML = [
-    ["Gasto del periodo", euro.format(k.period_expense), `${k.invoice_count} facturas imputadas`],
-    ["Ingreso neto", euro.format(k.period_net_received || 0), `${k.payout_count || 0} ingresos registrados`],
-    ["Balance", euro.format(k.period_balance || 0), "Ingresos menos gasto"],
-    ["Materiales", euro.format(k.materials_expense), "Compras del periodo"],
-    ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia"],
-    ["Envíos", euro.format(k.shipping_expense), "Coste logístico"],
-    ["Fees", euro.format(k.period_fees_received || 0), "Comisiones de cobro"],
-    ["Facturas del periodo", k.invoice_count, "Registros incluidos"]
-  ].map(([label, value, hint]) => `
-    <article class="card dashboard-kpi-card">
-      <span>${label}</span>
-      <strong>${value}</strong>
-      <small>${hint}</small>
-    </article>
-  `).join("");
-
-  const operational = finance.operational;
-  const opsRows = [
-    {
-      label: "Ingresos pendientes",
-      count: operational.pending_payouts.length,
-      hint: operational.pending_payouts[0]
-        ? `${channelLabel(operational.pending_payouts[0].channel)} · ${text(operational.pending_payouts[0].payout_date)}`
-        : "Todos los ingresos están ejecutados",
-      action: "income",
-      tone: operational.pending_payouts.length ? "warn" : "ok"
-    },
-    {
-      label: "Facturas en borrador",
-      count: operational.draft_invoices.length,
-      hint: operational.draft_invoices[0]
-        ? `${text(operational.draft_invoices[0].supplier_name, "Sin proveedor")} · ${text(operational.draft_invoices[0].invoice_date)}`
-        : "No quedan facturas en borrador",
-      action: "invoices",
-      tone: operational.draft_invoices.length ? "warn" : "ok"
-    },
-    {
-      label: "Materiales a reponer",
-      count: operational.reorder_materials.length,
-      hint: operational.reorder_materials[0]
-        ? `${text(operational.reorder_materials[0].name)} · stock ${operational.reorder_materials[0].effective_stock_qty} / aviso ${number(operational.reorder_materials[0].reorder_alert_threshold)}`
-        : "Sin alertas de reposición",
-      action: "materials",
-      tone: operational.reorder_materials.length ? "warn" : "ok"
-    },
-    {
-      label: "Materiales sin imagen",
-      count: operational.materials_without_image.length,
-      hint: operational.materials_without_image[0] ? text(operational.materials_without_image[0].name) : "Catálogo visual al día",
-      action: "materials",
-      tone: operational.materials_without_image.length ? "warn" : "ok"
-    },
-    {
-      label: "Materiales sin coste",
-      count: operational.materials_without_cost.length,
-      hint: operational.materials_without_cost[0] ? text(operational.materials_without_cost[0].name) : "Compras con coste medio resuelto",
-      action: "costs",
-      tone: operational.materials_without_cost.length ? "warn" : "ok"
-    },
-    {
-      label: "Kits incompletos",
-      count: operational.incomplete_kits.length,
-      hint: operational.incomplete_kits[0]
-        ? `${text(operational.incomplete_kits[0].name)}${operational.incomplete_kits[0].version ? ` · ${text(operational.incomplete_kits[0].version)}` : ""}`
-        : "No hay kits pendientes",
-      action: "kits",
-      tone: operational.incomplete_kits.length ? "warn" : "ok"
-    },
-  ];
-  $("#dashboardOpsList").innerHTML = `<div class="ops-list">${opsRows.map((item) => `
-    <button type="button" class="ops-item" data-jump-view="${item.action}">
-      <span>
-        <strong>${item.label}</strong>
-        <p>${item.hint}</p>
-      </span>
-      <span>
-        <span class="amount">${item.count}</span>
-        ${badge(item.tone === "warn" ? "revisar" : "ok", item.tone)}
-      </span>
-    </button>
-  `).join("")}</div>`;
-
-  const spendRows = state.dashboardSpendView === "materials" ? finance.top_materials : finance.top_suppliers;
-  $("#dashboardSpendList").innerHTML = `<div class="rank-list">${spendRows.map((row) => `
-    <div class="rank-item">
-      <span>
-        <strong>${text(row.name || row.supplier_name)}</strong>
-        <small>${state.dashboardSpendView === "materials" ? `${text(row.category)} · ${row.purchase_lots || 0} lotes` : `${row.invoice_count || 0} facturas imputadas`}</small>
-      </span>
-      <span>
-        <span class="amount">${euro.format(number(row.total_spend))}</span>
-        ${state.dashboardSpendView === "materials" ? badge(row.weighted_avg_unit_cost_inc_vat == null ? "sin coste" : euro.format(number(row.weighted_avg_unit_cost_inc_vat)), "ok") : ""}
-      </span>
-    </div>
-  `).join("") || `<div class="empty-state small">Todavía no hay gasto suficiente para este ranking.</div>`}</div>`;
-
-  requestAnimationFrame(() => renderDashboardCharts());
+  return viewModules.dashboard?.renderDashboard();
 }
 
 async function loadIncome() {
@@ -1237,363 +903,39 @@ async function loadIncome() {
 }
 
 function renderIncome() {
-  if (!state.incomeSummary) return;
-  renderPayouts();
-}
-
-function filteredPayoutRows() {
-  let rows = [...state.payouts];
-  rows = applyTextSearch(rows, $("#payoutSearch")?.value, ["channel", "bank_reference", "raw_source_file", "notes"]);
-  const channel = $("#payoutChannelFilter")?.value;
-  const status = $("#payoutStatusFilter")?.value;
-  const from = $("#payoutFromFilter")?.value;
-  const to = $("#payoutToFilter")?.value;
-  if (channel) rows = rows.filter((row) => row.channel === channel);
-  if (status) rows = rows.filter((row) => row.status === status);
-  if (from) rows = rows.filter((row) => String(row.payout_date || "") >= from);
-  if (to) rows = rows.filter((row) => String(row.payout_date || "") <= to);
-  return rows;
+  return viewModules.income?.renderIncome();
 }
 
 function renderIncomeSummaryCards(rows) {
-  const pending = rows.filter((row) => !["paid", "executed"].includes(String(row.status || "")));
-  const lastPayoutDate = rows.length ? [...rows].sort((a, b) => String(b.payout_date || "").localeCompare(String(a.payout_date || "")))[0].payout_date : "";
-  $("#incomeSummaryCards").innerHTML = [
-    ["Ingreso neto", euro.format(rows.reduce((sum, row) => sum + number(row.net_amount), 0)), `${rows.length} ingresos visibles`],
-    ["Bruto", euro.format(rows.reduce((sum, row) => sum + number(row.gross_amount), 0)), "Importe antes de fees"],
-    ["Fees", euro.format(rows.reduce((sum, row) => sum + number(row.fees_amount), 0)), "Comisiones acumuladas"],
-    ["Pendientes", pending.length, lastPayoutDate ? `Último ingreso ${text(lastPayoutDate)}` : "Sin ingresos todavía"]
-  ].map(([label, value, hint]) => `
-    <article class="card dashboard-kpi-card">
-      <span>${label}</span>
-      <strong>${value}</strong>
-      <small>${hint}</small>
-    </article>
-  `).join("");
+  return viewModules.income?.renderIncomeSummaryCards(rows);
 }
 
 function renderPayouts() {
-  let rows = filteredPayoutRows();
-  renderIncomeSummaryCards(rows);
-  rows = sortRows(rows, $("#payoutSort")?.value, {
-    date_asc: (a, b) => String(a.payout_date).localeCompare(String(b.payout_date)),
-    net_desc: (a, b) => number(b.net_amount) - number(a.net_amount),
-    net_asc: (a, b) => number(a.net_amount) - number(b.net_amount),
-    fees_desc: (a, b) => number(b.fees_amount) - number(a.fees_amount),
-    channel_asc: (a, b) => lower(a.channel).localeCompare(lower(b.channel)) || String(b.payout_date).localeCompare(String(a.payout_date)),
-    default: (a, b) => String(b.payout_date).localeCompare(String(a.payout_date))
-  });
-  const meta = paginateRows("payouts", rows);
-  $("#incomeResultText").textContent = `${meta.total} ingresos visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
-  $("#payoutList").innerHTML = meta.rows.map((payout) => `
-    <article class="invoice-card ${payout.is_deleted ? "deleted" : ""} ${state.selectedPayoutId == payout.id ? "active" : ""}">
-      <button type="button" class="invoice-open" data-open-payout="${payout.id}">
-        <span>
-          <strong>${channelLabel(payout.channel)}</strong>
-          <div class="meta">${text(payout.payout_date)}${payout.bank_reference ? ` · ${text(payout.bank_reference)}` : ""}</div>
-        </span>
-        <span class="amount">${euro.format(number(payout.net_amount))}</span>
-      </button>
-      <div class="tags">
-        ${badge(channelLabel(payout.channel), payout.channel === "bizum" ? "ok" : "")}
-        ${badge(payoutStatusLabel(payout.status), ["paid", "executed"].includes(payout.status) ? "ok" : "warn")}
-        ${badge(`Bruto ${euro.format(number(payout.gross_amount))}`)}
-        ${badge(`Fees ${euro.format(number(payout.fees_amount))}`)}
-      </div>
-      <div class="row-actions">
-        <button data-open-payout="${payout.id}" type="button">Ver</button>
-        ${payout.is_deleted ? `<button data-restore-payout="${payout.id}" type="button">Restaurar</button>` : `<button class="ghost danger-text" data-delete-payout="${payout.id}" type="button">Archivar</button>`}
-      </div>
-    </article>
-  `).join("") || `<div class="empty-state">No hay ingresos con esos filtros.</div>`;
-  renderPagination("#payoutPagination", "payouts", meta);
+  return viewModules.income?.renderPayouts();
 }
 
 async function openPayout(id) {
-  const payout = state.payouts.find((row) => row.id == id) || await api(`/api/channel-payouts/${id}`);
-  if (!payout) return;
-  $("#payoutForm")?.classList.add("hidden");
-  state.selectedPayoutId = payout.id;
-  const panel = $("#payoutDetailPanel");
-  panel.classList.remove("hidden");
-  panel.innerHTML = `
-    <div class="selected-invoice">
-      <div class="panel-head">
-        <div>
-          <h2>${channelLabel(payout.channel)} · ${text(payout.payout_date)}</h2>
-          <p>${euro.format(number(payout.net_amount))} netos · ${payout.bank_reference ? text(payout.bank_reference) : "sin referencia bancaria"}</p>
-        </div>
-        <div class="row-actions">
-          <button type="button" data-edit-payout-details="${payout.id}">Editar ingreso</button>
-          <button type="button" class="ghost" data-close-payout-panels>Cerrar</button>
-        </div>
-      </div>
-      <div class="tags">
-        ${badge(channelLabel(payout.channel))}
-        ${badge(payoutStatusLabel(payout.status), ["paid", "executed"].includes(payout.status) ? "ok" : "warn")}
-        ${badge(payout.currency || "EUR")}
-        ${payout.channel === "etsy" ? badge("Depósito neto", "warn") : ""}
-        ${payout.channel === "bizum" ? badge("Ingreso directo", "ok") : ""}
-      </div>
-    </div>
-    <div class="form-grid three">
-      <div class="inline-note">Bruto: <strong>${euro.format(number(payout.gross_amount))}</strong></div>
-      <div class="inline-note">Fees: <strong>${euro.format(number(payout.fees_amount))}</strong></div>
-      <div class="inline-note">Neto: <strong>${euro.format(number(payout.net_amount))}</strong></div>
-    </div>
-    <div class="form-grid three">
-      <div class="inline-note">Estado: <strong>${text(payoutStatusLabel(payout.status))}</strong></div>
-      <div class="inline-note">Cuenta banco: <strong>${text(payout.bank_account_hint || "-")}</strong></div>
-      <div class="inline-note">Referencia: <strong>${text(payout.bank_reference || "-")}</strong></div>
-    </div>
-    <div class="line-list">
-      <article class="line-card">
-        <div class="row-main">
-          <strong>Origen</strong>
-          <div class="meta">${text(payout.raw_source_file || "Creado manualmente")}</div>
-          ${payout.external_id ? `<div class="meta">ID externo · ${text(payout.external_id)}</div>` : ""}
-          ${payout.notes ? `<p>${text(payout.notes)}</p>` : ""}
-        </div>
-      </article>
-    </div>
-  `;
-  panel.scrollIntoView({ behavior: "smooth", block: "start" });
-  renderPayouts();
+  return viewModules.income?.openPayout(id);
 }
 
 function renderSettings() {
-  const form = $("#settingsForm");
-  if (!form || !state.settings) return;
-  if (!["cobros", "channel_shopify", "channel_etsy", "channel_bizum"].includes(state.settings.dashboard_income_monthly_view)) {
-    state.settings.dashboard_income_monthly_view = "cobros";
-  }
-  setForm(form, state.settings);
-  const colors = chartColors();
-  if (form.elements.dashboard_color_total) form.elements.dashboard_color_total.value = state.settings.dashboard_color_total || colors.total;
-  if (form.elements.dashboard_color_materiales) form.elements.dashboard_color_materiales.value = state.settings.dashboard_color_materiales || colors.materiales;
-  if (form.elements.dashboard_color_marketing) form.elements.dashboard_color_marketing.value = state.settings.dashboard_color_marketing || colors.marketing;
-  if (form.elements.dashboard_color_envios) form.elements.dashboard_color_envios.value = state.settings.dashboard_color_envios || colors.envios;
-  if (form.elements.dashboard_color_cobros) form.elements.dashboard_color_cobros.value = state.settings.dashboard_color_cobros || colors.cobros;
-  if (form.elements.dashboard_color_fees) form.elements.dashboard_color_fees.value = state.settings.dashboard_color_fees || colors.fees;
-  if (form.elements.dashboard_color_shopify) form.elements.dashboard_color_shopify.value = state.settings.dashboard_color_shopify || colors.shopify;
-  if (form.elements.dashboard_color_etsy) form.elements.dashboard_color_etsy.value = state.settings.dashboard_color_etsy || colors.etsy;
-  if (form.elements.dashboard_color_bizum) form.elements.dashboard_color_bizum.value = state.settings.dashboard_color_bizum || colors.bizum;
-  $("#brandName").textContent = state.settings.company_name || "Mua Ops";
-  document.title = state.settings.company_name || "Mua Ops";
-  $$("[data-dashboard-expense-trend-view]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.dashboardExpenseTrendView === state.dashboardExpenseTrendView);
-  });
-  $$("[data-dashboard-income-trend-view]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.dashboardIncomeTrendView === state.dashboardIncomeTrendView);
-  });
-  $$("[data-settings-section]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.settingsSection === state.settingsSection);
-  });
-  $$(".settings-section").forEach((section) => {
-    section.classList.toggle("hidden", section.dataset.settingsPanel !== state.settingsSection);
-  });
-  if ($("#technicalLogLevel")) $("#technicalLogLevel").value = state.technicalLogLevel || "relevant";
-  $("#settingsSubmitRow")?.classList.toggle("hidden", ["shopify", "diagnostico", "logs"].includes(state.settingsSection));
-  renderSystemHealth();
-  renderTechnicalLogs();
+  return viewModules.system?.renderSettings();
 }
 
 function renderShopifyConnection() {
-  const form = $("#shopifyConnectionForm");
-  const statusNode = $("#shopifySyncStatus");
-  const connection = state.shopifyConnection;
-  const status = state.shopifySyncStatus;
-  if (!form || !connection || !statusNode) return;
-  form.querySelector('[name="store_domain"]').value = connection.store_domain || "";
-  form.querySelector('[name="api_version"]').value = connection.api_version || "2026-01";
-  form.querySelector('[name="client_id"]').value = "";
-  form.querySelector('[name="client_id"]').placeholder = connection.client_id_masked || "shpui_...";
-  form.querySelector('[name="client_secret"]').value = "";
-  form.querySelector('[name="client_secret"]').placeholder = connection.client_secret_masked || "shpss_...";
-  form.querySelector('[name="sync_enabled"]').checked = Boolean(connection.sync_enabled);
-  form.querySelector('[name="sync_interval_minutes"]').value = connection.sync_interval_minutes || 60;
-  form.querySelector('[name="pull_products"]').checked = Boolean(connection.pull_products);
-  form.querySelector('[name="pull_inventory"]').checked = Boolean(connection.pull_inventory);
-  form.querySelector('[name="pull_orders"]').checked = Boolean(connection.pull_orders);
-  form.querySelector('[name="pull_payouts"]').checked = Boolean(connection.pull_payouts);
-
-  const summary = status.last_sync_summary;
-  const summaryText = summary && typeof summary === "object"
-    ? Object.entries(summary)
-        .filter(([key, value]) => ["products", "inventory", "orders", "payouts"].includes(key) && value)
-        .map(([key, value]) => `${key}: ${value.created ?? 0} nuevas / ${value.updated ?? 0} actualizadas`)
-        .join(" · ")
-    : (typeof summary === "string" ? summary : "");
-
-  statusNode.innerHTML = `
-    <article class="row">
-      <div class="row-main">
-        <strong>${connection.credentials_configured || connection.token_configured ? "Conexión configurada" : "Conexión pendiente"}</strong>
-        <div class="meta">${connection.store_domain ? text(connection.store_domain) : "Todavía no hay dominio configurado"} · API ${text(connection.api_version || "2026-01")}</div>
-        <div class="meta">Autenticación: ${connection.auth_mode === "client_credentials" ? "Dev Dashboard" : (connection.auth_mode === "admin_token" ? "Token admin" : "sin configurar")}</div>
-        <div class="meta">Última sync: ${text(status.last_sync_at || "nunca")} · Próxima: ${text(status.next_sync_at || "manual")}</div>
-        ${summaryText ? `<p>${text(summaryText)}</p>` : ""}
-      </div>
-      <div class="tags">
-        ${badge(connection.sync_enabled ? "auto activa" : "manual", connection.sync_enabled ? "ok" : "warn")}
-        ${badge(status.running ? "sincronizando" : (status.last_sync_status || "sin estado"), status.running ? "warn" : "ok")}
-      </div>
-    </article>
-  `;
+  return viewModules.system?.renderShopifyConnection();
 }
 
 function renderSystemHealth() {
-  const health = state.systemHealth;
-  const cards = $("#systemHealthCards");
-  const summary = $("#systemHealthSummary");
-  const backups = $("#systemHealthBackups");
-  const incidents = $("#systemHealthIncidents");
-  const schema = $("#systemHealthSchema");
-  const shopify = $("#systemHealthShopify");
-  if (!cards || !summary || !backups || !incidents || !schema || !shopify) return;
-  if (!health) {
-    cards.innerHTML = "";
-    summary.textContent = "Diagnóstico no disponible.";
-    backups.innerHTML = "";
-    incidents.innerHTML = "";
-    schema.innerHTML = "";
-    shopify.innerHTML = "";
-    return;
-  }
-  cards.innerHTML = [
-    ["Base", health.database?.exists ? "Disponible" : "Ausente", health.database?.integrity === "ok" ? "Integridad ok" : (health.database?.integrity || "Sin comprobar")],
-    ["Backups", health.backups?.latest ? "Activos" : "Sin backup", health.backups?.latest ? text(health.backups.latest.created_at || "") : "Todavía no hay copia"],
-    ["Migraciones", `${(health.schema?.applied_migrations || []).length}`, (health.schema?.pending_migrations || []).length ? `${health.schema.pending_migrations.length} pendientes` : "Sin pendientes"],
-    ["Shopify", health.shopify?.credentials_configured || health.shopify?.token_configured ? "Configurado" : "Pendiente", health.shopify?.last_sync_status || "Sin sync"]
-  ].map(([label, value, hint]) => `
-    <article class="card dashboard-kpi-card">
-      <span>${label}</span>
-      <strong>${value}</strong>
-      <small>${hint}</small>
-    </article>
-  `).join("");
-
-  summary.innerHTML = `
-    <strong>${health.ok ? "Estado general correcto" : "Hay elementos técnicos a revisar"}</strong>
-    <span>DB ${text(health.database?.path || "-")} · tamaño ${health.database?.size_bytes || 0} bytes · actualizada ${text(health.database?.updated_at || "-")}</span>
-  `;
-
-  backups.innerHTML = `
-    <article class="diagnostics-row">
-      <strong>Backups</strong>
-      <div class="meta">Carpeta · ${text(health.backups?.directory || "-")}</div>
-      ${health.backups?.latest ? `
-        <div class="meta">Último · ${text(health.backups.latest.created_at || "-")}</div>
-        <div class="meta">Tamaño · ${health.backups.latest.size_bytes || 0} bytes</div>
-        <code>${text(health.backups.latest.name || "")}</code>
-      ` : `<div class="meta">Todavía no existe una copia registrada.</div>`}
-    </article>
-  `;
-
-  const recentErrors = (state.technicalAudit || []).filter((row) => technicalLogLevel(row) === "error");
-  const recentWarnings = (state.technicalAudit || []).filter((row) => technicalLogLevel(row) === "warn");
-  const latestIncident = [...(state.technicalAudit || [])]
-    .filter((row) => ["error", "warn"].includes(technicalLogLevel(row)))
-    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0];
-
-  incidents.innerHTML = `
-    <article class="diagnostics-row">
-      <strong>Incidencias recientes</strong>
-      <div class="meta">Errores · ${recentErrors.length}</div>
-      <div class="meta">Warnings · ${recentWarnings.length}</div>
-      <div class="meta">Última incidencia · ${latestIncident ? formatAuditTimestamp(latestIncident.created_at) : "sin incidencias recientes"}</div>
-      <div class="meta">${latestIncident ? text(technicalLogMessage(latestIncident)) : "El sistema no ha registrado errores o warnings recientes."}</div>
-    </article>
-  `;
-
-  schema.innerHTML = `
-    <article class="diagnostics-row">
-      <strong>Migraciones</strong>
-      <div class="meta">Aplicadas · ${(health.schema?.applied_migrations || []).length}</div>
-      <div class="meta">Esperadas · ${(health.schema?.expected_migrations || []).length}</div>
-      <div class="meta">Pendientes · ${(health.schema?.pending_migrations || []).length}</div>
-      ${(health.schema?.applied_migrations || []).slice(-4).map((row) => `<code>${text(row.id)} · ${text(row.applied_at || "")}</code>`).join("")}
-    </article>
-  `;
-
-  shopify.innerHTML = `
-    <article class="diagnostics-row">
-      <strong>Shopify</strong>
-      <div class="meta">Dominio · ${text(health.shopify?.store_domain || "sin configurar")}</div>
-      <div class="meta">Auth · ${text(health.shopify?.auth_mode || "none")}</div>
-      <div class="meta">Última sync · ${text(health.shopify?.last_sync_at || "nunca")}</div>
-      <div class="meta">Estado sync · ${text(health.shopify?.last_sync_status || "sin estado")}</div>
-      ${(health.shopify?.last_sync_summary && typeof health.shopify.last_sync_summary === "object")
-        ? Object.entries(health.shopify.last_sync_summary)
-            .filter(([key, value]) => ["products", "inventory", "orders", "payouts"].includes(key) && value)
-            .map(([key, value]) => `<code>${text(key)} · ${value.status || "ok"} · ${value.duration_ms || 0} ms</code>`)
-            .join("")
-        : ""}
-    </article>
-  `;
+  return viewModules.system?.renderSystemHealth();
 }
 
 function renderTechnicalLogs() {
-  const summary = $("#technicalLogSummary");
-  const list = $("#technicalLogList");
-  if (!summary || !list) return;
-  const { source, level, query: queryText, from, to } = technicalLogFilterValues();
-  let rows = [...(state.technicalAudit || [])];
-  rows = rows.filter((row) => {
-    const rowSource = technicalLogSource(row);
-    const rowLevel = technicalLogLevel(row);
-    const haystack = `${row.action || ""} ${technicalLogMessage(row)} ${rowSource}`.toLowerCase();
-    if (source && rowSource !== source) return false;
-    if (level === "relevant" && !["error", "warn", "info"].includes(rowLevel)) return false;
-    if (["error", "warn", "info", "debug"].includes(level) && rowLevel !== level) return false;
-    if (queryText && !haystack.includes(queryText)) return false;
-    if (from && String(row.created_at || "").slice(0, 10) < from) return false;
-    if (to && String(row.created_at || "").slice(0, 10) > to) return false;
-    return true;
-  });
-  const counts = {
-    error: rows.filter((row) => technicalLogLevel(row) === "error").length,
-    warn: rows.filter((row) => technicalLogLevel(row) === "warn").length,
-    info: rows.filter((row) => technicalLogLevel(row) === "info").length,
-    debug: rows.filter((row) => technicalLogLevel(row) === "debug").length
-  };
-  summary.textContent = `${rows.length} eventos · ${counts.error} errores · ${counts.warn} warnings · ${counts.info} info${level === "all" ? ` · ${counts.debug} debug` : ""}`;
-  const meta = paginateRows("technicalLogs", rows);
-  list.innerHTML = meta.rows.map((row) => {
-    const rowLevel = technicalLogLevel(row);
-    const rowSource = technicalLogSource(row);
-    const context = technicalLogContext(row);
-    return `
-      <article class="audit-card technical-log-card">
-        <div class="audit-card-head">
-          <div class="row-main">
-            <strong>${text(auditActionLabel(row.action))}</strong>
-            <div class="meta">${formatAuditTimestamp(row.created_at)} · ${text(row.actor)}</div>
-            <div class="tags">
-              ${badge(TECHNICAL_LOG_LEVELS[rowLevel] || rowLevel, rowLevel === "error" ? "warn" : rowLevel === "info" ? "ok" : "")}
-              ${badge(rowSource === "client" ? "Cliente" : rowSource === "system" ? "Sistema" : "Shopify")}
-            </div>
-            <div class="audit-note">${text(technicalLogMessage(row))}</div>
-            ${Object.keys(context).length ? `<div class="meta">Contexto disponible para copia</div>` : ""}
-          </div>
-          <div class="row-actions slim">
-            <button type="button" class="ghost" data-copy-technical-log="${row.id}">Copiar detalle</button>
-          </div>
-        </div>
-      </article>
-    `;
-  }).join("") || `<div class="empty-state"><strong>Sin eventos técnicos visibles</strong>Ajusta el nivel, el origen o la búsqueda para ampliar la vista.</div>`;
-  renderPagination("#technicalLogPagination", "technicalLogs", meta);
+  return viewModules.system?.renderTechnicalLogs();
 }
 
 function technicalLogFilterValues() {
-  return {
-    source: $("#technicalLogSource")?.value || "",
-    level: $("#technicalLogLevel")?.value || state.technicalLogLevel || "relevant",
-    query: String($("#technicalLogQuery")?.value || "").trim().toLowerCase(),
-    from: $("#technicalLogFrom")?.value || "",
-    to: $("#technicalLogTo")?.value || ""
-  };
+  return viewModules.system?.technicalLogFilterValues();
 }
 
 async function maybeRunShopifyAutoSync() {
@@ -2869,6 +2211,7 @@ function debounce(fn, ms) {
 }
 
 async function init() {
+  await loadViewModules();
   populateStaticFilters();
   bindEvents();
   await refreshAll();

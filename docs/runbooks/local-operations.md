@@ -24,6 +24,7 @@ Tambien existe:
 
 ```powershell
 npm test
+npm run test:ui:smoke
 ```
 
 En este entorno Windows puede aparecer algun bloqueo temporal de cache o logs.
@@ -31,6 +32,7 @@ La prueba directa de API es:
 
 ```powershell
 node mua_ops_node/test-api.js
+node mua_ops_node/test-ui-smoke.js
 ```
 
 ## Datos locales

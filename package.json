@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node mua_ops_node/server.js --port 5055",
-    "test": "node mua_ops_node/test-api.js"
+    "test": "node mua_ops_node/test-api.js",
+    "test:ui:smoke": "node mua_ops_node/test-ui-smoke.js"
   },
   "keywords": [],
   "author": "",
@@ -18,5 +19,8 @@
     "express": "^5.2.1",
     "multer": "^2.1.1",
     "sql.js": "^1.14.1"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
   }
 }

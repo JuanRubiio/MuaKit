@@ -11,9 +11,15 @@ mejor el orden de trabajo.
 dashboard y utilidades. Hay piezas ya extraidas en `mua_ops_node/lib`, pero el
 monolito sigue siendo el principal riesgo de mantenimiento.
 
+Avance ya realizado:
+
+- `mua_ops_node/lib/routes/system.js`
+- `mua_ops_node/lib/routes/income.js`
+- utilidades ya separadas en `mua_ops_node/lib`
+
 Siguiente paso propuesto:
 
-- separar rutas por dominio;
+- seguir separando rutas por dominio;
 - separar servicios de negocio;
 - dejar acceso a datos en una capa clara.
 
@@ -22,13 +28,16 @@ Siguiente paso propuesto:
 `mua_ops_node/public/app.js` concentra estado, renders, eventos, graficas y
 formularios. `app-core.js` ya extrae helpers base, pero falta dividir por vistas.
 
+Avance ya realizado:
+
+- `mua_ops_node/public/views-dashboard.mjs`
+- `mua_ops_node/public/views-income.mjs`
+- `mua_ops_node/public/views-system.mjs`
+
 Siguiente paso propuesto:
 
-- `dashboard.js`;
 - `materials.js`;
 - `invoices.js`;
-- `income.js`;
-- `settings.js`;
 - `activity.js`.
 
 ### Margen por pedido pendiente
@@ -53,8 +62,9 @@ archivos de migracion.
 
 ### Tests de frontend
 
-Tenemos `test-api.js`, pero no pruebas de UI. Las regresiones visuales o de
-interaccion se detectan manualmente.
+Ya existe un smoke minimo en `mua_ops_node/test-ui-smoke.js`, pero sigue siendo
+una red basica. Las regresiones visuales o de interaccion mas finas todavia se
+detectan manualmente.
 
 ### CSV historicos
 
