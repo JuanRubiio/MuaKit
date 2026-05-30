@@ -10,6 +10,9 @@ const { registerSystemRoutes } = require("./lib/routes/system");
 const { registerIncomeRoutes } = require("./lib/routes/income");
 const { registerMaterialRoutes } = require("./lib/routes/materials");
 const { registerInvoiceRoutes } = require("./lib/routes/invoices");
+const { registerSupplierRoutes } = require("./lib/routes/suppliers");
+const { registerKitRoutes } = require("./lib/routes/kits");
+const { registerAnalyticsRoutes } = require("./lib/routes/analytics");
 const packageInfo = require("../package.json");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -2587,33 +2590,17 @@ function createApp() {
     res.json({ ok: true });
   });
 
-  app.get("/api/suppliers", (req, res) => {
-    const includeDeleted = req.query.include_deleted === "1";
-    res.json(query(
-      `SELECT * FROM suppliers WHERE ($includeDeleted=1 OR is_deleted=0) ORDER BY is_deleted, name`,
-      { includeDeleted: includeDeleted ? 1 : 0 }
-    ));
+  registerSupplierRoutes(app, {
+    query,
+    one,
+    optionalN,
+    insert,
+    saveDb,
+    audit,
+    updateEntity,
+    softDelete,
+    restore
   });
-
-  app.post("/api/suppliers", (req, res) => {
-    const b = req.body;
-    const id = insert(
-      `INSERT INTO suppliers (name, category, website, lead_time_days, notes)
-       VALUES ($name, $category, $website, $lead, $notes)`,
-      { name: b.name, category: b.category || "", website: b.website || "", lead: optionalN(b.lead_time_days), notes: b.notes || "" }
-    );
-    const after = one("SELECT * FROM suppliers WHERE id=$id", { id });
-    audit("supplier", id, "create", null, after);
-    saveDb();
-    res.json(after);
-  });
-
-  app.patch("/api/suppliers/:id", (req, res) => {
-    updateEntity("suppliers", "supplier", req.params.id, req.body, ["name", "category", "website", "lead_time_days", "notes"], res);
-  });
-
-  app.delete("/api/suppliers/:id", (req, res) => softDelete("suppliers", "supplier", req.params.id, res));
-  app.post("/api/suppliers/:id/restore", (req, res) => restore("suppliers", "supplier", req.params.id, res));
 
   registerInvoiceRoutes(app, {
     query,
@@ -2637,108 +2624,27 @@ function createApp() {
     UPLOAD_DIR
   });
 
-  app.get("/api/kit-recipes", (req, res) => res.json(kitRecipes()));
-
-  app.post("/api/kit-recipes", (req, res) => {
-    const id = insert(
-      `INSERT INTO kit_recipes (name, version, is_complete, notes)
-       VALUES ($name, $version, $isComplete, $notes)`,
-      {
-        name: req.body.name,
-        version: req.body.version || "",
-        isComplete: req.body.is_complete ? 1 : 0,
-        notes: req.body.notes || ""
-      }
-    );
-    const after = one("SELECT * FROM kit_recipes WHERE id=$id", { id });
-    audit("kit_recipe", id, "create", null, after);
-    saveDb();
-    res.json(after);
+  registerKitRoutes(app, {
+    one,
+    n,
+    optionalN,
+    insert,
+    saveDb,
+    audit,
+    badRequest,
+    updateEntity,
+    softDelete,
+    restore,
+    kitRecipes
   });
 
-  app.patch("/api/kit-recipes/:id", (req, res) => {
-    const payload = {
-      ...req.body,
-      is_complete: req.body.is_complete === undefined ? undefined : (req.body.is_complete ? 1 : 0)
-    };
-    updateEntity("kit_recipes", "kit_recipe", req.params.id, payload, ["name", "version", "is_complete", "notes"], res);
-  });
-
-  app.delete("/api/kit-recipes/:id", (req, res) => softDelete("kit_recipes", "kit_recipe", req.params.id, res));
-  app.post("/api/kit-recipes/:id/restore", (req, res) => restore("kit_recipes", "kit_recipe", req.params.id, res));
-
-  app.post("/api/kit-recipes/:id/items", (req, res) => {
-    const recipe = one("SELECT * FROM kit_recipes WHERE id=$id", { id: req.params.id });
-    if (recipe?.is_complete) return badRequest(res, "El kit esta marcado como completo", "KIT_COMPLETE");
-    const itemId = insert(
-      `INSERT INTO kit_recipe_items (recipe_id, material_id, quantity, notes)
-       VALUES ($recipe, $material, $quantity, $notes)`,
-      {
-        recipe: req.params.id,
-        material: optionalN(req.body.material_id),
-        quantity: n(req.body.quantity, 1),
-        notes: req.body.notes || ""
-      }
-    );
-    const after = one("SELECT * FROM kit_recipe_items WHERE id=$id", { id: itemId });
-    audit("kit_recipe_item", itemId, "create", null, after);
-    saveDb();
-    res.json(after);
-  });
-
-  app.patch("/api/kit-recipes/:recipeId/items/:itemId", (req, res) => {
-    const recipe = one("SELECT * FROM kit_recipes WHERE id=$id", { id: req.params.recipeId });
-    if (recipe?.is_complete) return badRequest(res, "El kit esta marcado como completo", "KIT_COMPLETE");
-    updateEntity("kit_recipe_items", "kit_recipe_item", req.params.itemId, req.body, ["material_id", "quantity", "notes"], res);
-  });
-
-  app.delete("/api/kit-recipes/:recipeId/items/:itemId", (req, res) => {
-    const recipe = one("SELECT * FROM kit_recipes WHERE id=$id", { id: req.params.recipeId });
-    if (recipe?.is_complete) return badRequest(res, "El kit esta marcado como completo", "KIT_COMPLETE");
-    softDelete("kit_recipe_items", "kit_recipe_item", req.params.itemId, res);
-  });
-  app.post("/api/kit-recipes/:recipeId/items/:itemId/restore", (req, res) => restore("kit_recipe_items", "kit_recipe_item", req.params.itemId, res));
-
-  app.get("/api/costs/materials", (req, res) => res.json(materialCosts()));
-  app.get("/api/costs/materials/:id", (req, res) => {
-    const detail = materialCostDetail(req.params.id);
-    if (!detail) return notFound(res, "Material no encontrado", "MATERIAL_NOT_FOUND");
-    res.json(detail);
-  });
-  app.get("/api/dashboard/finance", (req, res) => res.json(dashboardFinance(req.query || {})));
-
-  app.get("/api/audit-log", (req, res) => {
-    const entity = req.query.entity || "";
-    const action = req.query.action || "";
-    const id = optionalN(req.query.id);
-    const q = `%${String(req.query.q || "").trim().toLowerCase()}%`;
-    const from = String(req.query.from || "").trim();
-    const to = String(req.query.to || "").trim();
-    const scope = String(req.query.scope || "business").trim();
-    const limit = Math.min(Math.max(optionalN(req.query.limit) || 200, 1), 500);
-    res.json(query(
-      `SELECT * FROM audit_log
-       WHERE ($entity = '' OR entity_type = $entity)
-         AND ($action = '' OR action = $action)
-         AND ($id IS NULL OR entity_id = $id)
-         AND ($from = '' OR date(created_at) >= date($from))
-         AND ($to = '' OR date(created_at) <= date($to))
-         AND ($q = '%%' OR lower(
-           coalesce(entity_type, '') || ' ' ||
-           coalesce(action, '') || ' ' ||
-           coalesce(actor, '') || ' ' ||
-           coalesce(before_json, '') || ' ' ||
-           coalesce(after_json, '')
-         ) LIKE $q)
-         AND (
-           ($scope = 'technical' AND entity_type IN ('client', 'shopify_product', 'system'))
-           OR ($scope = 'business' AND entity_type NOT IN ('client', 'shopify_product', 'system'))
-           OR ($scope = 'all')
-         )
-       ORDER BY id DESC
-       LIMIT $limit`,
-      { entity, action, id, q, from, to, scope, limit }
-    ));
+  registerAnalyticsRoutes(app, {
+    query,
+    optionalN,
+    materialCosts,
+    materialCostDetail,
+    dashboardFinance,
+    notFound
   });
 
   app.use((error, req, res, next) => {

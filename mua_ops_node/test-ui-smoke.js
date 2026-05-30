@@ -53,6 +53,37 @@ async function run() {
       }
     }
 
+    await page.locator('button[data-view="costs"]').click();
+    await page.waitForTimeout(350);
+    const firstCost = page.locator('[data-open-cost]').first();
+    if (await firstCost.count()) {
+      await firstCost.click();
+      await page.waitForTimeout(500);
+      const costPanelVisible = await page.locator("#costDetailPanel:not(.hidden)").count();
+      if (!costPanelVisible) {
+        throw new Error("No se abrió el detalle de coste en la UI clásica");
+      }
+    }
+
+    await page.locator('button[data-view="kits"]').click();
+    await page.waitForTimeout(350);
+    const firstKit = page.locator('[data-open-kit]').first();
+    if (await firstKit.count()) {
+      await firstKit.click();
+      await page.waitForTimeout(500);
+      const kitPanelVisible = await page.locator("#kitDetailPanel:not(.hidden)").count();
+      if (!kitPanelVisible) {
+        throw new Error("No se abrió el detalle de kit en la UI clásica");
+      }
+    }
+
+    await page.locator('button[data-view="audit"]').click();
+    await page.waitForTimeout(500);
+    const auditSummary = await page.locator("#auditSummary").count();
+    if (!auditSummary) {
+      throw new Error("No cargó la vista de actividad en la UI clásica");
+    }
+
     await page.locator('button[data-view="settings"]').click();
     await page.waitForTimeout(500);
 

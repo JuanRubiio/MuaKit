@@ -17,12 +17,13 @@ Avance ya realizado:
 - `mua_ops_node/lib/routes/income.js`
 - `mua_ops_node/lib/routes/materials.js`
 - `mua_ops_node/lib/routes/invoices.js`
+- `mua_ops_node/lib/routes/suppliers.js`
+- `mua_ops_node/lib/routes/kits.js`
+- `mua_ops_node/lib/routes/analytics.js`
 - utilidades ya separadas en `mua_ops_node/lib`
 
 Siguiente paso propuesto:
 
-- seguir separando rutas por dominio;
-- separar rutas de `kits`, `costes` y `audit`;
 - separar servicios de negocio;
 - dejar acceso a datos en una capa clara.
 
@@ -38,12 +39,13 @@ Avance ya realizado:
 - `mua_ops_node/public/views-system.mjs`
 - `mua_ops_node/public/views-materials.mjs`
 - `mua_ops_node/public/views-invoices.mjs`
+- `mua_ops_node/public/views-operations.mjs`
+- `mua_ops_node/public/views-audit.mjs`
 
 Siguiente paso propuesto:
 
-- `costs.js`;
-- `kits.js`;
-- `activity.js`.
+- seguir reduciendo responsabilidades del `bindEvents`;
+- mover formularios/editores a capas más pequeñas cuando entremos en el refresh visual.
 
 ### Margen por pedido pendiente
 
@@ -68,9 +70,9 @@ archivos de migracion.
 ### Tests de frontend
 
 Ya existe un smoke en `mua_ops_node/test-ui-smoke.js` que cubre arranque,
-navegacion y apertura de detalle de factura, material e ingreso. Aun asi,
-las regresiones visuales o de interaccion mas finas todavia se detectan
-manualmente.
+navegacion y apertura de detalle de factura, material, ingreso, coste y kit,
+ademas de actividad y configuracion. Aun asi, las regresiones visuales o de
+interaccion mas finas todavia se detectan manualmente.
 
 ### CSV historicos
 
