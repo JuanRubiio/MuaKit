@@ -87,8 +87,30 @@
             </div>
           </section>
           <div id="dashboardCards" class="dashboard-kpis"></div>
-          <div class="dashboard-layout">
-            <div class="dashboard-primary-grid">
+          <div class="dashboard-layout dashboard-dashboard">
+            <div class="dashboard-hero-grid">
+              <section class="panel dashboard-balance-panel dashboard-hero-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Balance mensual</h2>
+                    <p>Cruce simple entre gasto total, ingreso neto y diferencia del mes.</p>
+                  </div>
+                </div>
+                <div id="dashboardBalanceChart" class="chart-surface chart-surface-hero"></div>
+              </section>
+
+              <section class="panel dashboard-side-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Atención inmediata</h2>
+                    <p>Incidencias que conviene revisar sin romper la portada financiera.</p>
+                  </div>
+                </div>
+                <div id="dashboardOpsList" class="list compact"></div>
+              </section>
+            </div>
+
+            <div class="dashboard-trend-grid">
               <section class="panel dashboard-expense-panel">
                 <div class="panel-head dashboard-trend-head">
                   <div>
@@ -122,77 +144,51 @@
               </section>
             </div>
 
-            <div class="dashboard-secondary-grid">
-              <div class="dashboard-main-column">
-                <section class="panel dashboard-balance-panel">
-                  <div class="panel-head">
-                    <div>
-                      <h2>Balance mensual</h2>
-                      <p>Cruce simple entre gasto total, cobro neto y diferencia del mes.</p>
-                    </div>
+            <div class="dashboard-insight-grid">
+              <section class="panel dashboard-category-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Reparto del gasto</h2>
+                    <p>Distribución por categoría para ver qué bloque pesa más.</p>
                   </div>
-                  <div id="dashboardBalanceChart" class="chart-surface"></div>
-                </section>
+                </div>
+                <div id="dashboardCategoryChart" class="chart-surface chart-surface-small"></div>
+              </section>
 
-                <section class="panel dashboard-spend-panel">
-                  <div class="panel-head">
-                    <div>
-                      <h2>Concentración del gasto</h2>
-                      <p>Dónde se está yendo el dinero: proveedores y materiales.</p>
-                    </div>
-                    <div class="segmented-control">
-                      <button type="button" class="ghost is-active" data-dashboard-spend-view="suppliers">Proveedores</button>
-                      <button type="button" class="ghost" data-dashboard-spend-view="materials">Materiales</button>
-                    </div>
+              <section class="panel dashboard-reorder-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Reposición de materiales</h2>
+                    <p>Stock Shopify frente al punto de reposición para ver qué urge pedir.</p>
                   </div>
-                  <div id="dashboardSpendList" class="list compact"></div>
-                </section>
+                </div>
+                <div id="dashboardReorderChart" class="chart-surface chart-surface-small"></div>
+              </section>
 
-                <section class="panel dashboard-reorder-panel">
-                  <div class="panel-head">
-                    <div>
-                      <h2>Reposición de materiales</h2>
-                      <p>Stock Shopify frente al punto de reposición para ver qué urge pedir.</p>
-                    </div>
+              <section class="panel dashboard-income-mix-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Canales de ingreso</h2>
+                    <p>Composición actual de ingresos entre Shopify, Etsy y Bizum.</p>
                   </div>
-                  <div id="dashboardReorderChart" class="chart-surface chart-surface-small"></div>
-                </section>
-              </div>
+                </div>
+                <div id="dashboardIncomeMixChart" class="chart-surface chart-surface-small"></div>
+              </section>
+            </div>
 
-              <div class="dashboard-side-column">
-                <section class="panel dashboard-side-panel">
-                  <div class="panel-head">
-                    <div>
-                      <h2>Atención inmediata</h2>
-                      <p>Incidencias que conviene revisar sin romper la portada financiera.</p>
-                    </div>
-                  </div>
-                  <div id="dashboardOpsList" class="list compact"></div>
-                </section>
-
-                <div class="dashboard-mini-grid">
-                  <section class="panel dashboard-category-panel">
-                    <div class="panel-head">
-                      <div>
-                        <h2>Reparto del gasto</h2>
-                        <p>Distribución por categoría para ver qué bloque pesa más.</p>
-                      </div>
-                    </div>
-                    <div id="dashboardCategoryChart" class="chart-surface chart-surface-small"></div>
-                  </section>
-
-                  <section class="panel dashboard-income-mix-panel">
-                    <div class="panel-head">
-                      <div>
-                        <h2>Canales de ingreso</h2>
-                        <p>Composición actual de ingresos entre Shopify, Etsy y Bizum.</p>
-                      </div>
-                    </div>
-                    <div id="dashboardIncomeMixChart" class="chart-surface chart-surface-small"></div>
-                  </section>
+            <section class="panel dashboard-spend-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Concentración del gasto</h2>
+                  <p>Dónde se está yendo el dinero: proveedores y materiales.</p>
+                </div>
+                <div class="segmented-control">
+                  <button type="button" class="ghost is-active" data-dashboard-spend-view="suppliers">Proveedores</button>
+                  <button type="button" class="ghost" data-dashboard-spend-view="materials">Materiales</button>
                 </div>
               </div>
-            </div>
+              <div id="dashboardSpendList" class="list compact"></div>
+            </section>
           </div>
         </section>
 

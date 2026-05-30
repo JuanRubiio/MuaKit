@@ -313,7 +313,6 @@ export function createDashboardViews(ctx) {
       ["Materiales", euro.format(k.materials_expense), "Compras del periodo"],
       ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia"],
       ["Envíos", euro.format(k.shipping_expense), "Coste logístico"],
-      ["Fees", euro.format(k.period_fees_received || 0), "Comisiones de cobro"],
       ["Facturas del periodo", k.invoice_count, "Registros incluidos"]
     ].map(([label, value, hint]) => `
       <article class="card dashboard-kpi-card">
