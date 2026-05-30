@@ -117,11 +117,11 @@ export function createInvoiceViews(ctx) {
               <p>${hint}</p>
             </span>
             <span class="invoice-review-count">${count}</span>
-            <span class="review-chevron" aria-hidden="true">›</span>
+            <span class="review-chevron" aria-hidden="true">&rsaquo;</span>
           </button>
         `).join("")}
         <button type="button" class="invoice-review-footer" data-invoice-review-filter="all">
-          Ver todas las incidencias <span aria-hidden="true">→</span>
+          Ver todas las incidencias <span aria-hidden="true">&rarr;</span>
         </button>
       </div>
     `;
@@ -163,30 +163,125 @@ export function createInvoiceViews(ctx) {
     const activeLineCount = detail.lines.filter((line) => !line.is_deleted).length;
     renderInvoices();
     const panel = $("#invoiceDetailPanel");
+    $("#invoices .invoice-page")?.classList.add("invoice-focus-mode");
+    document.body.classList.add("invoice-focus-active");
     panel.classList.remove("hidden");
+
+    const docMarkup = detail.invoice.document_stored_name
+      ? `<div class="invoice-doc-file">
+          <span class="doc-file-icon">PDF</span>
+          <span><strong>${text(detail.invoice.document_name, "Documento adjunto")}</strong><small>Documento guardado en soporte local.</small></span>
+        </div>
+        <div class="row-actions slim">${docLink(detail.invoice)}</div>`
+      : `<div class="invoice-lines-empty compact">
+          <span class="file-dropzone-icon muted"><svg><use href="#icon-paperclip"></use></svg></span>
+          <strong>Sin adjunto</strong>
+          <small>Esta factura no tiene documento asociado.</small>
+        </div>`;
+
+    const reviewItems = [
+      ["Proveedor", detail.invoice.supplier_id ? "ok" : "warn", detail.invoice.supplier_id ? "Seleccionado" : "Falta proveedor"],
+      ["Numero de factura", detail.invoice.invoice_number ? "ok" : "warn", detail.invoice.invoice_number ? "Informado" : "Sin referencia"],
+      ["Fecha", detail.invoice.invoice_date ? "ok" : "warn", detail.invoice.invoice_date ? "Informada" : "Pendiente"],
+      ["Lineas", activeLineCount ? "ok" : "warn", activeLineCount ? `${activeLineCount} linea${activeLineCount === 1 ? "" : "s"} revisada${activeLineCount === 1 ? "" : "s"}` : "Sin lineas"],
+      ["Total", number(detail.invoice.total) > 0 ? "ok" : "warn", number(detail.invoice.total) > 0 ? "Aceptado" : "Revisar"]
+    ];
+
     panel.innerHTML = `
-      <div class="selected-invoice">
-        <div class="panel-head">
-          <div>
+      <div class="invoice-detail-hero">
+        <div>
+          <p class="eyebrow">Operaciones / Facturas</p>
+          <div class="invoice-title-row">
             <h2>${text(detail.invoice.supplier_name, "Factura sin proveedor")}</h2>
-            <p>${text(detail.invoice.invoice_date)} · ${text(detail.invoice.invoice_number, "sin numero")} · ${euro.format(number(detail.invoice.total))}</p>
+            <span class="external-link-mark" aria-hidden="true">&#8599;</span>
           </div>
-          <div class="row-actions">
-            ${docLink(detail.invoice)}
-            <button type="button" class="ghost" data-edit-invoice-details="${detail.invoice.id}">Editar factura</button>
-            <button type="button" data-open-line-form="${detail.invoice.id}">Nueva linea</button>
-            <button type="button" class="ghost" data-close-invoice-detail>Cerrar</button>
+          <p>${text(detail.invoice.invoice_number, "sin numero")} · ${text(detail.invoice.invoice_date)}</p>
+          <div class="tags">
+            ${badge(statusLabel(detail.invoice.status), detail.invoice.status === "draft" ? "warn" : "ok")}
+            ${badge(detail.invoice.category)}
+            ${badge(`${activeLineCount} linea${activeLineCount === 1 ? "" : "s"}`, detail.lines.length ? "ok" : "warn")}
+            ${detail.invoice.document_stored_name ? badge("Adjunto") : badge("Sin adjunto", "warn")}
           </div>
         </div>
-        <div class="tags">
-          ${badge(detail.invoice.category)}
-          ${badge(statusLabel(detail.invoice.status), detail.invoice.status === "draft" ? "warn" : "ok")}
-          ${badge(`${activeLineCount} lineas`, detail.lines.length ? "ok" : "warn")}
+        <strong class="invoice-hero-total">${euro.format(number(detail.invoice.total))}</strong>
+        <div class="invoice-hero-actions">
+          <button type="button" class="ghost" data-close-invoice-detail>Cerrar</button>
+          <button type="button" class="ghost" data-duplicate-invoice="${detail.invoice.id}">Duplicar</button>
+          <button type="button" class="ghost danger-text" data-delete-invoice="${detail.invoice.id}">Archivar</button>
+          <button type="button" data-edit-invoice-details="${detail.invoice.id}">Editar factura</button>
+          <button type="button" class="ghost accent-outline" data-open-line-form="${detail.invoice.id}">Nueva linea</button>
         </div>
-        ${detail.invoice.notes ? `<p>${text(detail.invoice.notes)}</p>` : ""}
       </div>
 
-      <form id="lineForm" class="line-form ${state.invoiceLineFormOpen ? "" : "hidden"}">
+      <div class="invoice-detail-grid">
+        <section class="panel invoice-detail-data">
+          <div class="panel-head compact-head">
+            <div>
+              <h2>Datos de factura</h2>
+              <p>Resumen operativo del documento y sus importes.</p>
+            </div>
+          </div>
+          <div class="invoice-fact-grid">
+            <span><small>Proveedor</small><strong>${text(detail.invoice.supplier_name, "Sin proveedor")}</strong></span>
+            <span><small>Fecha</small><strong>${text(detail.invoice.invoice_date, "-")}</strong></span>
+            <span><small>Numero / referencia</small><strong>${text(detail.invoice.invoice_number, "-")}</strong></span>
+            <span><small>Categoria</small><strong>${text(detail.invoice.category)}</strong></span>
+            <span><small>Estado</small><strong>${statusLabel(detail.invoice.status)}</strong></span>
+            <span><small>Subtotal</small><strong>${euro.format(number(detail.invoice.subtotal))}</strong></span>
+            <span><small>Envio</small><strong>${euro.format(number(detail.invoice.shipping))}</strong></span>
+            <span><small>IVA</small><strong>${euro.format(number(detail.invoice.tax))}</strong></span>
+            <span class="invoice-fact-total"><small>Total</small><strong>${euro.format(number(detail.invoice.total))}</strong></span>
+          </div>
+          ${detail.invoice.notes ? `<p class="invoice-note">${text(detail.invoice.notes)}</p>` : ""}
+        </section>
+
+        <aside class="invoice-detail-side">
+          <section class="panel invoice-document-card">
+            <div class="panel-head compact-head">
+              <div>
+                <h2>Documento adjunto</h2>
+                <p>Soporte documental de la factura.</p>
+              </div>
+            </div>
+            ${docMarkup}
+          </section>
+
+          <section class="panel invoice-check-card">
+            <div class="panel-head compact-head">
+              <div>
+                <h2>Revision</h2>
+                <p>Estado de completitud de la factura.</p>
+              </div>
+            </div>
+            <div class="invoice-validation-list">
+              ${reviewItems.map(([label, tone, value]) => `
+                <span class="${tone}">
+                  <strong>${label}</strong>
+                  <em>${value}</em>
+                </span>
+              `).join("")}
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <section class="panel invoice-lines-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Lineas de factura (${activeLineCount})</h2>
+            <p>Materiales o conceptos imputados a esta factura.</p>
+          </div>
+          <div class="row-actions">
+            <button type="button" data-open-line-form="${detail.invoice.id}">Nueva linea</button>
+          </div>
+        </div>
+
+        <div class="line-list invoice-line-table">
+          ${detail.lines.map((line, index) => lineMarkup(line, index)).join("") || `<div class="invoice-lines-empty"><span class="file-dropzone-icon muted"><svg><use href="#icon-kit"></use></svg></span><strong>Aun no hay lineas añadidas</strong><small>Añade una linea para comenzar a registrar el gasto.</small></div>`}
+        </div>
+      </section>
+
+      <form id="lineForm" class="panel line-form ${state.invoiceLineFormOpen ? "" : "hidden"}">
         <div class="panel-head compact-head">
           <div>
             <h2 id="lineFormTitle">Nueva linea</h2>
@@ -220,40 +315,51 @@ export function createInvoiceViews(ctx) {
         </div>
       </form>
 
-      <div class="line-list">
-        ${detail.lines.map((line) => {
-          const summary = hierarchySummary({
-            usage_type: line.material_usage_type,
-            family: line.material_family,
-            subfamily: line.material_subfamily,
-            variant: line.material_variant,
-            base_material: line.material_base_material,
-            finish: line.material_finish
-          });
-          return `
-            <article class="line-card ${line.is_deleted ? "deleted" : ""}">
-              <div class="line-card-main ${line.material_image_url ? "with-image" : ""}">
-                ${line.material_image_url ? `<div class="material-mini-thumb">${img(line.material_image_url)}</div>` : ""}
-                <div>
-                  <strong>${text(line.material_name, "Sin material")}</strong>
-                  <div class="meta">${line.package_count} paquetes · ${line.units_per_package} ud/paquete · ${line.total_units} ud · ${euro.format(number(line.price_per_package))} / paquete · ${euro.format(number(line.unit_price))} / ud · total ${euro.format(number(line.line_total))}</div>
-                  ${summary ? `<div class="meta">${text(summary)}</div>` : ""}
-                  ${line.description ? `<p>${text(line.description)}</p>` : ""}
-                </div>
-              </div>
-              <div class="row-actions slim">
-                <button data-edit-line="${line.id}" type="button">Editar</button>
-                <button data-duplicate-line="${line.id}" type="button" class="ghost">Duplicar</button>
-                ${line.is_deleted ? `<button data-restore-line="${line.id}" type="button">Restaurar</button>` : `<button class="ghost danger-text" data-delete-line="${line.id}" type="button">Archivar</button>`}
-              </div>
-            </article>
-          `;
-        }).join("") || `<div class="empty-state small">Esta factura todavia no tiene lineas.</div>`}
+      <div class="invoice-form-footer panel">
+        <div class="invoice-amount-summary">
+          <span><small>Subtotal</small><strong>${euro.format(number(detail.invoice.subtotal))}</strong></span>
+          <span><small>Descuento</small><strong>${euro.format(number(detail.invoice.discount))}</strong></span>
+          <span><small>Envio</small><strong>${euro.format(number(detail.invoice.shipping))}</strong></span>
+          <span><small>IVA</small><strong>${euro.format(number(detail.invoice.tax))}</strong></span>
+          <span class="total"><small>Total</small><strong>${euro.format(number(detail.invoice.total))}</strong></span>
+        </div>
       </div>
     `;
     bindLineForm();
     if (state.invoiceLineFormOpen) updateLinePreview();
     panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function lineMarkup(line, index) {
+    const summary = hierarchySummary({
+      usage_type: line.material_usage_type,
+      family: line.material_family,
+      subfamily: line.material_subfamily,
+      variant: line.material_variant,
+      base_material: line.material_base_material,
+      finish: line.material_finish
+    });
+    return `
+      <article class="line-card ${line.is_deleted ? "deleted" : ""}">
+        <span class="line-index">${index + 1}</span>
+        <div class="line-card-main ${line.material_image_url ? "with-image" : ""}">
+          ${line.material_image_url ? `<div class="material-mini-thumb">${img(line.material_image_url)}</div>` : ""}
+          <div>
+            <strong>${text(line.material_name, "Sin material")}</strong>
+            <div class="meta">${line.package_count} paquetes · ${line.units_per_package} ud/paquete · ${line.total_units} ud totales</div>
+            ${summary ? `<div class="meta">${text(summary)}</div>` : ""}
+            ${line.description ? `<p>${text(line.description)}</p>` : ""}
+          </div>
+        </div>
+        <span class="amount">${euro.format(number(line.unit_price))} / ud</span>
+        <strong class="amount">${euro.format(number(line.line_total))}</strong>
+        <div class="row-actions slim">
+          <button data-edit-line="${line.id}" type="button">Editar</button>
+          <button data-duplicate-line="${line.id}" type="button" class="ghost">Duplicar</button>
+          ${line.is_deleted ? `<button data-restore-line="${line.id}" type="button">Restaurar</button>` : `<button class="ghost danger-text" data-delete-line="${line.id}" type="button">Archivar</button>`}
+        </div>
+      </article>
+    `;
   }
 
   async function openInvoiceWorkspace(id) {

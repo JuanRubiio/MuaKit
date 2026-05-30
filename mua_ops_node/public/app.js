@@ -26,6 +26,8 @@
   selectedCostMaterialId: null,
   invoiceReviewFilter: "",
   invoiceLineFormOpen: false,
+  invoiceOpenLineAfterSave: false,
+  invoiceEditorLineCount: 0,
   shopifyAutoSyncTimer: null,
   technicalAudit: [],
   technicalLogLevel: "relevant",
@@ -378,26 +380,81 @@ function channelLabel(value) {
 function closeInvoicePanels() {
   $("#invoiceForm")?.classList.add("hidden");
   $("#invoiceDetailPanel")?.classList.add("hidden");
+  $("#invoices .invoice-page")?.classList.remove("invoice-focus-mode");
+  document.body.classList.remove("invoice-focus-active");
   state.selectedInvoiceId = null;
   state.invoiceLineFormOpen = false;
+  state.invoiceOpenLineAfterSave = false;
   renderInvoices();
+}
+
+function updateInvoiceFormPreview() {
+  const form = $("#invoiceForm");
+  if (!form) return;
+  const total = number(form.elements.total?.value);
+  const status = form.elements.status?.value || "draft";
+  $("#invoiceFormTotalPreview").textContent = euro.format(total);
+  $("#invoiceFormStatusBadge").textContent = statusLabel(status);
+  renderInvoiceFormReview();
+}
+
+function renderInvoiceFormReview(invoice = null) {
+  const form = $("#invoiceForm");
+  const review = $("#invoiceFormReviewState");
+  if (!form || !review) return;
+  const hasSupplier = Boolean(form.elements.supplier_id?.value);
+  const hasTotal = number(form.elements.total?.value) > 0;
+  const hasDocument = Boolean(form.elements.document_id?.value) || Boolean($("#documentFile")?.files?.length);
+  const lineCount = number(invoice?.line_count ?? state.invoiceEditorLineCount);
+  review.innerHTML = [
+    ["Proveedor", hasSupplier ? "Proveedor seleccionado." : "Selecciona proveedor si aplica.", hasSupplier ? "OK" : "Revisar", hasSupplier ? "ok" : "warn"],
+    ["Total", hasTotal ? "Importe informado." : "Debe coincidir con el documento.", hasTotal ? "OK" : "Obligatorio", hasTotal ? "ok" : "warn"],
+    ["Lineas", lineCount ? `${lineCount} linea${lineCount === 1 ? "" : "s"} registrada${lineCount === 1 ? "" : "s"}.` : "Se podran anadir tras guardar.", lineCount ? "OK" : "Pendiente", lineCount ? "ok" : "warn"],
+    ["Adjunto", hasDocument ? "Documento asociado." : "Opcional pero recomendable.", hasDocument ? "OK" : "Opcional", hasDocument ? "ok" : "neutral"]
+  ].map(([label, hint, statusText, tone]) => `
+    <span class="${tone}">
+      <strong>${label}</strong>
+      <small>${hint}</small>
+      <em>${statusText}</em>
+    </span>
+  `).join("");
 }
 
 function showInvoiceEditor(invoice = null, keepDetail = false) {
   const form = $("#invoiceForm");
   if (!keepDetail) $("#invoiceDetailPanel")?.classList.add("hidden");
+  $("#invoices .invoice-page")?.classList.add("invoice-focus-mode");
+  document.body.classList.add("invoice-focus-active");
   form.classList.remove("hidden");
+  form.classList.toggle("is-editing", Boolean(invoice));
+  state.invoiceOpenLineAfterSave = false;
   resetForm("invoiceForm");
   if (invoice) {
+    state.invoiceEditorLineCount = number(invoice.line_count);
     setForm(form, invoice);
-    $("#invoiceFormTitle").textContent = `Editar factura #${invoice.id}`;
+    $("#invoiceFormTitle").textContent = text(invoice.supplier_name, `Editar factura #${invoice.id}`);
+    $("#invoiceFormSubtitle").textContent = `${text(invoice.invoice_number, "Sin referencia")} · ${text(invoice.invoice_date, "Sin fecha")}`;
+    $("#invoiceFormStatusBadge").textContent = statusLabel(invoice.status);
+    $("#invoiceFormTotalPreview").textContent = euro.format(number(invoice.total));
+    $$("[data-invoice-save-label]").forEach((button) => button.textContent = "Guardar cambios");
+    $("#invoiceFormDocumentState").innerHTML = invoice.document_stored_name
+      ? `<div class="invoice-doc-file compact"><span class="doc-file-icon">PDF</span><span><strong>${text(invoice.document_name, "Documento adjunto")}</strong><small>Documento actual de la factura.</small></span></div>`
+      : `<div class="inline-note">Esta factura no tiene adjunto guardado.</div>`;
   } else {
+    state.invoiceEditorLineCount = 0;
     $("#invoiceFormTitle").textContent = "Nueva factura";
+    $("#invoiceFormSubtitle").textContent = "Completa los datos de la factura y guarda para añadir líneas.";
+    $("#invoiceFormStatusBadge").textContent = "Borrador";
+    $("#invoiceFormTotalPreview").textContent = euro.format(0);
+    $$("[data-invoice-save-label]").forEach((button) => button.textContent = "Guardar factura");
+    $("#invoiceFormDocumentState").innerHTML = "";
     if (state.settings) {
       if (form.elements.status) form.elements.status.value = state.settings.default_invoice_status || "draft";
       if (form.elements.category) form.elements.category.value = state.settings.default_invoice_category || "materiales";
     }
   }
+  updateInvoiceFormPreview();
+  renderInvoiceFormReview(invoice);
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -1264,7 +1321,8 @@ async function saveInvoice(event) {
   const saved = await api(id ? `/api/invoices/${id}` : "/api/invoices", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
   $("#documentFile").value = "";
   await Promise.all([loadInvoices(), loadSummary(), loadDashboardFinance()]);
-  await openInvoiceWorkspace(saved.id);
+  await openInvoice(saved.id, { openForm: Boolean(state.invoiceOpenLineAfterSave) });
+  state.invoiceOpenLineAfterSave = false;
   toast("Factura guardada");
 }
 
@@ -1351,6 +1409,7 @@ async function refreshAll() {
 }
 
 function setActiveView(view) {
+  if (view !== "invoices") document.body.classList.remove("invoice-focus-active");
   $$(".tab,.view").forEach((el) => el.classList.remove("active"));
   $(`.tab[data-view="${view}"]`)?.classList.add("active");
   $(`#${view}`)?.classList.add("active");
@@ -1431,6 +1490,7 @@ function bindEvents() {
         rerenderPaginatedSection(t.dataset.pageTarget);
       }
       if (t.dataset.newInvoice !== undefined) showInvoiceEditor();
+      if (t.dataset.saveInvoiceAddLine !== undefined) state.invoiceOpenLineAfterSave = true;
       if (t.dataset.closeInvoicePanels !== undefined) closeInvoicePanels();
       if (t.dataset.newPayout !== undefined) showPayoutEditor();
       if (t.dataset.closePayoutPanels !== undefined) closePayoutPanels();
@@ -1592,11 +1652,13 @@ function bindEvents() {
 
   document.body.addEventListener("input", (event) => {
     if (event.target.id?.startsWith("invoice")) state.invoiceReviewFilter = "";
+    if (event.target.closest("#invoiceForm")) updateInvoiceFormPreview();
     if (event.target.closest("#lineForm")) updateLinePreview();
   });
 
   document.body.addEventListener("change", (event) => {
     if (event.target.id?.startsWith("invoice")) state.invoiceReviewFilter = "";
+    if (event.target.closest("#invoiceForm")) updateInvoiceFormPreview();
     if (event.target.closest("#lineForm")) updateLinePreview();
     if (event.target.closest("#lineForm") && event.target.name?.startsWith("line_")) syncMaterialPicker($("#lineForm"), "line", { required: true });
     if (event.target.closest("#lineForm") && event.target.name === "material_id") syncMaterialPicker($("#lineForm"), "line", { required: true });

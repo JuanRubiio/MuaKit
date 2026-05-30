@@ -272,53 +272,120 @@
               </aside>
             </div>
 
-            <form id="invoiceForm" class="panel invoice-module hidden">
-              <div class="panel-head">
+            <form id="invoiceForm" class="invoice-workspace invoice-module hidden">
+              <div class="invoice-workspace-hero">
                 <div>
-                  <h2 id="invoiceFormTitle">Nueva factura</h2>
-                  <p>Datos generales y soporte documental.</p>
+                  <p class="eyebrow">Operaciones / Facturas</p>
+                  <div class="invoice-title-row">
+                    <h2 id="invoiceFormTitle">Nueva factura</h2>
+                    <span id="invoiceFormStatusBadge" class="status-pill warn">Borrador</span>
+                  </div>
+                  <p id="invoiceFormSubtitle">Completa los datos de la factura y guarda para añadir líneas.</p>
                 </div>
-                <button type="button" class="ghost" data-close-invoice-panels>Cerrar</button>
+                <div class="invoice-hero-actions">
+                  <button type="button" class="ghost" data-close-invoice-panels>Cerrar</button>
+                  <button type="submit" data-invoice-save-label>Guardar factura</button>
+                  <button type="submit" class="ghost accent-outline" data-save-invoice-add-line>Guardar y añadir línea</button>
+                </div>
               </div>
               <input type="hidden" name="id">
-              <div class="form-grid four">
-                <label>Proveedor<select name="supplier_id"></select></label>
-                <label>Fecha<input name="invoice_date" type="date" required></label>
-                <label>Numero<input name="invoice_number"></label>
-                <label>Estado
-                  <select name="status">
-                    <option value="draft">Borrador</option>
-                    <option value="posted">Contabilizada</option>
-                    <option value="paid">Pagada</option>
-                    <option value="archived">Archivada</option>
-                  </select>
-                </label>
+
+              <div class="invoice-workspace-grid">
+                <section class="panel invoice-editor-card">
+                  <div class="panel-head compact-head">
+                    <div>
+                      <h2>1. Datos de factura</h2>
+                      <p>Importes, proveedor y clasificación del gasto.</p>
+                    </div>
+                  </div>
+                  <div class="form-grid two">
+                    <label>Proveedor<select name="supplier_id"></select></label>
+                    <label>Fecha<input name="invoice_date" type="date" required></label>
+                    <label>Número<input name="invoice_number" placeholder="Nº de factura o referencia del proveedor"></label>
+                    <label>Estado
+                      <select name="status">
+                        <option value="draft">Borrador</option>
+                        <option value="posted">Contabilizada</option>
+                        <option value="paid">Pagada</option>
+                        <option value="archived">Archivada</option>
+                      </select>
+                    </label>
+                    <label>Categoría
+                      <select name="category">
+                        <option value="materiales">Materiales</option>
+                        <option value="envios">Envios</option>
+                        <option value="marketing">Marketing</option>
+                        <option value="software">Software</option>
+                        <option value="servicios">Servicios</option>
+                        <option value="otros">Otros</option>
+                      </select>
+                    </label>
+                    <label>Subtotal<input name="subtotal" inputmode="decimal" placeholder="0,00"></label>
+                    <label>Descuento<input name="discount" inputmode="decimal" placeholder="0,00"></label>
+                    <label>IVA<input name="tax" inputmode="decimal" placeholder="0,00"></label>
+                    <label>Envío<input name="shipping" inputmode="decimal" placeholder="0,00"></label>
+                    <label>Total<input name="total" inputmode="decimal" required placeholder="0,00"></label>
+                  </div>
+                  <label>Notas<textarea name="notes" rows="3" placeholder="Añadir nota interna (opcional)"></textarea></label>
+                </section>
+
+                <aside class="invoice-workspace-side">
+                  <section class="panel invoice-document-card">
+                    <div class="panel-head compact-head">
+                      <div>
+                        <h2>2. Documento</h2>
+                        <p>Adjunto opcional de soporte.</p>
+                      </div>
+                    </div>
+                    <label class="file-dropzone">
+                      <span class="file-dropzone-icon"><svg><use href="#icon-paperclip"></use></svg></span>
+                      <strong>Selecciona el archivo de la factura</strong>
+                      <small>PDF, JPG o PNG. Se copiará al almacén local.</small>
+                      <input id="documentFile" type="file">
+                    </label>
+                    <div id="invoiceFormDocumentState" class="invoice-doc-state"></div>
+                  </section>
+
+                  <section class="panel invoice-check-card">
+                    <div class="panel-head compact-head">
+                      <div>
+                        <h2>3. Revisión</h2>
+                        <p>Comprobaciones antes de cerrar la factura.</p>
+                      </div>
+                    </div>
+                    <div id="invoiceFormReviewState" class="invoice-check-list"></div>
+                  </section>
+                </aside>
               </div>
-              <div class="form-grid four">
-                <label>Categoria
-                  <select name="category">
-                    <option value="materiales">Materiales</option>
-                    <option value="envios">Envios</option>
-                    <option value="marketing">Marketing</option>
-                    <option value="software">Software</option>
-                    <option value="servicios">Servicios</option>
-                    <option value="otros">Otros</option>
-                  </select>
-                </label>
-                <label>Subtotal<input name="subtotal" inputmode="decimal"></label>
-                <label>Descuento<input name="discount" inputmode="decimal"></label>
-                <label>Total<input name="total" inputmode="decimal" required></label>
-              </div>
-              <div class="form-grid four">
-                <label>Envio<input name="shipping" inputmode="decimal"></label>
-                <label>IVA<input name="tax" inputmode="decimal"></label>
-                <label>Adjunto<input id="documentFile" type="file"></label>
-                <label>Notas<textarea name="notes" rows="1"></textarea></label>
-              </div>
+
+              <section class="panel invoice-lines-draft">
+                <div class="panel-head compact-head">
+                  <div>
+                    <h2>4. Líneas de factura</h2>
+                    <p>Guarda la factura para poder asociar materiales o conceptos.</p>
+                  </div>
+                  <button type="submit" class="ghost accent-outline" data-save-invoice-add-line>Añadir línea</button>
+                </div>
+                <div class="invoice-lines-empty">
+                  <span class="file-dropzone-icon muted"><svg><use href="#icon-kit"></use></svg></span>
+                  <strong>Aún no hay líneas añadidas</strong>
+                  <small>Guarda la factura y añade una línea para registrar el gasto.</small>
+                </div>
+              </section>
+
               <input type="hidden" name="document_id">
-              <div class="row-actions">
-                <button type="submit">Guardar factura</button>
-                <button type="button" class="ghost" data-reset-form="invoiceForm">Limpiar</button>
+              <div class="invoice-form-footer panel">
+                <div class="invoice-amount-summary">
+                  <span><small>Subtotal</small><strong>Según factura</strong></span>
+                  <span><small>Descuento</small><strong>Opcional</strong></span>
+                  <span><small>Envío</small><strong>Coste logístico</strong></span>
+                  <span><small>IVA</small><strong>Impuesto</strong></span>
+                  <span class="total"><small>Total</small><strong id="invoiceFormTotalPreview">0,00 €</strong></span>
+                </div>
+                <div class="row-actions">
+                  <button type="button" class="ghost" data-reset-form="invoiceForm">Limpiar</button>
+                  <button type="submit" data-invoice-save-label>Guardar factura</button>
+                </div>
               </div>
             </form>
 
