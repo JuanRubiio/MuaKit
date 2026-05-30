@@ -28,6 +28,8 @@ npm run test:ui:smoke
 ```
 
 En este entorno Windows puede aparecer algun bloqueo temporal de cache o logs.
+El smoke UI ignora errores de red bloqueada del sandbox al cargar recursos
+externos, pero sigue fallando por errores JS reales o detalles que no abren.
 La prueba directa de API es:
 
 ```powershell

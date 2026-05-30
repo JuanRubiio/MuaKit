@@ -15,11 +15,14 @@ Avance ya realizado:
 
 - `mua_ops_node/lib/routes/system.js`
 - `mua_ops_node/lib/routes/income.js`
+- `mua_ops_node/lib/routes/materials.js`
+- `mua_ops_node/lib/routes/invoices.js`
 - utilidades ya separadas en `mua_ops_node/lib`
 
 Siguiente paso propuesto:
 
 - seguir separando rutas por dominio;
+- separar rutas de `kits`, `costes` y `audit`;
 - separar servicios de negocio;
 - dejar acceso a datos en una capa clara.
 
@@ -33,11 +36,13 @@ Avance ya realizado:
 - `mua_ops_node/public/views-dashboard.mjs`
 - `mua_ops_node/public/views-income.mjs`
 - `mua_ops_node/public/views-system.mjs`
+- `mua_ops_node/public/views-materials.mjs`
+- `mua_ops_node/public/views-invoices.mjs`
 
 Siguiente paso propuesto:
 
-- `materials.js`;
-- `invoices.js`;
+- `costs.js`;
+- `kits.js`;
 - `activity.js`.
 
 ### Margen por pedido pendiente
@@ -62,9 +67,10 @@ archivos de migracion.
 
 ### Tests de frontend
 
-Ya existe un smoke minimo en `mua_ops_node/test-ui-smoke.js`, pero sigue siendo
-una red basica. Las regresiones visuales o de interaccion mas finas todavia se
-detectan manualmente.
+Ya existe un smoke en `mua_ops_node/test-ui-smoke.js` que cubre arranque,
+navegacion y apertura de detalle de factura, material e ingreso. Aun asi,
+las regresiones visuales o de interaccion mas finas todavia se detectan
+manualmente.
 
 ### CSV historicos
 

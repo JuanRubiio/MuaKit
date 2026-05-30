@@ -7,7 +7,10 @@ async function run() {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
+    const text = message.text();
+    if (message.type() !== "error") return;
+    if (text.includes("ERR_NETWORK_ACCESS_DENIED")) return;
+    errors.push(text);
   });
 
   try {
@@ -16,8 +19,40 @@ async function run() {
 
     await page.locator('button[data-view="invoices"]').click();
     await page.waitForTimeout(350);
+    const firstInvoice = page.locator('[data-view-invoice]').first();
+    if (await firstInvoice.count()) {
+      await firstInvoice.click();
+      await page.waitForTimeout(500);
+      const invoicePanelVisible = await page.locator("#invoiceDetailPanel:not(.hidden)").count();
+      if (!invoicePanelVisible) {
+        throw new Error("No se abrió el detalle de factura en la UI clásica");
+      }
+    }
+
+    await page.locator('button[data-view="materials"]').click();
+    await page.waitForTimeout(350);
+    const firstMaterial = page.locator('[data-view-material]').first();
+    if (await firstMaterial.count()) {
+      await firstMaterial.click();
+      await page.waitForTimeout(500);
+      const materialTitle = await page.locator("#materialFormTitle").innerText();
+      if (!materialTitle.includes("Editar material")) {
+        throw new Error(`No se abrió el detalle de material (título actual: ${materialTitle})`);
+      }
+    }
+
     await page.locator('button[data-view="income"]').click();
     await page.waitForTimeout(350);
+    const firstPayout = page.locator('[data-open-payout]').first();
+    if (await firstPayout.count()) {
+      await firstPayout.click();
+      await page.waitForTimeout(500);
+      const payoutPanelVisible = await page.locator("#payoutDetailPanel:not(.hidden)").count();
+      if (!payoutPanelVisible) {
+        throw new Error("No se abrió el detalle de ingreso en la UI clásica");
+      }
+    }
+
     await page.locator('button[data-view="settings"]').click();
     await page.waitForTimeout(500);
 
