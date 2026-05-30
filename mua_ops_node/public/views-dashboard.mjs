@@ -326,6 +326,7 @@ export function createDashboardViews(ctx) {
     const opsRows = [
       {
         label: "Ingresos pendientes",
+        icon: "icon-chart",
         count: operational.pending_payouts.length,
         hint: operational.pending_payouts[0]
           ? `${channelLabel(operational.pending_payouts[0].channel)} · ${text(operational.pending_payouts[0].payout_date)}`
@@ -335,6 +336,7 @@ export function createDashboardViews(ctx) {
       },
       {
         label: "Facturas en borrador",
+        icon: "icon-file",
         count: operational.draft_invoices.length,
         hint: operational.draft_invoices[0]
           ? `${text(operational.draft_invoices[0].supplier_name, "Sin proveedor")} · ${text(operational.draft_invoices[0].invoice_date)}`
@@ -344,6 +346,7 @@ export function createDashboardViews(ctx) {
       },
       {
         label: "Materiales a reponer",
+        icon: "icon-cube",
         count: operational.reorder_materials.length,
         hint: operational.reorder_materials[0]
           ? `${text(operational.reorder_materials[0].name)} · stock ${operational.reorder_materials[0].effective_stock_qty} / aviso ${number(operational.reorder_materials[0].reorder_alert_threshold)}`
@@ -353,6 +356,7 @@ export function createDashboardViews(ctx) {
       },
       {
         label: "Materiales sin imagen",
+        icon: "icon-image",
         count: operational.materials_without_image.length,
         hint: operational.materials_without_image[0] ? text(operational.materials_without_image[0].name) : "Catálogo visual al día",
         action: "materials",
@@ -360,6 +364,7 @@ export function createDashboardViews(ctx) {
       },
       {
         label: "Materiales sin coste",
+        icon: "icon-coin",
         count: operational.materials_without_cost.length,
         hint: operational.materials_without_cost[0] ? text(operational.materials_without_cost[0].name) : "Compras con coste medio resuelto",
         action: "costs",
@@ -367,6 +372,7 @@ export function createDashboardViews(ctx) {
       },
       {
         label: "Kits incompletos",
+        icon: "icon-kit",
         count: operational.incomplete_kits.length,
         hint: operational.incomplete_kits[0]
           ? `${text(operational.incomplete_kits[0].name)}${operational.incomplete_kits[0].version ? ` · ${text(operational.incomplete_kits[0].version)}` : ""}`
@@ -377,13 +383,17 @@ export function createDashboardViews(ctx) {
     ];
     $("#dashboardOpsList").innerHTML = `<div class="ops-list">${opsRows.map((item) => `
       <button type="button" class="ops-item" data-jump-view="${item.action}">
-        <span>
-          <strong>${item.label}</strong>
-          <p>${item.hint}</p>
+        <span class="ops-item-main">
+          <span class="ops-item-icon" aria-hidden="true"><svg><use href="#${item.icon}"></use></svg></span>
+          <span>
+            <strong>${item.label}</strong>
+            <p>${item.hint}</p>
+          </span>
         </span>
-        <span>
+        <span class="ops-item-side">
           <span class="amount">${item.count}</span>
           ${badge(item.tone === "warn" ? "revisar" : "ok", item.tone)}
+        </span>
         </span>
       </button>
     `).join("")}</div>`;
