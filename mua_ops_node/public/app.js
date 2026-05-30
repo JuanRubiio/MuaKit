@@ -24,6 +24,7 @@
   selectedInvoiceId: null,
   selectedPayoutId: null,
   selectedCostMaterialId: null,
+  invoiceReviewFilter: "",
   invoiceLineFormOpen: false,
   shopifyAutoSyncTimer: null,
   technicalAudit: [],
@@ -1383,6 +1384,31 @@ function bindEvents() {
         renderSettings();
         renderDashboard();
       }
+      if (t.dataset.invoiceQuickStatus !== undefined) {
+        state.invoiceReviewFilter = "";
+        const quick = t.dataset.invoiceQuickStatus;
+        if (quick === "archived") {
+          $("#invoicesDeleted").checked = true;
+          $("#invoiceStatusFilter").value = "";
+        } else {
+          $("#invoicesDeleted").checked = false;
+          $("#invoiceStatusFilter").value = quick || "";
+        }
+        resetPagination("invoices");
+        await loadInvoices();
+      }
+      if (t.dataset.invoiceReviewFilter) {
+        state.invoiceReviewFilter = t.dataset.invoiceReviewFilter;
+        $("#invoicesDeleted").checked = false;
+        $("#invoiceStatusFilter").value = "";
+        $("#invoiceLineFilter").value = "";
+        $("#invoiceSupplierFilter").value = "";
+        $("#invoiceSearch").value = "";
+        if (t.dataset.invoiceReviewFilter === "draft") $("#invoiceStatusFilter").value = "draft";
+        if (t.dataset.invoiceReviewFilter === "without_lines") $("#invoiceLineFilter").value = "without";
+        resetPagination("invoices");
+        await loadInvoices();
+      }
       if (t.dataset.settingsSection) {
         state.settingsSection = t.dataset.settingsSection;
         renderSettings();
@@ -1564,10 +1590,12 @@ function bindEvents() {
   }, true);
 
   document.body.addEventListener("input", (event) => {
+    if (event.target.id?.startsWith("invoice")) state.invoiceReviewFilter = "";
     if (event.target.closest("#lineForm")) updateLinePreview();
   });
 
   document.body.addEventListener("change", (event) => {
+    if (event.target.id?.startsWith("invoice")) state.invoiceReviewFilter = "";
     if (event.target.closest("#lineForm")) updateLinePreview();
     if (event.target.closest("#lineForm") && event.target.name?.startsWith("line_")) syncMaterialPicker($("#lineForm"), "line", { required: true });
     if (event.target.closest("#lineForm") && event.target.name === "material_id") syncMaterialPicker($("#lineForm"), "line", { required: true });
