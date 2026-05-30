@@ -1398,14 +1398,15 @@ function bindEvents() {
         await loadInvoices();
       }
       if (t.dataset.invoiceReviewFilter) {
-        state.invoiceReviewFilter = t.dataset.invoiceReviewFilter;
+        const reviewFilter = t.dataset.invoiceReviewFilter === "all" ? "" : t.dataset.invoiceReviewFilter;
+        state.invoiceReviewFilter = reviewFilter;
         $("#invoicesDeleted").checked = false;
         $("#invoiceStatusFilter").value = "";
         $("#invoiceLineFilter").value = "";
         $("#invoiceSupplierFilter").value = "";
         $("#invoiceSearch").value = "";
-        if (t.dataset.invoiceReviewFilter === "draft") $("#invoiceStatusFilter").value = "draft";
-        if (t.dataset.invoiceReviewFilter === "without_lines") $("#invoiceLineFilter").value = "without";
+        if (reviewFilter === "draft") $("#invoiceStatusFilter").value = "draft";
+        if (reviewFilter === "without_lines") $("#invoiceLineFilter").value = "without";
         resetPagination("invoices");
         await loadInvoices();
       }

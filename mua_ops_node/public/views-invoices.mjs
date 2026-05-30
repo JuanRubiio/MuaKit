@@ -100,26 +100,31 @@ export function createInvoiceViews(ctx) {
       </div>
     `;
 
-    $("#invoiceReviewQueue").innerHTML = [
-      ["Facturas en borrador", draftCount, draftCount ? "Pendientes de completar" : "Sin borradores", "draft", "icon-file"],
-      ["Sin lineas", withoutLinesCount, withoutLinesCount ? "Requieren revisar lineas" : "Todas con lineas", "without_lines", "icon-coin"],
-      ["Sin proveedor", noSupplierCount, noSupplierCount ? "Faltan datos del proveedor" : "Proveedor completo", "supplier_missing", "icon-users"],
-      ["Adjuntos por revisar", pendingAttachmentCount, pendingAttachmentCount ? "Facturas sin adjunto" : "Adjuntos al dia", "attachment_missing", "icon-image"]
-    ].map(([label, count, hint, filter, icon]) => `
-      <button type="button" class="invoice-review-item" data-invoice-review-filter="${filter}">
-        <span class="invoice-review-main">
-          <span class="invoice-review-icon" aria-hidden="true"><svg><use href="#${icon}"></use></svg></span>
-          <span>
-            <strong>${label}</strong>
-            <p>${hint}</p>
-          </span>
-        </span>
-        <span class="invoice-review-side">
-          <span class="amount">${count}</span>
-          <span class="review-chevron">›</span>
-        </span>
-      </button>
-    `).join("");
+    const reviewRows = [
+      ["Facturas en borrador", draftCount, draftCount ? "Pendientes de completar" : "Sin borradores", "draft", "icon-alert", "danger"],
+      ["Sin lineas", withoutLinesCount, withoutLinesCount ? "Requieren revisar lineas" : "Todas con lineas", "without_lines", "icon-minus-circle", "warn"],
+      ["Sin proveedor", noSupplierCount, noSupplierCount ? "Faltan datos del proveedor" : "Proveedor completo", "supplier_missing", "icon-users", "danger"],
+      ["Adjuntos por revisar", pendingAttachmentCount, pendingAttachmentCount ? "Facturas sin adjunto" : "Adjuntos al dia", "attachment_missing", "icon-paperclip", "accent"]
+    ];
+
+    $("#invoiceReviewQueue").innerHTML = `
+      <div class="invoice-review-card">
+        ${reviewRows.map(([label, count, hint, filter, icon, tone]) => `
+          <button type="button" class="invoice-review-item invoice-review-${tone}" data-invoice-review-filter="${filter}">
+            <span class="invoice-review-icon" aria-hidden="true"><svg><use href="#${icon}"></use></svg></span>
+            <span class="invoice-review-copy">
+              <strong>${label}</strong>
+              <p>${hint}</p>
+            </span>
+            <span class="invoice-review-count">${count}</span>
+            <span class="review-chevron" aria-hidden="true">›</span>
+          </button>
+        `).join("")}
+        <button type="button" class="invoice-review-footer" data-invoice-review-filter="all">
+          Ver todas las incidencias <span aria-hidden="true">→</span>
+        </button>
+      </div>
+    `;
 
     const meta = paginateRows("invoices", rows);
     $("#invoiceResultText").textContent = `${meta.total} facturas visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
