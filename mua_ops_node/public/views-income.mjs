@@ -20,6 +20,28 @@ export function createIncomeViews(ctx) {
 
   const paidStatuses = new Set(["paid", "executed"]);
 
+  function channelIconMarkup(channel, extraClass = "") {
+    const symbol = channel === "shopify" ? "icon-channel-shopify" : channel === "etsy" ? "icon-channel-etsy" : "icon-channel-bizum";
+    return `<span class="income-channel-dot ${channel} ${extraClass}" aria-hidden="true"><svg><use href="#${symbol}"></use></svg></span>`;
+  }
+
+  function payoutPrimaryLabel(row) {
+    const bankReference = text(row.bank_reference).trim();
+    if (bankReference) return bankReference;
+    const externalId = text(row.external_id).trim();
+    if (!externalId) return "Ingreso manual";
+    if (externalId.includes("|")) return "Ingreso manual";
+    return externalId;
+  }
+
+  function payoutSecondaryLabel(row) {
+    const accountHint = text(row.bank_account_hint).trim();
+    if (accountHint) return accountHint;
+    const sourceFile = text(row.raw_source_file).trim();
+    if (sourceFile && !/manual\|/i.test(sourceFile)) return sourceFile;
+    return `${channelLabel(row.channel)} · ${text(row.payout_date)}`;
+  }
+
   function renderIncome() {
     if (!state.incomeSummary) return;
     renderPayouts();
@@ -249,10 +271,10 @@ export function createIncomeViews(ctx) {
       .slice(0, 5);
     $("#incomeRecentList").innerHTML = recent.map((row) => `
       <button type="button" class="income-recent-item" data-open-payout="${row.id}">
-        <span class="income-channel-dot ${row.channel}">${channelLabel(row.channel).slice(0, 1)}</span>
+        ${channelIconMarkup(row.channel)}
         <span class="income-recent-copy">
-          <strong>${text(row.bank_reference || row.external_id || "Ingreso manual")}</strong>
-          <small>${channelLabel(row.channel)} · ${text(row.payout_date)}</small>
+          <strong>${payoutPrimaryLabel(row)}</strong>
+          <small>${payoutSecondaryLabel(row)}</small>
         </span>
         <em>${euro.format(number(row.net_amount))}</em>
       </button>
@@ -374,13 +396,12 @@ export function createIncomeViews(ctx) {
   }
 
   function payoutTableRow(payout) {
-    const icon = payout.channel === "shopify" ? "S" : payout.channel === "etsy" ? "E" : "B";
     const conciliation = conciliationStatus(payout);
     return `
       <article class="income-table-row ${payout.is_deleted ? "deleted" : ""} ${state.selectedPayoutId == payout.id ? "active" : ""}">
-        <span class="income-channel-cell"><span class="income-channel-dot ${payout.channel}">${icon}</span><strong>${channelLabel(payout.channel)}</strong></span>
+        <span class="income-channel-cell">${channelIconMarkup(payout.channel)}<strong>${channelLabel(payout.channel)}</strong></span>
         <span>${text(payout.payout_date)}</span>
-        <span class="income-reference-cell"><strong>${text(payout.bank_reference || payout.external_id || "Sin referencia")}</strong><small>${text(payout.bank_account_hint || payout.raw_source_file || "Ingreso manual")}</small></span>
+        <span class="income-reference-cell"><strong>${payoutPrimaryLabel(payout)}</strong><small>${payoutSecondaryLabel(payout)}</small></span>
         <span>${badge(payoutStatusLabel(payout.status), paidStatuses.has(String(payout.status || "")) ? "ok" : "warn")}</span>
         <span class="amount strong">${euro.format(number(payout.net_amount))}</span>
         <span class="income-gross-stack"><strong>${euro.format(number(payout.gross_amount))}</strong><small>Fees: ${euro.format(number(payout.fees_amount))}</small></span>

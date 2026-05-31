@@ -1287,31 +1287,33 @@ body.income-view-active .topbar {
 .income-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(270px, 1.12fr);
-  gap: 14px;
+  gap: 12px;
+  align-items: start;
 }
 
 .income-kpi-card {
-  min-height: 118px;
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 14px;
+  min-height: 0;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
   overflow: hidden;
+  padding: 14px 16px;
 }
 
 .income-kpi-card .income-kpi-icon {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
-  border-radius: 18px;
+  border-radius: 16px;
   border: 1px solid rgba(201, 186, 172, .38);
   background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(245,248,247,.9));
   box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
 }
 
 .income-kpi-card .income-kpi-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -1321,22 +1323,22 @@ body.income-view-active .topbar {
 
 .income-kpi-copy {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .income-kpi-copy span {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .income-kpi-copy strong {
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1.1;
 }
 
 .income-kpi-copy small {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .income-kpi-trend {
@@ -1374,7 +1376,7 @@ body.income-view-active .topbar {
 }
 
 .income-kpi-card.is-channel-card {
-  grid-template-columns: minmax(0, 1fr) 96px;
+  grid-template-columns: minmax(0, 1fr) 76px;
   grid-template-areas:
     "copy donut"
     "breakdown donut";
@@ -1387,8 +1389,8 @@ body.income-view-active .topbar {
 
 .income-mini-donut {
   grid-area: donut;
-  width: 84px;
-  height: 84px;
+  width: 68px;
+  height: 68px;
   justify-self: end;
   align-self: center;
 }
@@ -1396,22 +1398,23 @@ body.income-view-active .topbar {
 .income-mini-breakdown {
   grid-area: breakdown;
   display: grid;
-  gap: 6px;
+  gap: 3px;
   align-content: start;
-  margin-top: 2px;
+  margin-top: 0;
 }
 
 .income-mini-breakdown span {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) auto auto;
-  gap: 8px;
+  gap: 5px;
   align-items: center;
 }
 
 .income-mini-breakdown strong,
 .income-mini-breakdown small,
 .income-mini-breakdown em {
-  font-size: 11px;
+  font-size: 9px;
+  line-height: 1.1;
 }
 
 .income-mini-breakdown strong {
@@ -1432,35 +1435,43 @@ body.income-view-active .topbar {
 
 .income-hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(340px, .9fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1.7fr) minmax(360px, .88fr);
+  gap: 14px;
   align-items: start;
 }
 
 .income-side-stack {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   align-content: start;
 }
 
 .income-chart-panel,
 .income-channel-panel,
 .income-review-panel {
-  min-height: 100%;
+  min-height: 0;
+}
+
+.income-chart-panel .chart-surface {
+  min-height: 176px;
 }
 
 .income-chart {
-  min-height: 236px;
+  min-height: 190px;
+}
+
+.income-channel-panel .chart-surface-small {
+  min-height: 154px;
 }
 
 .income-donut-chart {
-  min-height: 220px;
+  min-height: 168px;
 }
 
 .income-channel-breakdown {
   display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 14px;
   align-items: center;
 }
 
@@ -1475,7 +1486,7 @@ body.income-view-active .topbar {
   grid-template-columns: 10px minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: center;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .income-breakdown-row strong,
@@ -1511,22 +1522,43 @@ body.income-view-active .topbar {
   background: var(--accent);
 }
 
-.income-channel-dot.etsy,
 .income-breakdown-dot.etsy {
   background: var(--rose);
 }
 
-.income-channel-dot.bizum,
 .income-breakdown-dot.bizum {
   background: var(--gold);
+}
+
+.income-channel-dot.shopify {
+  background: #177c68;
+}
+
+.income-channel-dot.etsy {
+  background: #f97316;
+}
+
+.income-channel-dot.bizum {
+  background: #5ecfc8;
 }
 
 .income-channel-dot {
   width: 32px;
   height: 32px;
   color: #fff;
-  font-size: 12px;
-  font-weight: 780;
+  border: 1px solid rgba(255, 255, 255, .2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+}
+
+.income-channel-dot svg,
+.channel-choice-badge svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .income-filter-panel {
@@ -1537,7 +1569,7 @@ body.income-view-active .topbar {
 
 .income-overview {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 348px;
   gap: 16px;
   align-items: start;
 }
@@ -1695,14 +1727,15 @@ body.income-view-active .topbar {
 
 .income-recent-item {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  padding: 12px 0;
+  padding: 14px 0;
   border: 0;
   border-bottom: 1px solid var(--line);
   background: transparent;
   text-align: left;
+  color: var(--ink);
 }
 
 .income-recent-item:last-child {
@@ -1714,9 +1747,17 @@ body.income-view-active .topbar {
   gap: 4px;
 }
 
+.income-recent-copy strong {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
 .income-recent-copy small,
 .income-review-copy small {
-  color: var(--muted);
+  color: #5a524c;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .invoice-review-meta {
@@ -1741,6 +1782,7 @@ body.income-view-active .topbar {
   color: var(--accent);
   font-style: normal;
   font-weight: 720;
+  font-size: 14px;
 }
 
 .income-channel-picker {
@@ -1789,14 +1831,12 @@ body.income-view-active .topbar {
   place-items: center;
   border-radius: 999px;
   color: #fff;
-  font-style: normal;
-  font-size: 12px;
-  font-weight: 800;
+  border: 1px solid rgba(255,255,255,.18);
 }
 
 .channel-choice-badge.shopify { background: var(--accent); }
 .channel-choice-badge.etsy { background: #f97316; }
-.channel-choice-badge.bizum { background: #7c3aed; }
+.channel-choice-badge.bizum { background: #5ecfc8; }
 
 .channel-choice small {
   color: var(--muted);
