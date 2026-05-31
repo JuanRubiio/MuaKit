@@ -453,20 +453,78 @@
                 <div id="incomeTrendChart" class="dashboard-chart chart-surface chart-surface-hero income-chart"></div>
               </section>
 
-              <div class="income-side-stack">
-                <section class="panel income-channel-panel">
-                  <div class="panel-head compact-head">
-                    <div>
-                      <h2>Ingreso neto por canal</h2>
-                      <p>Distribución del ingreso neto.</p>
-                    </div>
+              <section class="panel income-channel-panel">
+                <div class="panel-head compact-head">
+                  <div>
+                    <h2>Ingreso neto por canal</h2>
+                    <p>Distribución del ingreso neto.</p>
                   </div>
-                  <div class="income-channel-breakdown">
-                    <div id="incomeChannelChart" class="dashboard-chart chart-surface chart-surface-small income-donut-chart"></div>
-                    <div id="incomeChannelBreakdown" class="income-breakdown-list"></div>
+                </div>
+                <div class="income-channel-breakdown">
+                  <div id="incomeChannelChart" class="dashboard-chart chart-surface chart-surface-small income-donut-chart"></div>
+                  <div id="incomeChannelBreakdown" class="income-breakdown-list"></div>
+                </div>
+              </section>
+            </div>
+
+            <div class="income-content-grid">
+              <div class="income-primary-stack">
+                <section class="panel income-filter-panel">
+                  <div class="filter-grid income-filters">
+                    <label>Buscar<input id="payoutSearch" type="search" placeholder="Número, referencia, cliente..."></label>
+                    <label>Canal
+                      <select id="payoutChannelFilter">
+                        <option value="">Todos</option>
+                        <option value="shopify">Shopify</option>
+                        <option value="etsy">Etsy</option>
+                        <option value="bizum">Bizum</option>
+                      </select>
+                    </label>
+                    <label>Estado<select id="payoutStatusFilter"></select></label>
+                    <label>Desde<input id="payoutFromFilter" type="date"></label>
+                    <label>Hasta<input id="payoutToFilter" type="date"></label>
+                    <label>Orden
+                      <select id="payoutSort">
+                        <option value="date_desc">Fecha más reciente</option>
+                        <option value="date_asc">Fecha más antigua</option>
+                        <option value="net_desc">Mayor neto</option>
+                        <option value="net_asc">Menor neto</option>
+                        <option value="fees_desc">Mayor fee</option>
+                        <option value="channel_asc">Canal A-Z</option>
+                      </select>
+                    </label>
+                    <label class="toggle-switch"><input id="payoutsDeleted" type="checkbox"><span class="toggle-slider"></span><span>Archivados</span></label>
                   </div>
+                  <div id="incomeStatusTabs" class="invoice-status-tabs"></div>
                 </section>
 
+                <section class="panel income-list-panel income-list-shell entity-list-panel">
+                  <div class="panel-head invoice-head">
+                    <div>
+                      <h2>Listado</h2>
+                      <p id="incomeResultText">Seguimiento de ingresos por canal y conciliación.</p>
+                    </div>
+                  </div>
+
+                  <div class="income-table">
+                    <div class="income-table-head">
+                      <span>Canal</span>
+                      <span>Fecha</span>
+                      <span>Referencia / pedido</span>
+                      <span>Estado</span>
+                      <span>Ingreso neto</span>
+                      <span>Bruto</span>
+                      <span>Conciliación</span>
+                      <span>Acciones</span>
+                    </div>
+                    <div id="payoutList" class="income-table-list"></div>
+                  </div>
+
+                  <div id="payoutPagination" class="pagination-bar"></div>
+                </section>
+              </div>
+
+              <div class="income-secondary-stack">
                 <aside class="panel income-review-panel">
                   <div class="panel-head">
                     <div>
@@ -477,74 +535,18 @@
                   </div>
                   <div id="incomeReviewQueue" class="invoice-review-list"></div>
                 </aside>
+
+                <aside class="panel income-side-panel entity-support-panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Últimos ingresos</h2>
+                      <p>Los cobros más recientes para retomar rápido.</p>
+                    </div>
+                    <span class="panel-head-icon" aria-hidden="true"><svg><use href="#icon-chart"></use></svg></span>
+                  </div>
+                  <div id="incomeRecentList" class="income-recent-list"></div>
+                </aside>
               </div>
-            </div>
-
-            <section class="panel income-filter-panel">
-              <div class="filter-grid income-filters">
-                <label>Buscar<input id="payoutSearch" type="search" placeholder="Número, referencia, cliente..."></label>
-                <label>Canal
-                  <select id="payoutChannelFilter">
-                    <option value="">Todos</option>
-                    <option value="shopify">Shopify</option>
-                    <option value="etsy">Etsy</option>
-                    <option value="bizum">Bizum</option>
-                  </select>
-                </label>
-                <label>Estado<select id="payoutStatusFilter"></select></label>
-                <label>Desde<input id="payoutFromFilter" type="date"></label>
-                <label>Hasta<input id="payoutToFilter" type="date"></label>
-                <label>Orden
-                  <select id="payoutSort">
-                    <option value="date_desc">Fecha más reciente</option>
-                    <option value="date_asc">Fecha más antigua</option>
-                    <option value="net_desc">Mayor neto</option>
-                    <option value="net_asc">Menor neto</option>
-                    <option value="fees_desc">Mayor fee</option>
-                    <option value="channel_asc">Canal A-Z</option>
-                  </select>
-                </label>
-                <label class="toggle-switch"><input id="payoutsDeleted" type="checkbox"><span class="toggle-slider"></span><span>Archivados</span></label>
-              </div>
-              <div id="incomeStatusTabs" class="invoice-status-tabs"></div>
-            </section>
-
-            <div class="income-overview">
-              <section class="panel income-list-panel income-list-shell entity-list-panel">
-                <div class="panel-head invoice-head">
-                  <div>
-                    <h2>Listado</h2>
-                    <p id="incomeResultText">Seguimiento de ingresos por canal y conciliación.</p>
-                  </div>
-                </div>
-
-                <div class="income-table">
-                  <div class="income-table-head">
-                    <span>Canal</span>
-                    <span>Fecha</span>
-                    <span>Referencia / pedido</span>
-                    <span>Estado</span>
-                    <span>Ingreso neto</span>
-                    <span>Bruto</span>
-                    <span>Conciliación</span>
-                    <span>Acciones</span>
-                  </div>
-                  <div id="payoutList" class="income-table-list"></div>
-                </div>
-
-                <div id="payoutPagination" class="pagination-bar"></div>
-              </section>
-
-              <aside class="panel income-side-panel entity-support-panel">
-                <div class="panel-head">
-                  <div>
-                    <h2>Últimos ingresos</h2>
-                    <p>Los cobros más recientes para retomar rápido.</p>
-                  </div>
-                  <span class="panel-head-icon" aria-hidden="true"><svg><use href="#icon-chart"></use></svg></span>
-                </div>
-                <div id="incomeRecentList" class="income-recent-list"></div>
-              </aside>
             </div>
 
             <form id="payoutForm" class="income-workspace entity-module hidden">
