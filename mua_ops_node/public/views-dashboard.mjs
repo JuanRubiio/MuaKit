@@ -10,6 +10,7 @@ export function createDashboardViews(ctx) {
     chartColors,
     compactTimeline,
     dashboardChart,
+    img,
     DASHBOARD_EXPENSE_LABELS,
     DASHBOARD_INCOME_LABELS
   } = ctx;
@@ -37,8 +38,7 @@ export function createDashboardViews(ctx) {
     const balanceChart = dashboardChart("dashboardBalanceChart");
     const categoryChart = dashboardChart("dashboardCategoryChart");
     const incomeMixChart = dashboardChart("dashboardIncomeMixChart");
-    const reorderChart = dashboardChart("dashboardReorderChart");
-    if (!expenseChart || !incomeChart || !balanceChart || !categoryChart || !incomeMixChart || !reorderChart) return;
+    if (!expenseChart || !incomeChart || !balanceChart || !categoryChart || !incomeMixChart) return;
 
     expenseChart.setOption({
       animationDuration: 400,
@@ -219,70 +219,6 @@ export function createDashboardViews(ctx) {
       }]
     }, true);
 
-    const reorderRows = (finance.operational?.reorder_materials || []).slice(0, 6);
-    reorderChart.setOption({
-      animationDuration: 400,
-      grid: { left: 36, right: 18, top: 18, bottom: 60, containLabel: true },
-      tooltip: {
-        trigger: "axis",
-        axisPointer: { type: "cross" },
-        valueFormatter: (value) => `${number(value)} ud`
-      },
-      legend: {
-        bottom: 8,
-        left: "center",
-        itemWidth: 14,
-        itemHeight: 10,
-        icon: "roundRect",
-        textStyle: { color: "#5d5650", fontSize: 12, fontWeight: 600 }
-      },
-      xAxis: {
-        type: "category",
-        axisLine: { lineStyle: { color: "#c9bfb5" } },
-        axisLabel: {
-          color: "#766e68",
-          interval: 0,
-          rotate: 18,
-          formatter: (value) => String(value || "").length > 18 ? `${String(value).slice(0, 18)}…` : value
-        },
-        data: reorderRows.map((row) => row.name)
-      },
-      yAxis: {
-        type: "value",
-        axisLabel: { color: "#766e68", formatter: (value) => `${number(value)}` },
-        splitLine: { lineStyle: { color: "#ede7df" } }
-      },
-      graphic: reorderRows.length ? [] : [{
-        type: "text",
-        left: "center",
-        top: "middle",
-        style: {
-          text: "No hay materiales en reposición",
-          fill: "#766e68",
-          fontSize: 13,
-          fontWeight: 600
-        }
-      }],
-      series: [
-        {
-          name: "Stock Shopify",
-          type: "bar",
-          barMaxWidth: 28,
-          itemStyle: { color: colors.cobros, borderRadius: [6, 6, 0, 0] },
-          data: reorderRows.map((row) => number(row.effective_stock_qty))
-        },
-        {
-          name: "Punto reposición",
-          type: "line",
-          smooth: true,
-          symbol: "circle",
-          symbolSize: 8,
-          lineStyle: { width: 3, color: colors.materiales },
-          itemStyle: { color: colors.materiales },
-          data: reorderRows.map((row) => number(row.reorder_point))
-        }
-      ]
-    }, true);
   }
 
   function renderDashboard() {
@@ -411,6 +347,34 @@ export function createDashboardViews(ctx) {
         </span>
       </div>
     `).join("") || `<div class="empty-state small">Todavía no hay gasto suficiente para este ranking.</div>`}</div>`;
+
+    const reorderRows = (operational.reorder_materials || []).slice(0, 4);
+    $("#dashboardReorderList").innerHTML = reorderRows.length ? `
+      <div class="dashboard-reorder-table">
+        <div class="dashboard-reorder-head">
+          <span>Material</span>
+          <span>Stock</span>
+          <span>Mínimo</span>
+          <span>Estado</span>
+        </div>
+        ${reorderRows.map((row) => {
+          const material = state.materials.find((item) => item.name === row.name);
+          const thumb = img(material?.image_url || "", text(row.name));
+          const critical = number(row.effective_stock_qty) <= number(row.reorder_point);
+          return `
+            <button type="button" class="dashboard-reorder-row" data-jump-view="materials">
+              <span class="dashboard-reorder-material">
+                <span class="dashboard-reorder-thumb">${thumb}</span>
+                <strong>${text(row.name)}</strong>
+              </span>
+              <span>${number(row.effective_stock_qty)} ${text(material?.unit_label || "ud")}</span>
+              <span>${number(row.reorder_point)} ${text(material?.unit_label || "ud")}</span>
+              <span>${badge(critical ? "Crítico" : "Bajo", critical ? "warn" : "neutral")}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    ` : `<div class="empty-state small">No hay materiales en reposición ahora mismo.</div>`;
 
     requestAnimationFrame(() => renderDashboardCharts());
   }

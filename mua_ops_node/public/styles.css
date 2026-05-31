@@ -477,7 +477,7 @@ main {
 
 .dashboard-hero-grid {
   grid-template-columns: minmax(0, 1.55fr) minmax(360px, .85fr);
-  align-items: stretch;
+  align-items: start;
 }
 
 .dashboard-insight-grid {
@@ -620,7 +620,11 @@ main {
 .invoice-overview-head {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 16px;
+  margin-top: -44px;
+  margin-bottom: 14px;
+  min-height: 0;
 }
 
 .invoice-list-shell {
@@ -642,10 +646,6 @@ main {
   border: 0;
   border-radius: 0;
   background: transparent;
-}
-
-.invoice-filter-panel .invoice-status-tabs {
-  margin-top: 0;
 }
 
 .invoice-filter-panel .check {
@@ -786,6 +786,11 @@ main {
   align-items: center;
   border-bottom: 1px solid var(--line);
   padding-bottom: 10px;
+}
+
+.invoice-list-shell .invoice-status-tabs {
+  margin-top: -4px;
+  margin-bottom: 2px;
 }
 
 .invoice-status-strip button {
@@ -2329,6 +2334,12 @@ label.required .field-label span::after {
   align-items: center;
 }
 
+.invoice-overview-head .button-with-icon {
+  min-height: 40px;
+  padding-inline: 14px;
+  box-shadow: 0 14px 26px rgba(0, 109, 98, .12);
+}
+
 .invoice-list-panel {
   min-height: auto;
 }
@@ -2494,12 +2505,17 @@ label.required .field-label span::after {
 .dashboard-side-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  min-height: 324px;
+  min-height: 274px;
 }
 
 .dashboard-hero-panel .chart-surface-hero {
-  min-height: 232px;
+  min-height: 196px;
   height: 100%;
+}
+
+.dashboard-balance-panel .panel-head,
+.dashboard-side-panel .panel-head {
+  padding-bottom: 10px;
 }
 
 .dashboard-trend-grid .panel {
@@ -2511,14 +2527,10 @@ label.required .field-label span::after {
 }
 
 .dashboard-insight-grid .panel {
-  min-height: 340px;
+  min-height: 284px;
 }
 
 .dashboard-insight-grid .chart-surface-small {
-  min-height: 238px;
-}
-
-.dashboard-reorder-panel .chart-surface-small {
   min-height: 238px;
 }
 
@@ -2555,8 +2567,8 @@ label.required .field-label span::after {
 }
 
 .dashboard-side-panel .ops-item {
-  min-height: 42px;
-  padding: 8px 10px;
+  min-height: 0;
+  padding: 10px 12px;
 }
 
 .ops-item-main {
@@ -2623,7 +2635,7 @@ label.required .field-label span::after {
 }
 
 .dashboard-side-panel .ops-list {
-  gap: 6px;
+  gap: 8px;
 }
 
 .dashboard-side-panel .ops-item strong {
@@ -2634,6 +2646,93 @@ label.required .field-label span::after {
   font-size: 11px;
   margin-top: 2px;
   line-height: 1.25;
+}
+
+.dashboard-panel-link {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.dashboard-panel-footer {
+  margin-top: 12px;
+}
+
+.dashboard-reorder-list {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.dashboard-reorder-table {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #fff;
+}
+
+.dashboard-reorder-head,
+.dashboard-reorder-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 90px 90px 96px;
+  gap: 12px;
+  align-items: center;
+}
+
+.dashboard-reorder-head {
+  min-height: 38px;
+  padding: 0 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(248,244,238,.95));
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dashboard-reorder-row {
+  min-height: 58px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  text-align: left;
+}
+
+.dashboard-reorder-row:last-child {
+  border-bottom: 0;
+}
+
+.dashboard-reorder-row:hover {
+  background: rgba(247, 251, 249, .92);
+}
+
+.dashboard-reorder-material {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.dashboard-reorder-material strong {
+  font-size: 13px;
+}
+
+.dashboard-reorder-thumb,
+.dashboard-reorder-thumb img,
+.dashboard-reorder-thumb .image-empty {
+  width: 36px;
+  height: 36px;
+}
+
+.dashboard-reorder-thumb img,
+.dashboard-reorder-thumb .image-empty {
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
 }
 
 label {

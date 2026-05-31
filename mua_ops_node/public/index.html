@@ -128,6 +128,7 @@
                     <h2>Atención inmediata</h2>
                     <p>Incidencias que conviene revisar sin romper la portada financiera.</p>
                   </div>
+                  <button type="button" class="ghost dashboard-panel-link" data-jump-view="activity">Ver todas</button>
                 </div>
                 <div id="dashboardOpsList" class="list compact"></div>
               </section>
@@ -181,11 +182,14 @@
               <section class="panel dashboard-reorder-panel">
                 <div class="panel-head">
                   <div>
-                    <h2>Reposición de materiales</h2>
-                    <p>Stock Shopify frente al punto de reposición para ver qué urge pedir.</p>
+                    <h2>Materiales a reponer</h2>
+                    <p>Materiales con stock bajo del mínimo definido.</p>
                   </div>
                 </div>
-                <div id="dashboardReorderChart" class="chart-surface chart-surface-small"></div>
+                <div id="dashboardReorderList" class="dashboard-reorder-list"></div>
+                <div class="dashboard-panel-footer">
+                  <button type="button" class="ghost dashboard-panel-link" data-jump-view="materials">Ver todos los materiales</button>
+                </div>
               </section>
 
               <section class="panel dashboard-income-mix-panel">
@@ -219,7 +223,7 @@
           <div class="invoice-page">
             <div class="invoice-overview-head">
               <div class="row-actions">
-                <button type="button" data-new-invoice>Nueva factura</button>
+                <button type="button" class="button-with-icon" data-new-invoice><svg><use href="#icon-plus"></use></svg><span>Nueva factura</span></button>
               </div>
             </div>
 
@@ -253,7 +257,6 @@
                 <label class="check"><input id="invoicesDeleted" type="checkbox"> Archivadas</label>
               </div>
 
-              <div id="invoiceStatusTabs" class="invoice-status-tabs"></div>
             </section>
 
             <div class="invoice-overview">
@@ -264,6 +267,8 @@
                     <p>Filtra, ordena y abre cada factura desde la tabla.</p>
                   </div>
                 </div>
+
+                <div id="invoiceStatusTabs" class="invoice-status-tabs"></div>
 
                 <div class="invoice-table">
                   <div class="invoice-table-head">
