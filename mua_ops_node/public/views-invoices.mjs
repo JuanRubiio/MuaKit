@@ -145,9 +145,9 @@ export function createInvoiceViews(ctx) {
           <span>${attachment}</span>
           <strong class="amount">${euro.format(number(invoice.total))}</strong>
           <div class="row-actions slim invoice-table-actions">
-            <button data-view-invoice="${invoice.id}" type="button">Ver</button>
-            <button data-duplicate-invoice="${invoice.id}" type="button" class="ghost">Duplicar</button>
-            ${invoice.is_deleted ? `<button data-restore-invoice="${invoice.id}" type="button">Restaurar</button>` : `<button class="ghost danger-text" data-delete-invoice="${invoice.id}" type="button">Archivar</button>`}
+            <button data-view-invoice="${invoice.id}" type="button" class="icon-action" aria-label="Ver factura" title="Ver factura"><svg><use href="#icon-eye"></use></svg></button>
+            <button data-duplicate-invoice="${invoice.id}" type="button" class="icon-action" aria-label="Duplicar factura" title="Duplicar factura"><svg><use href="#icon-copy"></use></svg></button>
+            ${invoice.is_deleted ? `<button data-restore-invoice="${invoice.id}" type="button" class="icon-action" aria-label="Restaurar factura" title="Restaurar factura"><svg><use href="#icon-archive"></use></svg></button>` : `<button class="icon-action danger-text" data-delete-invoice="${invoice.id}" type="button" aria-label="Archivar factura" title="Archivar factura"><svg><use href="#icon-archive"></use></svg></button>`}
           </div>
         </article>
       `;

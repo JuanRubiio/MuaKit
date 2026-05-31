@@ -23,6 +23,9 @@
       <symbol id="icon-minus-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12h7"/></symbol>
       <symbol id="icon-paperclip" viewBox="0 0 24 24"><path d="m8 12.5 6.5-6.5a4 4 0 0 1 5.7 5.7l-8.4 8.4a6 6 0 0 1-8.5-8.5l8.2-8.2"/><path d="m9.8 14.2 6.4-6.4"/></symbol>
       <symbol id="icon-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></symbol>
+      <symbol id="icon-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"/></symbol>
+      <symbol id="icon-archive" viewBox="0 0 24 24"><path d="M4 7h16v13H4z"/><path d="M3 4h18v3H3z"/><path d="M9 11h6"/></symbol>
     </svg>
 
     <header class="sidebar app-nav">
@@ -199,48 +202,57 @@
 
         <section id="invoices" class="view">
           <div class="invoice-page">
+            <div class="invoice-overview-head">
+              <div>
+                <h2>Facturas</h2>
+                <p id="invoiceResultText">Sin filtros.</p>
+              </div>
+              <div class="row-actions">
+                <button type="button" data-new-invoice>Nueva factura</button>
+              </div>
+            </div>
+
+            <div id="invoiceSummaryCards" class="invoice-summary-grid"></div>
+
+            <section class="panel invoice-filter-panel">
+              <div class="filter-grid invoice-filters">
+                <label>Buscar<input id="invoiceSearch" type="search" placeholder="Proveedor, numero, notas"></label>
+                <label>Proveedor<select id="invoiceSupplierFilter"></select></label>
+                <label>Categoria<select id="invoiceCategoryFilter"></select></label>
+                <label>Estado<select id="invoiceStatusFilter"></select></label>
+                <label>Lineas
+                  <select id="invoiceLineFilter">
+                    <option value="">Todas</option>
+                    <option value="with">Con lineas</option>
+                    <option value="without">Sin lineas</option>
+                  </select>
+                </label>
+                <label>Desde<input id="invoiceFromFilter" type="date"></label>
+                <label>Hasta<input id="invoiceToFilter" type="date"></label>
+                <label>Orden
+                  <select id="invoiceSort">
+                    <option value="date_desc">Fecha reciente</option>
+                    <option value="date_asc">Fecha antigua</option>
+                    <option value="total_desc">Mayor total</option>
+                    <option value="total_asc">Menor total</option>
+                    <option value="supplier_asc">Proveedor A-Z</option>
+                    <option value="lines_asc">Pendientes primero</option>
+                  </select>
+                </label>
+                <label class="check"><input id="invoicesDeleted" type="checkbox"> Archivadas</label>
+              </div>
+
+              <div id="invoiceStatusTabs" class="invoice-status-tabs"></div>
+            </section>
+
             <div class="invoice-overview">
               <section class="panel invoice-list-panel invoice-list-shell">
                 <div class="panel-head invoice-head">
                   <div>
-                    <h2>Facturas</h2>
-                    <p id="invoiceResultText">Sin filtros.</p>
-                  </div>
-                  <div class="row-actions">
-                    <button type="button" data-new-invoice>Nueva factura</button>
+                    <h2>Listado</h2>
+                    <p>Filtra, ordena y abre cada factura desde la tabla.</p>
                   </div>
                 </div>
-
-                <div id="invoiceSummaryCards" class="invoice-summary-grid"></div>
-
-                <div class="filter-grid invoice-filters">
-                  <label>Buscar<input id="invoiceSearch" type="search" placeholder="Proveedor, numero, notas"></label>
-                  <label>Proveedor<select id="invoiceSupplierFilter"></select></label>
-                  <label>Categoria<select id="invoiceCategoryFilter"></select></label>
-                  <label>Estado<select id="invoiceStatusFilter"></select></label>
-                  <label>Lineas
-                    <select id="invoiceLineFilter">
-                      <option value="">Todas</option>
-                      <option value="with">Con lineas</option>
-                      <option value="without">Sin lineas</option>
-                    </select>
-                  </label>
-                  <label>Desde<input id="invoiceFromFilter" type="date"></label>
-                  <label>Hasta<input id="invoiceToFilter" type="date"></label>
-                  <label>Orden
-                    <select id="invoiceSort">
-                      <option value="date_desc">Fecha reciente</option>
-                      <option value="date_asc">Fecha antigua</option>
-                      <option value="total_desc">Mayor total</option>
-                      <option value="total_asc">Menor total</option>
-                      <option value="supplier_asc">Proveedor A-Z</option>
-                      <option value="lines_asc">Pendientes primero</option>
-                    </select>
-                  </label>
-                  <label class="check"><input id="invoicesDeleted" type="checkbox"> Archivadas</label>
-                </div>
-
-                <div id="invoiceStatusTabs" class="invoice-status-tabs"></div>
 
                 <div class="invoice-table">
                   <div class="invoice-table-head">
