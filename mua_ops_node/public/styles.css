@@ -477,7 +477,7 @@ main {
 
 .dashboard-hero-grid {
   grid-template-columns: minmax(0, 1.55fr) minmax(360px, .85fr);
-  align-items: start;
+  align-items: stretch;
 }
 
 .dashboard-insight-grid {
@@ -2546,6 +2546,7 @@ label.required .field-label span::after {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 274px;
+  overflow: hidden;
 }
 
 .dashboard-hero-panel .chart-surface-hero {
@@ -2559,11 +2560,15 @@ label.required .field-label span::after {
 }
 
 .dashboard-trend-grid .panel {
-  min-height: 354px;
+  min-height: 274px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .dashboard-trend-grid .chart-surface {
-  min-height: 230px;
+  min-height: 196px;
+  height: 100%;
 }
 
 .dashboard-insight-grid .panel {
@@ -2646,6 +2651,25 @@ label.required .field-label span::after {
 
 .dashboard-side-panel .ops-list {
   grid-template-columns: 1fr;
+}
+
+#dashboardOpsList {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+#dashboardOpsList::-webkit-scrollbar {
+  width: 8px;
+}
+
+#dashboardOpsList::-webkit-scrollbar-thumb {
+  background: rgba(166, 150, 137, .45);
+  border-radius: 999px;
+}
+
+#dashboardOpsList::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .dashboard-side-panel .ops-item strong {
