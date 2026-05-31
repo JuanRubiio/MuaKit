@@ -407,12 +407,13 @@ function renderInvoiceFormReview(invoice = null) {
   const hasDocument = Boolean(form.elements.document_id?.value) || Boolean($("#documentFile")?.files?.length);
   const lineCount = number(invoice?.line_count ?? state.invoiceEditorLineCount);
   review.innerHTML = [
-    ["Proveedor", hasSupplier ? "Proveedor seleccionado." : "Selecciona proveedor si aplica.", hasSupplier ? "OK" : "Revisar", hasSupplier ? "ok" : "warn"],
-    ["Total", hasTotal ? "Importe informado." : "Debe coincidir con el documento.", hasTotal ? "OK" : "Obligatorio", hasTotal ? "ok" : "warn"],
-    ["Lineas", lineCount ? `${lineCount} linea${lineCount === 1 ? "" : "s"} registrada${lineCount === 1 ? "" : "s"}.` : "Se podran anadir tras guardar.", lineCount ? "OK" : "Pendiente", lineCount ? "ok" : "warn"],
-    ["Adjunto", hasDocument ? "Documento asociado." : "Opcional pero recomendable.", hasDocument ? "OK" : "Opcional", hasDocument ? "ok" : "neutral"]
-  ].map(([label, hint, statusText, tone]) => `
+    ["Proveedor", hasSupplier ? "Proveedor seleccionado." : "Selecciona proveedor si aplica.", hasSupplier ? "OK" : "Revisar", hasSupplier ? "ok" : "warn", hasSupplier ? "icon-check-circle" : "icon-alert"],
+    ["Total", hasTotal ? "Importe informado." : "Debe coincidir con el documento.", hasTotal ? "OK" : "Obligatorio", hasTotal ? "ok" : "warn", hasTotal ? "icon-check-circle" : "icon-alert"],
+    ["Lineas", lineCount ? `${lineCount} linea${lineCount === 1 ? "" : "s"} registrada${lineCount === 1 ? "" : "s"}.` : "Se podran anadir tras guardar.", lineCount ? "OK" : "Pendiente", lineCount ? "ok" : "warn", lineCount ? "icon-check-circle" : "icon-minus-circle"],
+    ["Adjunto", hasDocument ? "Documento asociado." : "Opcional pero recomendable.", hasDocument ? "OK" : "Opcional", hasDocument ? "ok" : "neutral", hasDocument ? "icon-check-circle" : "icon-paperclip"]
+  ].map(([label, hint, statusText, tone, icon]) => `
     <span class="${tone}">
+      <span class="invoice-check-icon" aria-hidden="true"><svg><use href="#${icon}"></use></svg></span>
       <strong>${label}</strong>
       <small>${hint}</small>
       <em>${statusText}</em>
@@ -436,7 +437,11 @@ function showInvoiceEditor(invoice = null, keepDetail = false) {
     $("#invoiceFormSubtitle").textContent = `${text(invoice.invoice_number, "Sin referencia")} · ${text(invoice.invoice_date, "Sin fecha")}`;
     $("#invoiceFormStatusBadge").textContent = statusLabel(invoice.status);
     $("#invoiceFormTotalPreview").textContent = euro.format(number(invoice.total));
-    $$("[data-invoice-save-label]").forEach((button) => button.textContent = "Guardar cambios");
+    $$("[data-invoice-save-label]").forEach((button) => {
+      const label = button.querySelector("[data-button-label]");
+      if (label) label.textContent = "Guardar cambios";
+      else button.textContent = "Guardar cambios";
+    });
     $("#invoiceFormDocumentState").innerHTML = invoice.document_stored_name
       ? `<div class="invoice-doc-file compact"><span class="doc-file-icon">PDF</span><span><strong>${text(invoice.document_name, "Documento adjunto")}</strong><small>Documento actual de la factura.</small></span></div>`
       : `<div class="inline-note">Esta factura no tiene adjunto guardado.</div>`;
@@ -446,7 +451,11 @@ function showInvoiceEditor(invoice = null, keepDetail = false) {
     $("#invoiceFormSubtitle").textContent = "Completa los datos de la factura y guarda para añadir líneas.";
     $("#invoiceFormStatusBadge").textContent = "Borrador";
     $("#invoiceFormTotalPreview").textContent = euro.format(0);
-    $$("[data-invoice-save-label]").forEach((button) => button.textContent = "Guardar factura");
+    $$("[data-invoice-save-label]").forEach((button) => {
+      const label = button.querySelector("[data-button-label]");
+      if (label) label.textContent = "Guardar factura";
+      else button.textContent = "Guardar factura";
+    });
     $("#invoiceFormDocumentState").innerHTML = "";
     if (state.settings) {
       if (form.elements.status) form.elements.status.value = state.settings.default_invoice_status || "draft";

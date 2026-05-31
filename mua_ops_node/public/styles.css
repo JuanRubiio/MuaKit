@@ -312,6 +312,13 @@ button.full {
   display: none;
 }
 
+.invoice-page.invoice-focus-mode > .invoice-overview-head,
+.invoice-page.invoice-focus-mode > .invoice-summary-grid,
+.invoice-page.invoice-focus-mode > .invoice-filter-panel,
+.invoice-page.invoice-focus-mode > .invoice-overview {
+  display: none;
+}
+
 .eyebrow {
   color: var(--rose);
   font-size: 12px;
@@ -1111,6 +1118,12 @@ main {
   scroll-margin-top: 112px;
 }
 
+.invoice-workspace-main {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+
 .invoice-workspace-hero,
 .invoice-detail-hero {
   display: grid;
@@ -1151,6 +1164,24 @@ main {
   gap: 10px;
   justify-content: flex-end;
   align-items: center;
+}
+
+.button-with-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.button-with-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
 }
 
 .invoice-hero-total {
@@ -1271,11 +1302,45 @@ main {
 .invoice-check-list span,
 .invoice-validation-list span {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
+}
+
+.invoice-check-icon {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--gold);
+}
+
+.invoice-check-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.invoice-check-list .ok .invoice-check-icon,
+.invoice-validation-list .ok .invoice-check-icon {
+  color: var(--accent);
+}
+
+.invoice-check-list .warn .invoice-check-icon,
+.invoice-validation-list .warn .invoice-check-icon {
+  color: #df7f14;
+}
+
+.invoice-check-list .neutral .invoice-check-icon,
+.invoice-validation-list .neutral .invoice-check-icon {
+  color: var(--muted);
 }
 
 .invoice-check-list span:last-child,
@@ -1291,14 +1356,14 @@ main {
 }
 
 .invoice-check-list small {
-  grid-column: 1;
+  grid-column: 2;
   margin-top: -6px;
 }
 
 .invoice-check-list em,
 .invoice-validation-list em {
   justify-self: end;
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1 / span 2;
   padding: 4px 9px;
   border-radius: 999px;
@@ -1343,6 +1408,29 @@ main {
 .invoice-form-footer {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+}
+
+.field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.field-label svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--muted);
+}
+
+label.required .field-label span::after {
+  content: " *";
+  color: var(--rose);
 }
 
 .invoice-amount-summary {

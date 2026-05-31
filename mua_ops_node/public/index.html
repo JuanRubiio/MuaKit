@@ -26,6 +26,16 @@
       <symbol id="icon-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.8"/></symbol>
       <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"/></symbol>
       <symbol id="icon-archive" viewBox="0 0 24 24"><path d="M4 7h16v13H4z"/><path d="M3 4h18v3H3z"/><path d="M9 11h6"/></symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="icon-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></symbol>
+      <symbol id="icon-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v6h8V4"/><path d="M9 18h6"/></symbol>
+      <symbol id="icon-calendar" viewBox="0 0 24 24"><path d="M7 3v4M17 3v4M4 9h16"/><rect x="4" y="5" width="16" height="16" rx="2"/></symbol>
+      <symbol id="icon-tag" viewBox="0 0 24 24"><path d="M3 12V5h7l9 9-7 7-9-9Z"/><circle cx="8" cy="8" r="1.4"/></symbol>
+      <symbol id="icon-hash" viewBox="0 0 24 24"><path d="M9 3 7 21M17 3l-2 18M4 9h16M3 15h16"/></symbol>
+      <symbol id="icon-truck" viewBox="0 0 24 24"><path d="M3 6h11v9H3z"/><path d="M14 9h4l3 3v3h-7z"/><circle cx="8" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+      <symbol id="icon-percent" viewBox="0 0 24 24"><path d="M19 5 5 19"/><circle cx="7" cy="7" r="2.3"/><circle cx="17" cy="17" r="2.3"/></symbol>
+      <symbol id="icon-note" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M9 12h6M9 16h6"/></symbol>
+      <symbol id="icon-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.4 2.5 4.6-5"/></symbol>
     </svg>
 
     <header class="sidebar app-nav">
@@ -291,51 +301,68 @@
                   <p id="invoiceFormSubtitle">Completa los datos de la factura y guarda para añadir líneas.</p>
                 </div>
                 <div class="invoice-hero-actions">
-                  <button type="button" class="ghost" data-close-invoice-panels>Cerrar</button>
-                  <button type="submit" data-invoice-save-label>Guardar factura</button>
-                  <button type="submit" class="ghost accent-outline" data-save-invoice-add-line>Guardar y añadir línea</button>
+                  <button type="button" class="ghost button-with-icon" data-close-invoice-panels><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar</span></button>
+                  <button type="submit" class="button-with-icon" data-invoice-save-label><svg><use href="#icon-save"></use></svg><span data-button-label>Guardar factura</span></button>
+                  <button type="submit" class="ghost accent-outline button-with-icon" data-save-invoice-add-line><svg><use href="#icon-plus"></use></svg><span>Guardar y añadir línea</span></button>
                 </div>
               </div>
               <input type="hidden" name="id">
 
               <div class="invoice-workspace-grid">
-                <section class="panel invoice-editor-card">
-                  <div class="panel-head compact-head">
-                    <div>
-                      <h2>1. Datos de factura</h2>
-                      <p>Importes, proveedor y clasificación del gasto.</p>
+                <div class="invoice-workspace-main">
+                  <section class="panel invoice-editor-card">
+                    <div class="panel-head compact-head">
+                      <div>
+                        <h2>1. Datos de factura</h2>
+                        <p>Importes, proveedor y clasificación del gasto.</p>
+                      </div>
                     </div>
-                  </div>
-                  <div class="form-grid two">
-                    <label>Proveedor<select name="supplier_id"></select></label>
-                    <label>Fecha<input name="invoice_date" type="date" required></label>
-                    <label>Número<input name="invoice_number" placeholder="Nº de factura o referencia del proveedor"></label>
-                    <label>Estado
-                      <select name="status">
-                        <option value="draft">Borrador</option>
-                        <option value="posted">Contabilizada</option>
-                        <option value="paid">Pagada</option>
-                        <option value="archived">Archivada</option>
-                      </select>
-                    </label>
-                    <label>Categoría
-                      <select name="category">
-                        <option value="materiales">Materiales</option>
-                        <option value="envios">Envios</option>
-                        <option value="marketing">Marketing</option>
-                        <option value="software">Software</option>
-                        <option value="servicios">Servicios</option>
-                        <option value="otros">Otros</option>
-                      </select>
-                    </label>
-                    <label>Subtotal<input name="subtotal" inputmode="decimal" placeholder="0,00"></label>
-                    <label>Descuento<input name="discount" inputmode="decimal" placeholder="0,00"></label>
-                    <label>IVA<input name="tax" inputmode="decimal" placeholder="0,00"></label>
-                    <label>Envío<input name="shipping" inputmode="decimal" placeholder="0,00"></label>
-                    <label>Total<input name="total" inputmode="decimal" required placeholder="0,00"></label>
-                  </div>
-                  <label>Notas<textarea name="notes" rows="3" placeholder="Añadir nota interna (opcional)"></textarea></label>
-                </section>
+                    <div class="form-grid two">
+                      <label class="required"><span class="field-label"><svg><use href="#icon-users"></use></svg><span>Proveedor</span></span><select name="supplier_id"></select></label>
+                      <label class="required"><span class="field-label"><svg><use href="#icon-calendar"></use></svg><span>Fecha</span></span><input name="invoice_date" type="date" required></label>
+                      <label><span class="field-label"><svg><use href="#icon-hash"></use></svg><span>Número</span></span><input name="invoice_number" placeholder="Nº de factura o referencia del proveedor"></label>
+                      <label class="required"><span class="field-label"><svg><use href="#icon-check-circle"></use></svg><span>Estado</span></span>
+                        <select name="status">
+                          <option value="draft">Borrador</option>
+                          <option value="posted">Contabilizada</option>
+                          <option value="paid">Pagada</option>
+                          <option value="archived">Archivada</option>
+                        </select>
+                      </label>
+                      <label class="required"><span class="field-label"><svg><use href="#icon-tag"></use></svg><span>Categoría</span></span>
+                        <select name="category">
+                          <option value="materiales">Materiales</option>
+                          <option value="envios">Envios</option>
+                          <option value="marketing">Marketing</option>
+                          <option value="software">Software</option>
+                          <option value="servicios">Servicios</option>
+                          <option value="otros">Otros</option>
+                        </select>
+                      </label>
+                      <label class="required"><span class="field-label"><svg><use href="#icon-coin"></use></svg><span>Subtotal</span></span><input name="subtotal" inputmode="decimal" placeholder="0,00"></label>
+                      <label><span class="field-label"><svg><use href="#icon-percent"></use></svg><span>Descuento</span></span><input name="discount" inputmode="decimal" placeholder="0,00"></label>
+                      <label><span class="field-label"><svg><use href="#icon-percent"></use></svg><span>IVA</span></span><input name="tax" inputmode="decimal" placeholder="0,00"></label>
+                      <label><span class="field-label"><svg><use href="#icon-truck"></use></svg><span>Envío</span></span><input name="shipping" inputmode="decimal" placeholder="0,00"></label>
+                      <label class="required"><span class="field-label"><svg><use href="#icon-coin"></use></svg><span>Total</span></span><input name="total" inputmode="decimal" required placeholder="0,00"></label>
+                    </div>
+                    <label><span class="field-label"><svg><use href="#icon-note"></use></svg><span>Notas</span></span><textarea name="notes" rows="3" placeholder="Añadir nota interna (opcional)"></textarea></label>
+                  </section>
+
+                  <section class="panel invoice-lines-draft">
+                    <div class="panel-head compact-head">
+                      <div>
+                        <h2>4. Líneas de factura</h2>
+                        <p>Guarda la factura para poder asociar materiales o conceptos.</p>
+                      </div>
+                      <button type="submit" class="ghost accent-outline button-with-icon" data-save-invoice-add-line><svg><use href="#icon-plus"></use></svg><span>Añadir línea</span></button>
+                    </div>
+                    <div class="invoice-lines-empty">
+                      <span class="file-dropzone-icon muted"><svg><use href="#icon-kit"></use></svg></span>
+                      <strong>Aún no hay líneas añadidas</strong>
+                      <small>Guarda la factura y añade una línea para registrar el gasto.</small>
+                    </div>
+                  </section>
+                </div>
 
                 <aside class="invoice-workspace-side">
                   <section class="panel invoice-document-card">
@@ -366,21 +393,6 @@
                 </aside>
               </div>
 
-              <section class="panel invoice-lines-draft">
-                <div class="panel-head compact-head">
-                  <div>
-                    <h2>4. Líneas de factura</h2>
-                    <p>Guarda la factura para poder asociar materiales o conceptos.</p>
-                  </div>
-                  <button type="submit" class="ghost accent-outline" data-save-invoice-add-line>Añadir línea</button>
-                </div>
-                <div class="invoice-lines-empty">
-                  <span class="file-dropzone-icon muted"><svg><use href="#icon-kit"></use></svg></span>
-                  <strong>Aún no hay líneas añadidas</strong>
-                  <small>Guarda la factura y añade una línea para registrar el gasto.</small>
-                </div>
-              </section>
-
               <input type="hidden" name="document_id">
               <div class="invoice-form-footer panel">
                 <div class="invoice-amount-summary">
@@ -391,8 +403,8 @@
                   <span class="total"><small>Total</small><strong id="invoiceFormTotalPreview">0,00 €</strong></span>
                 </div>
                 <div class="row-actions">
-                  <button type="button" class="ghost" data-reset-form="invoiceForm">Limpiar</button>
-                  <button type="submit" data-invoice-save-label>Guardar factura</button>
+                  <button type="button" class="ghost button-with-icon" data-reset-form="invoiceForm"><svg><use href="#icon-archive"></use></svg><span>Limpiar</span></button>
+                  <button type="submit" class="button-with-icon" data-invoice-save-label><svg><use href="#icon-save"></use></svg><span data-button-label>Guardar factura</span></button>
                 </div>
               </div>
             </form>
