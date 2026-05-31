@@ -36,6 +36,11 @@
       <symbol id="icon-percent" viewBox="0 0 24 24"><path d="M19 5 5 19"/><circle cx="7" cy="7" r="2.3"/><circle cx="17" cy="17" r="2.3"/></symbol>
       <symbol id="icon-note" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M9 12h6M9 16h6"/></symbol>
       <symbol id="icon-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.4 2.5 4.6-5"/></symbol>
+      <symbol id="icon-wallet" viewBox="0 0 24 24"><path d="M4 7.5a2.5 2.5 0 0 1 2.5-2.5h10A2.5 2.5 0 0 1 19 7.5v9A2.5 2.5 0 0 1 16.5 19h-10A2.5 2.5 0 0 1 4 16.5z"/><path d="M15 10.5h5v3h-5a1.5 1.5 0 0 1 0-3Z"/><path d="M7 9h5"/></symbol>
+      <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/></symbol>
+      <symbol id="icon-bank" viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5"/><path d="M5.5 10.5v7M10 10.5v7M14 10.5v7M18.5 10.5v7"/><path d="M3.5 19.5h17"/></symbol>
+      <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="m4 20 4.3-1 9.5-9.5a2.1 2.1 0 0 0-3-3L5.3 16 4 20z"/><path d="m13.5 7.5 3 3"/></symbol>
+      <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
     </svg>
 
     <header class="sidebar app-nav">
@@ -414,21 +419,62 @@
         </section>
 
         <section id="income" class="view">
-          <div class="entity-page">
-            <div id="incomeSummaryCards" class="dashboard-kpis"></div>
-
-            <section class="panel entity-list-panel">
-              <div class="panel-head invoice-head">
-                <div>
-                  <h2>Ingresos</h2>
-                  <p id="incomeResultText">Seguimiento de ingresos por canal.</p>
-                </div>
-                <div class="row-actions">
-                  <button type="button" data-new-payout>Nuevo ingreso</button>
-                </div>
+          <div class="income-page entity-page">
+            <div class="income-overview-head">
+              <div>
+                <p class="eyebrow">Operaciones</p>
+                <h1>Ingresos</h1>
+                <p>Resumen de ingresos del atelier y estado de conciliación.</p>
               </div>
-              <div class="filter-grid">
-                <label>Buscar<input id="payoutSearch" type="search" placeholder="Canal, referencia, fichero"></label>
+              <div class="income-head-actions">
+                <div id="incomeUpdatedMeta" class="income-updated-meta"><svg><use href="#icon-refresh"></use></svg><span>Actualizado hace un momento</span></div>
+                <button type="button" class="button-with-icon" data-new-payout><svg><use href="#icon-plus"></use></svg><span>Nuevo ingreso</span><svg><use href="#icon-chevron"></use></svg></button>
+              </div>
+            </div>
+
+            <div id="incomeSummaryCards" class="income-summary-grid dashboard-kpis"></div>
+
+            <div class="income-hero-grid">
+              <section class="panel income-chart-panel">
+                <div class="panel-head compact-head">
+                  <div>
+                    <h2>Ingreso neto por día</h2>
+                    <p>Evolución del ingreso neto en el periodo seleccionado.</p>
+                  </div>
+                </div>
+                <div id="incomeTrendChart" class="dashboard-chart chart-surface chart-surface-hero income-chart"></div>
+              </section>
+
+              <div class="income-side-stack">
+                <section class="panel income-channel-panel">
+                  <div class="panel-head compact-head">
+                    <div>
+                      <h2>Ingreso neto por canal</h2>
+                      <p>Distribución del ingreso neto.</p>
+                    </div>
+                  </div>
+                  <div class="income-channel-breakdown">
+                    <div id="incomeChannelChart" class="dashboard-chart chart-surface chart-surface-small income-donut-chart"></div>
+                    <div id="incomeChannelBreakdown" class="income-breakdown-list"></div>
+                  </div>
+                </section>
+
+                <aside class="panel income-review-panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Pendientes de revisión</h2>
+                      <p>Qué ingresos conviene completar o conciliar.</p>
+                    </div>
+                    <span class="panel-head-icon" aria-hidden="true"><svg><use href="#icon-alert"></use></svg></span>
+                  </div>
+                  <div id="incomeReviewQueue" class="invoice-review-list"></div>
+                </aside>
+              </div>
+            </div>
+
+            <section class="panel income-filter-panel">
+              <div class="filter-grid income-filters">
+                <label>Buscar<input id="payoutSearch" type="search" placeholder="Número, referencia, cliente..."></label>
                 <label>Canal
                   <select id="payoutChannelFilter">
                     <option value="">Todos</option>
@@ -442,58 +488,189 @@
                 <label>Hasta<input id="payoutToFilter" type="date"></label>
                 <label>Orden
                   <select id="payoutSort">
-                    <option value="date_desc">Fecha reciente</option>
-                    <option value="date_asc">Fecha antigua</option>
+                    <option value="date_desc">Fecha más reciente</option>
+                    <option value="date_asc">Fecha más antigua</option>
                     <option value="net_desc">Mayor neto</option>
                     <option value="net_asc">Menor neto</option>
                     <option value="fees_desc">Mayor fee</option>
                     <option value="channel_asc">Canal A-Z</option>
                   </select>
                 </label>
-                <label class="check"><input id="payoutsDeleted" type="checkbox"> Archivados</label>
+                <label class="toggle-switch"><input id="payoutsDeleted" type="checkbox"><span class="toggle-slider"></span><span>Archivados</span></label>
               </div>
-              <div id="payoutList" class="invoice-list table-list"></div>
-              <div id="payoutPagination" class="pagination-bar"></div>
+              <div id="incomeStatusTabs" class="invoice-status-tabs"></div>
             </section>
 
-            <form id="payoutForm" class="panel entity-module hidden">
-              <div class="panel-head">
-                <div>
-                  <h2 id="payoutFormTitle">Nuevo ingreso</h2>
-                  <p>Alta manual de ingresos netos por canal.</p>
+            <div class="income-overview">
+              <section class="panel income-list-panel income-list-shell entity-list-panel">
+                <div class="panel-head invoice-head">
+                  <div>
+                    <h2>Listado</h2>
+                    <p id="incomeResultText">Seguimiento de ingresos por canal y conciliación.</p>
+                  </div>
                 </div>
-                <button type="button" class="ghost" data-close-payout-panels>Cerrar</button>
+
+                <div class="income-table">
+                  <div class="income-table-head">
+                    <span>Canal</span>
+                    <span>Fecha</span>
+                    <span>Referencia / pedido</span>
+                    <span>Estado</span>
+                    <span>Ingreso neto</span>
+                    <span>Bruto</span>
+                    <span>Conciliación</span>
+                    <span>Acciones</span>
+                  </div>
+                  <div id="payoutList" class="income-table-list"></div>
+                </div>
+
+                <div id="payoutPagination" class="pagination-bar"></div>
+              </section>
+
+              <aside class="panel income-side-panel entity-support-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Últimos ingresos</h2>
+                    <p>Los cobros más recientes para retomar rápido.</p>
+                  </div>
+                  <span class="panel-head-icon" aria-hidden="true"><svg><use href="#icon-chart"></use></svg></span>
+                </div>
+                <div id="incomeRecentList" class="income-recent-list"></div>
+              </aside>
+            </div>
+
+            <form id="payoutForm" class="income-workspace entity-module hidden">
+              <div class="invoice-workspace-hero">
+                <div>
+                  <p class="eyebrow">Operaciones / Ingresos</p>
+                  <div class="invoice-title-row">
+                    <h2 id="payoutFormTitle">Nuevo ingreso</h2>
+                    <span id="payoutFormStatusBadge" class="status-pill ok">Pagado</span>
+                  </div>
+                  <p id="payoutFormSubtitle">Alta manual de un cobro o ingreso recibido.</p>
+                </div>
+                <div class="invoice-hero-actions">
+                  <button type="button" class="ghost button-with-icon" data-close-payout-panels><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar</span></button>
+                  <button type="submit" class="button-with-icon" data-payout-save-label><svg><use href="#icon-save"></use></svg><span data-button-label>Guardar ingreso</span></button>
+                  <button type="submit" class="ghost accent-outline button-with-icon" data-save-payout-reconcile><svg><use href="#icon-check-circle"></use></svg><span>Guardar y conciliar</span></button>
+                </div>
               </div>
               <input type="hidden" name="id">
-              <div class="form-grid four">
-                <label>Canal
-                  <select name="channel">
-                    <option value="shopify">Shopify</option>
-                    <option value="etsy">Etsy</option>
-                    <option value="bizum">Bizum</option>
-                  </select>
-                </label>
-                <label>Fecha<input name="payout_date" type="date" required></label>
-                <label>Estado<select name="status"></select></label>
-                <label>Moneda<input name="currency" value="EUR"></label>
+
+              <div class="invoice-workspace-grid">
+                <div class="invoice-workspace-main">
+                  <section class="panel invoice-editor-card">
+                    <div class="panel-head compact-head">
+                      <div>
+                        <h2>1. Datos del ingreso</h2>
+                        <p>Canal, importe recibido y estado del cobro.</p>
+                      </div>
+                    </div>
+
+                    <div class="income-channel-picker" role="radiogroup" aria-label="Canal del ingreso">
+                      <label class="channel-choice">
+                        <input type="radio" name="channel" value="shopify" checked>
+                        <span><i class="channel-choice-badge shopify">S</i><strong>Shopify</strong><small>Canal principal</small></span>
+                      </label>
+                      <label class="channel-choice">
+                        <input type="radio" name="channel" value="etsy">
+                        <span><i class="channel-choice-badge etsy">E</i><strong>Etsy</strong><small>Marketplace</small></span>
+                      </label>
+                      <label class="channel-choice">
+                        <input type="radio" name="channel" value="bizum">
+                        <span><i class="channel-choice-badge bizum">B</i><strong>Bizum</strong><small>Ingreso directo</small></span>
+                      </label>
+                    </div>
+
+                    <div class="form-grid four">
+                      <label class="required"><span class="field-label"><svg><use href="#icon-calendar"></use></svg><span>Fecha</span></span><input name="payout_date" type="date" required></label>
+                      <label class="required"><span class="field-label"><svg><use href="#icon-check-circle"></use></svg><span>Estado</span></span><select name="status"></select></label>
+                      <label class="required"><span class="field-label"><svg><use href="#icon-coin"></use></svg><span>Moneda</span></span><input name="currency" value="EUR" required></label>
+                      <label><span class="field-label"><svg><use href="#icon-hash"></use></svg><span>ID externo</span></span><input name="external_id" placeholder="Ej: 123456789"></label>
+                    </div>
+
+                    <div class="form-grid three">
+                      <label class="required"><span class="field-label"><svg><use href="#icon-coin"></use></svg><span>Neto (importe recibido)</span></span><input name="net_amount" inputmode="decimal" required placeholder="0,00"></label>
+                      <label><span class="field-label"><svg><use href="#icon-wallet"></use></svg><span>Bruto (importe original)</span></span><input name="gross_amount" inputmode="decimal" placeholder="0,00"></label>
+                      <label><span class="field-label"><svg><use href="#icon-percent"></use></svg><span>Comisiones / ajustes</span></span><input name="fees_amount" inputmode="decimal" placeholder="0,00"></label>
+                    </div>
+
+                    <div class="income-calc-summary">
+                      <span><small>Bruto</small><strong id="payoutFormGrossPreview">0,00 €</strong></span>
+                      <span class="operator">−</span>
+                      <span><small>Comisiones</small><strong id="payoutFormFeesPreview">0,00 €</strong></span>
+                      <span class="operator">=</span>
+                      <span class="total"><small>Neto</small><strong id="payoutFormNetPreview">0,00 €</strong></span>
+                    </div>
+
+                    <div class="form-grid two">
+                      <label><span class="field-label"><svg><use href="#icon-bank"></use></svg><span>Referencia banco</span></span><input name="bank_reference" placeholder="Nº referencia, ID transacción, pedido..."></label>
+                      <label><span class="field-label"><svg><use href="#icon-bank"></use></svg><span>Cuenta banco</span></span><input name="bank_account_hint" placeholder="Cuenta o pista del abono"></label>
+                    </div>
+
+                    <label><span class="field-label"><svg><use href="#icon-note"></use></svg><span>Notas</span></span><textarea name="notes" rows="4" placeholder="Añade notas internas sobre este ingreso..."></textarea></label>
+                    <input type="hidden" name="raw_source_file">
+                  </section>
+                </div>
+
+                <aside class="invoice-workspace-side">
+                  <section class="panel invoice-check-card">
+                    <div class="panel-head compact-head">
+                      <div>
+                        <h2>2. Conciliación</h2>
+                        <p>Comprobaciones antes de registrar el ingreso.</p>
+                      </div>
+                    </div>
+                    <div id="payoutFormReviewState" class="invoice-check-list"></div>
+                    <div id="payoutFormSuggestion" class="invoice-inline-status income-suggestion"></div>
+                  </section>
+
+                  <section class="panel invoice-check-card">
+                    <div class="panel-head compact-head">
+                      <div>
+                        <h2>3. Origen del ingreso</h2>
+                        <p>Cómo ha llegado este abono al negocio.</p>
+                      </div>
+                    </div>
+                    <div class="income-origin-list">
+                      <article class="income-origin-item">
+                        <small>Origen</small>
+                        <strong id="payoutFormSourceLabel">Manual</strong>
+                      </article>
+                      <article class="income-origin-item">
+                        <small>Referencia</small>
+                        <strong id="payoutFormReferenceLabel">Pendiente</strong>
+                      </article>
+                      <article class="income-origin-item">
+                        <small>Cuenta</small>
+                        <strong id="payoutFormAccountLabel">Sin asignar</strong>
+                      </article>
+                    </div>
+                  </section>
+                </aside>
               </div>
-              <div class="form-grid three">
-                <label>Bruto<input name="gross_amount" inputmode="decimal"></label>
-                <label>Fees<input name="fees_amount" inputmode="decimal"></label>
-                <label>Neto<input name="net_amount" inputmode="decimal" required></label>
-              </div>
-              <div class="form-grid three">
-                <label>Referencia banco<input name="bank_reference"></label>
-                <label>Cuenta banco<input name="bank_account_hint"></label>
-                <label>Notas<textarea name="notes" rows="1"></textarea></label>
-              </div>
-              <div class="row-actions">
-                <button type="submit">Guardar ingreso</button>
-                <button type="button" class="ghost" data-reset-form="payoutForm">Limpiar</button>
+
+              <div class="invoice-form-footer panel">
+                <div class="invoice-amount-summary">
+                  <span><small>Resumen</small><strong id="payoutFooterSummary">Ingreso manual</strong></span>
+                  <span><small>Bruto</small><strong id="payoutFooterGross">0,00 €</strong></span>
+                  <span><small>Comisiones</small><strong id="payoutFooterFees">0,00 €</strong></span>
+                  <span class="total"><small>Neto</small><strong id="payoutFooterNet">0,00 €</strong></span>
+                  <span class="income-footer-meta">
+                    <small>Confianza del registro</small>
+                    <strong id="payoutConfidenceLabel">Media</strong>
+                    <div class="income-confidence-meter"><i id="payoutConfidenceBar"></i></div>
+                    <em id="payoutConfidenceValue">60%</em>
+                  </span>
+                </div>
+                <div class="row-actions">
+                  <button type="button" class="ghost button-with-icon" data-reset-form="payoutForm"><svg><use href="#icon-archive"></use></svg><span>Limpiar</span></button>
+                  <button type="submit" class="button-with-icon" data-payout-save-label><svg><use href="#icon-save"></use></svg><span data-button-label>Guardar ingreso</span></button>
+                </div>
               </div>
             </form>
 
-            <section id="payoutDetailPanel" class="panel entity-module hidden"></section>
+            <section id="payoutDetailPanel" class="panel income-workspace entity-module hidden"></section>
           </div>
         </section>
 

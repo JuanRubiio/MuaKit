@@ -23,6 +23,7 @@
   dashboardCharts: {},
   selectedInvoiceId: null,
   selectedPayoutId: null,
+  incomeReviewFilter: "",
   selectedCostMaterialId: null,
   invoiceReviewFilter: "",
   invoiceLineFormOpen: false,
@@ -367,6 +368,20 @@ function resetForm(id) {
     form.elements.invoice_id.value = state.selectedInvoiceId || "";
     updateLinePreview();
   }
+  if (id === "payoutForm") {
+    form.dataset.submitMode = "save";
+    $("#payoutFormSubtitle").textContent = "Alta manual de un cobro o ingreso recibido.";
+    $("#payoutFormStatusBadge").textContent = "Pagado";
+    if ($("#payoutFooterSummary")) $("#payoutFooterSummary").textContent = "Ingreso manual";
+    if ($("#payoutConfidenceLabel")) $("#payoutConfidenceLabel").textContent = "Media";
+    if ($("#payoutConfidenceValue")) $("#payoutConfidenceValue").textContent = "60%";
+    if ($("#payoutConfidenceBar")) $("#payoutConfidenceBar").style.width = "60%";
+    $$("[data-payout-save-label]").forEach((button) => {
+      const label = button.querySelector("[data-button-label]");
+      if (label) label.textContent = "Guardar ingreso";
+      else button.textContent = "Guardar ingreso";
+    });
+  }
 }
 
 function payoutStatusLabel(value) {
@@ -375,6 +390,67 @@ function payoutStatusLabel(value) {
 
 function channelLabel(value) {
   return CHANNEL_LABELS[value] || value;
+}
+
+function updatePayoutFormPreview() {
+  const form = $("#payoutForm");
+  if (!form) return;
+  const gross = number(form.elements.gross_amount?.value);
+  const fees = number(form.elements.fees_amount?.value);
+  const net = number(form.elements.net_amount?.value) || Math.max(0, gross - fees);
+  const status = form.elements.status?.value || "paid";
+  const channel = form.elements.channel?.value || "shopify";
+  const source = form.elements.raw_source_file?.value ? "Importado" : "Manual";
+  $("#payoutFormStatusBadge").textContent = payoutStatusLabel(status);
+  $("#payoutFormGrossPreview").textContent = euro.format(gross);
+  $("#payoutFormFeesPreview").textContent = euro.format(fees);
+  $("#payoutFormNetPreview").textContent = euro.format(net);
+  $("#payoutFooterGross").textContent = euro.format(gross);
+  $("#payoutFooterFees").textContent = euro.format(fees);
+  $("#payoutFooterNet").textContent = euro.format(net);
+  $("#payoutFooterSummary").textContent = source === "Importado" ? `Ingreso ${channelLabel(channel)} importado` : `Ingreso manual ${channelLabel(channel)}`;
+  $("#payoutFormSourceLabel").textContent = source;
+  $("#payoutFormReferenceLabel").textContent = form.elements.bank_reference?.value?.trim() || "Pendiente";
+  $("#payoutFormAccountLabel").textContent = form.elements.bank_account_hint?.value?.trim() || "Sin asignar";
+}
+
+function renderPayoutFormReview() {
+  const form = $("#payoutForm");
+  const review = $("#payoutFormReviewState");
+  const suggestion = $("#payoutFormSuggestion");
+  if (!form || !review || !suggestion) return;
+  const hasReference = Boolean(form.elements.bank_reference?.value?.trim());
+  const hasAccount = Boolean(form.elements.bank_account_hint?.value?.trim());
+  const gross = number(form.elements.gross_amount?.value);
+  const fees = number(form.elements.fees_amount?.value);
+  const net = number(form.elements.net_amount?.value);
+  const computedNet = gross ? Math.max(0, gross - fees) : net;
+  const coherent = !gross || Math.abs(net - computedNet) <= 0.02;
+  const ready = hasReference && hasAccount && net > 0;
+  const score = (hasReference ? 25 : 0) + (hasAccount ? 25 : 0) + (coherent ? 25 : 0) + (net > 0 ? 25 : 0);
+  const confidenceLabel = score >= 90 ? "Alta" : score >= 65 ? "Media" : "Baja";
+  review.innerHTML = [
+    ["Referencia pendiente", hasReference ? "La referencia del pedido o del banco ya está informada." : "Añade la referencia del banco o del pedido.", hasReference ? "OK" : "Pendiente", hasReference ? "ok" : "warn", hasReference ? "icon-check-circle" : "icon-alert"],
+    ["Cuenta sin asignar", hasAccount ? "La cuenta donde entró el abono ya está indicada." : "Selecciona la cuenta o deja una pista del abono.", hasAccount ? "OK" : "Pendiente", hasAccount ? "ok" : "warn", hasAccount ? "icon-check-circle" : "icon-bank"],
+    ["Importe válido", coherent ? "El neto es coherente con bruto y comisiones." : "Revisa bruto, neto o comisiones antes de guardar.", coherent ? "OK" : "Revisar", coherent ? "ok" : "warn", coherent ? "icon-check-circle" : "icon-alert"],
+    ["Listo para ejecutar", ready ? "Todo correcto para registrar el ingreso." : "Completa referencia y cuenta para conciliar.", ready ? "OK" : "Pendiente", ready ? "ok" : "neutral", ready ? "icon-check-circle" : "icon-clock"]
+  ].map(([label, hint, statusText, tone, icon]) => `
+    <span class="${tone}">
+      <span class="invoice-check-icon" aria-hidden="true"><svg><use href="#${icon}"></use></svg></span>
+      <strong>${label}</strong>
+      <small>${hint}</small>
+      <em>${statusText}</em>
+    </span>
+  `).join("");
+  suggestion.innerHTML = ready
+    ? `<span class="invoice-check-icon ok" aria-hidden="true"><svg><use href="#icon-check-circle"></use></svg></span><div><strong>Listo para registrar</strong><small>Ya podemos guardar el ingreso con una conciliación bastante limpia.</small></div>`
+    : `<span class="invoice-check-icon warn" aria-hidden="true"><svg><use href="#icon-plus"></use></svg></span><div><strong>Siguiente acción sugerida</strong><small>Completa referencia y cuenta para dejar este ingreso bien conciliado.</small></div>`;
+  const labelNode = $("#payoutConfidenceLabel");
+  const barNode = $("#payoutConfidenceBar");
+  const valueNode = $("#payoutConfidenceValue");
+  if (labelNode) labelNode.textContent = confidenceLabel;
+  if (barNode) barNode.style.width = `${Math.max(12, score)}%`;
+  if (valueNode) valueNode.textContent = `${score}%`;
 }
 
 function closeInvoicePanels() {
@@ -535,6 +611,8 @@ function closeKitPanels() {
 function closePayoutPanels() {
   $("#payoutForm")?.classList.add("hidden");
   $("#payoutDetailPanel")?.classList.add("hidden");
+  $("#income .income-page")?.classList.remove("income-focus-mode");
+  document.body.classList.remove("income-focus-active");
   state.selectedPayoutId = null;
   renderPayouts();
 }
@@ -556,19 +634,42 @@ function showKitEditor(kit = null, keepDetail = false) {
 function showPayoutEditor(payout = null, keepDetail = false) {
   const form = $("#payoutForm");
   if (!keepDetail) $("#payoutDetailPanel")?.classList.add("hidden");
+  $("#income .income-page")?.classList.add("income-focus-mode");
+  document.body.classList.add("income-focus-active");
   form.classList.remove("hidden");
+  form.classList.toggle("is-editing", Boolean(payout));
   resetForm("payoutForm");
   if (payout) {
     setForm(form, payout);
     $("#payoutFormTitle").textContent = `Editar ingreso #${payout.id}`;
+    $("#payoutFormSubtitle").textContent = `${channelLabel(payout.channel)} · ${text(payout.payout_date, "Sin fecha")} · ${euro.format(number(payout.net_amount))}`;
+    $("#payoutFormStatusBadge").textContent = payoutStatusLabel(payout.status);
+    $$("[data-payout-save-label]").forEach((button) => {
+      const label = button.querySelector("[data-button-label]");
+      if (label) label.textContent = "Guardar cambios";
+      else button.textContent = "Guardar cambios";
+    });
   } else {
     $("#payoutFormTitle").textContent = "Nuevo ingreso";
+    $("#payoutFormSubtitle").textContent = "Alta manual de un cobro o ingreso recibido.";
+    $("#payoutFormStatusBadge").textContent = "Pagado";
     if (state.settings) {
-      if (form.elements.channel) form.elements.channel.value = state.settings.default_payout_channel || "shopify";
+      if (form.elements.channel) {
+        const defaultChannel = state.settings.default_payout_channel || "shopify";
+        const radio = form.querySelector(`input[name="channel"][value="${defaultChannel}"]`);
+        if (radio) radio.checked = true;
+      }
       if (form.elements.status) form.elements.status.value = state.settings.default_payout_status || "paid";
       if (form.elements.currency) form.elements.currency.value = state.settings.currency || "EUR";
     }
+    $$("[data-payout-save-label]").forEach((button) => {
+      const label = button.querySelector("[data-button-label]");
+      if (label) label.textContent = "Guardar ingreso";
+      else button.textContent = "Guardar ingreso";
+    });
   }
+  updatePayoutFormPreview();
+  renderPayoutFormReview();
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -1213,6 +1314,7 @@ function sanitizePayoutData(data = {}) {
   return {
     id: data.id,
     channel: data.channel,
+    external_id: data.external_id,
     payout_date: data.payout_date,
     status: data.status,
     currency: data.currency,
@@ -1221,6 +1323,7 @@ function sanitizePayoutData(data = {}) {
     net_amount: data.net_amount,
     bank_reference: data.bank_reference,
     bank_account_hint: data.bank_account_hint,
+    raw_source_file: data.raw_source_file,
     notes: data.notes
   };
 }
@@ -1229,12 +1332,25 @@ async function savePayout(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = sanitizePayoutData(formObject(form));
+  const reconcileMode = form.dataset.submitMode === "reconcile";
+  const gross = number(data.gross_amount);
+  const fees = number(data.fees_amount);
+  if (!String(data.net_amount || "").trim() && gross) {
+    data.net_amount = String(Math.max(0, gross - fees));
+  }
+  if (!String(data.gross_amount || "").trim() && String(data.net_amount || "").trim()) {
+    data.gross_amount = data.net_amount;
+  }
+  if (reconcileMode && data.bank_reference && data.bank_account_hint && ["in_transit"].includes(String(data.status || ""))) {
+    data.status = "executed";
+  }
   const id = data.id;
   delete data.id;
   const saved = await api(id ? `/api/channel-payouts/${id}` : "/api/channel-payouts", {
     method: id ? "PATCH" : "POST",
     body: JSON.stringify(data)
   });
+  form.dataset.submitMode = "save";
   await Promise.all([loadIncome(), loadSummary(), loadDashboardFinance()]);
   await openPayout(saved.id);
   toast("Ingreso guardado");
@@ -1419,6 +1535,10 @@ async function refreshAll() {
 
 function setActiveView(view) {
   if (view !== "invoices") document.body.classList.remove("invoice-focus-active");
+  if (view !== "income") document.body.classList.remove("income-focus-active");
+  if (view !== "invoices") $("#invoices .invoice-page")?.classList.remove("invoice-focus-mode");
+  if (view !== "income") $("#income .income-page")?.classList.remove("income-focus-mode");
+  document.body.classList.toggle("income-view-active", view === "income");
   $$(".tab,.view").forEach((el) => el.classList.remove("active"));
   $(`.tab[data-view="${view}"]`)?.classList.add("active");
   $(`#${view}`)?.classList.add("active");
@@ -1426,6 +1546,7 @@ function setActiveView(view) {
   $("#pageTitle").textContent = title;
   if (view === "audit") loadAudit().catch((error) => toast(error.message));
   if (view === "dashboard") requestAnimationFrame(() => renderDashboardCharts());
+  if (view === "income") requestAnimationFrame(() => renderPayouts());
 }
 
 function bindEvents() {
@@ -1451,6 +1572,18 @@ function bindEvents() {
         if (state.settings) state.settings.dashboard_income_monthly_view = state.dashboardIncomeTrendView;
         renderSettings();
         renderDashboard();
+      }
+      if (t.dataset.incomeLane) {
+        $("#incomeStatusTabs").dataset.activeLane = t.dataset.incomeLane;
+        state.incomeReviewFilter = "";
+        resetPagination("payouts");
+        renderPayouts();
+      }
+      if (t.dataset.incomeReview) {
+        state.incomeReviewFilter = t.dataset.incomeReview;
+        $("#incomeStatusTabs").dataset.activeLane = "all";
+        resetPagination("payouts");
+        renderPayouts();
       }
       if (t.dataset.invoiceQuickStatus !== undefined) {
         state.invoiceReviewFilter = "";
@@ -1502,6 +1635,8 @@ function bindEvents() {
       if (t.dataset.saveInvoiceAddLine !== undefined) state.invoiceOpenLineAfterSave = true;
       if (t.dataset.closeInvoicePanels !== undefined) closeInvoicePanels();
       if (t.dataset.newPayout !== undefined) showPayoutEditor();
+      if (t.dataset.payoutSaveLabel !== undefined) $("#payoutForm").dataset.submitMode = "save";
+      if (t.dataset.savePayoutReconcile !== undefined) $("#payoutForm").dataset.submitMode = "reconcile";
       if (t.dataset.closePayoutPanels !== undefined) closePayoutPanels();
       if (t.dataset.testShopifyConnection !== undefined) await testShopifyConnectionAction();
       if (t.dataset.syncShopifyNow !== undefined) await syncShopifyNow();
@@ -1662,12 +1797,20 @@ function bindEvents() {
   document.body.addEventListener("input", (event) => {
     if (event.target.id?.startsWith("invoice")) state.invoiceReviewFilter = "";
     if (event.target.closest("#invoiceForm")) updateInvoiceFormPreview();
+    if (event.target.closest("#payoutForm")) {
+      updatePayoutFormPreview();
+      renderPayoutFormReview();
+    }
     if (event.target.closest("#lineForm")) updateLinePreview();
   });
 
   document.body.addEventListener("change", (event) => {
     if (event.target.id?.startsWith("invoice")) state.invoiceReviewFilter = "";
     if (event.target.closest("#invoiceForm")) updateInvoiceFormPreview();
+    if (event.target.closest("#payoutForm")) {
+      updatePayoutFormPreview();
+      renderPayoutFormReview();
+    }
     if (event.target.closest("#lineForm")) updateLinePreview();
     if (event.target.closest("#lineForm") && event.target.name?.startsWith("line_")) syncMaterialPicker($("#lineForm"), "line", { required: true });
     if (event.target.closest("#lineForm") && event.target.name === "material_id") syncMaterialPicker($("#lineForm"), "line", { required: true });
