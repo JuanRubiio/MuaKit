@@ -127,7 +127,10 @@ export function createInvoiceViews(ctx) {
     `;
 
     const meta = paginateRows("invoices", rows);
-    $("#invoiceResultText").textContent = `${meta.total} facturas visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+    const invoiceResultNode = $("#invoiceResultText");
+    if (invoiceResultNode) {
+      invoiceResultNode.textContent = `${meta.total} facturas visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+    }
     $("#invoiceList").innerHTML = meta.rows.map((invoice) => {
       const active = String(invoice.id) === String(state.selectedInvoiceId) ? "active" : "";
       const lineTone = invoice.line_count ? "ok" : "warn";

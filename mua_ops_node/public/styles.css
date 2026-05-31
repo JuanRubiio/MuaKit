@@ -612,19 +612,8 @@ main {
 
 .invoice-overview-head {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
-}
-
-.invoice-overview-head h2 {
-  font-size: 22px;
-}
-
-.invoice-overview-head p {
-  color: var(--muted);
-  font-size: 12px;
-  margin-top: 4px;
 }
 
 .invoice-list-shell {
@@ -712,9 +701,33 @@ main {
 
 .invoice-summary-card {
   grid-template-columns: 42px minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   column-gap: 12px;
   min-height: 96px;
+}
+
+.invoice-summary-card > div {
+  display: grid;
+  gap: 4px;
+  align-content: center;
+}
+
+.invoice-summary-card > div > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 640;
+  line-height: 1.1;
+}
+
+.invoice-summary-card > div > strong {
+  font-size: 18px;
+  line-height: 1.05;
+}
+
+.invoice-summary-card > div > small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 .invoice-summary-icon {
@@ -2364,11 +2377,10 @@ textarea {
 }
 
 .pagination-bar {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
   padding-top: 10px;
 }
 
@@ -2379,14 +2391,16 @@ textarea {
 .pagination-meta {
   color: var(--muted);
   font-size: 12px;
+  justify-self: start;
 }
 
 .pagination-controls {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 10px;
   flex-wrap: wrap;
+  grid-column: 2;
 }
 
 .pagination-controls label {
@@ -2417,9 +2431,9 @@ textarea {
 }
 
 .pagination-buttons button.is-active {
-  background: var(--ink);
+  background: var(--rose);
   color: white;
-  border-color: var(--ink);
+  border-color: var(--rose);
 }
 
 .diagnostics-row {
