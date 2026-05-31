@@ -465,7 +465,7 @@ main {
 .dashboard-trend-grid,
 .dashboard-insight-grid {
   display: grid;
-  gap: 18px;
+  gap: 16px;
   align-items: start;
 }
 
@@ -2412,7 +2412,8 @@ label.required .field-label span::after {
 }
 
 .dashboard-kpi-card {
-  min-height: 88px;
+  padding: 14px 16px 13px;
+  min-height: 80px;
   position: relative;
   grid-template-columns: 42px minmax(0, 1fr);
   grid-template-areas:
@@ -2455,14 +2456,18 @@ label.required .field-label span::after {
 
 .dashboard-kpi-card span {
   grid-area: label;
+  font-size: 11px;
 }
 
 .dashboard-kpi-card strong {
   grid-area: value;
+  font-size: 18px;
 }
 
 .dashboard-kpi-card small {
   grid-area: hint;
+  font-size: 11px;
+  line-height: 1.22;
 }
 
 .dashboard-kpi-card:nth-child(2)::before,
@@ -2511,18 +2516,18 @@ label.required .field-label span::after {
 
 .chart-surface {
   width: 100%;
-  min-height: 236px;
+  min-height: 216px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: linear-gradient(180deg, #ffffff 0%, #f7faf9 100%);
 }
 
 .chart-surface-hero {
-  min-height: 260px;
+  min-height: 228px;
 }
 
 .chart-surface-small {
-  min-height: 220px;
+  min-height: 188px;
 }
 
 .row-side {
@@ -2572,38 +2577,40 @@ label.required .field-label span::after {
 .dashboard-side-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  min-height: 274px;
+  min-height: 452px;
+  max-height: 452px;
   overflow: hidden;
 }
 
 .dashboard-hero-panel .chart-surface-hero {
-  min-height: 196px;
-  height: 100%;
+  min-height: 0;
+  height: 334px;
 }
 
 .dashboard-balance-panel .panel-head,
 .dashboard-side-panel .panel-head {
-  padding-bottom: 10px;
+  padding-bottom: 8px;
 }
 
 .dashboard-trend-grid .panel {
-  min-height: 274px;
+  min-height: 286px;
+  max-height: 286px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
 
 .dashboard-trend-grid .chart-surface {
-  min-height: 196px;
-  height: 100%;
+  min-height: 0;
+  height: 186px;
 }
 
 .dashboard-insight-grid .panel {
-  min-height: 284px;
+  min-height: 312px;
 }
 
 .dashboard-insight-grid .chart-surface-small {
-  min-height: 238px;
+  min-height: 194px;
 }
 
 .dashboard-spend-panel .rank-list {
@@ -2640,7 +2647,7 @@ label.required .field-label span::after {
 
 .dashboard-side-panel .ops-item {
   min-height: 0;
-  padding: 10px 12px;
+  padding: 9px 12px;
 }
 
 .ops-item-main {
@@ -2682,6 +2689,7 @@ label.required .field-label span::after {
 
 #dashboardOpsList {
   min-height: 0;
+  max-height: 344px;
   overflow: auto;
   padding-right: 4px;
 }
