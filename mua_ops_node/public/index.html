@@ -616,7 +616,7 @@
                       <span class="total"><small>Neto</small><strong id="payoutFormNetPreview">0,00 €</strong></span>
                     </div>
 
-                    <div class="form-grid two">
+                 <div class="form-grid two">
                       <label><span class="field-label"><svg><use href="#icon-bank"></use></svg><span>Referencia banco</span></span><input name="bank_reference" placeholder="Nº referencia, ID transacción, pedido..."></label>
                       <label><span class="field-label"><svg><use href="#icon-bank"></use></svg><span>Cuenta banco</span></span><input name="bank_account_hint" placeholder="Cuenta o pista del abono"></label>
                     </div>
@@ -624,6 +624,25 @@
                     <label><span class="field-label"><svg><use href="#icon-note"></use></svg><span>Notas</span></span><textarea name="notes" rows="4" placeholder="Añade notas internas sobre este ingreso..."></textarea></label>
                     <input type="hidden" name="raw_source_file">
                   </section>
+
+                  <div class="invoice-form-footer panel">
+                    <div class="invoice-amount-summary">
+                      <span><small>Resumen</small><strong id="payoutFooterSummary">Ingreso manual</strong></span>
+                      <span><small>Bruto</small><strong id="payoutFooterGross">0,00 €</strong></span>
+                      <span><small>Comisiones</small><strong id="payoutFooterFees">0,00 €</strong></span>
+                      <span class="total"><small>Neto</small><strong id="payoutFooterNet">0,00 €</strong></span>
+                      <span class="income-footer-meta">
+                        <small>Confianza del registro</small>
+                        <strong id="payoutConfidenceLabel">Media</strong>
+                        <div class="income-confidence-meter"><i id="payoutConfidenceBar"></i></div>
+                        <em id="payoutConfidenceValue">60%</em>
+                      </span>
+                    </div>
+                    <div class="row-actions">
+                      <button type="button" class="ghost button-with-icon" data-reset-form="payoutForm"><svg><use href="#icon-archive"></use></svg><span>Limpiar</span></button>
+                      <button type="submit" class="button-with-icon" data-payout-save-label><svg><use href="#icon-save"></use></svg><span data-button-label>Guardar ingreso</span></button>
+                    </div>
+                  </div>
                 </div>
 
                 <aside class="invoice-workspace-side">
@@ -661,25 +680,6 @@
                     </div>
                   </section>
                 </aside>
-              </div>
-
-              <div class="invoice-form-footer panel">
-                <div class="invoice-amount-summary">
-                  <span><small>Resumen</small><strong id="payoutFooterSummary">Ingreso manual</strong></span>
-                  <span><small>Bruto</small><strong id="payoutFooterGross">0,00 €</strong></span>
-                  <span><small>Comisiones</small><strong id="payoutFooterFees">0,00 €</strong></span>
-                  <span class="total"><small>Neto</small><strong id="payoutFooterNet">0,00 €</strong></span>
-                  <span class="income-footer-meta">
-                    <small>Confianza del registro</small>
-                    <strong id="payoutConfidenceLabel">Media</strong>
-                    <div class="income-confidence-meter"><i id="payoutConfidenceBar"></i></div>
-                    <em id="payoutConfidenceValue">60%</em>
-                  </span>
-                </div>
-                <div class="row-actions">
-                  <button type="button" class="ghost button-with-icon" data-reset-form="payoutForm"><svg><use href="#icon-archive"></use></svg><span>Limpiar</span></button>
-                  <button type="submit" class="button-with-icon" data-payout-save-label><svg><use href="#icon-save"></use></svg><span data-button-label>Guardar ingreso</span></button>
-                </div>
               </div>
             </form>
 
