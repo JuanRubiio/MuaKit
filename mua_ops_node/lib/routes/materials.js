@@ -68,8 +68,8 @@ function registerMaterialRoutes(app, ctx) {
     const b = req.body;
     const inferred = inferMaterialHierarchy(b.name, b.category || "material");
     const id = insert(
-      `INSERT INTO materials (name, category, unit_label, preferred_supplier_id, manual_stock, is_outlet, reorder_point, target_stock, image_url_override, usage_type, family, subfamily, variant, base_material, finish, notes)
-       VALUES ($name, $category, $unit, $supplier, $stock, $is_outlet, $reorder, $target, $imageUrl, $usage_type, $family, $subfamily, $variant, $base_material, $finish, $notes)`,
+      `INSERT INTO materials (name, category, unit_label, preferred_supplier_id, manual_stock, is_outlet, is_priority_restock, reorder_point, target_stock, image_url_override, usage_type, family, subfamily, variant, base_material, finish, notes)
+       VALUES ($name, $category, $unit, $supplier, $stock, $is_outlet, $is_priority_restock, $reorder, $target, $imageUrl, $usage_type, $family, $subfamily, $variant, $base_material, $finish, $notes)`,
       {
         name: b.name,
         category: b.category || "material",
@@ -77,6 +77,7 @@ function registerMaterialRoutes(app, ctx) {
         supplier: optionalN(b.preferred_supplier_id),
         stock: optionalN(b.manual_stock),
         is_outlet: b.is_outlet ? 1 : 0,
+        is_priority_restock: b.is_priority_restock ? 1 : 0,
         reorder: optionalN(b.reorder_point),
         target: optionalN(b.target_stock),
         imageUrl: b.image_url_override || "",
@@ -99,13 +100,13 @@ function registerMaterialRoutes(app, ctx) {
     const before = one("SELECT * FROM materials WHERE id=$id", { id: req.params.id });
     if (!before) return notFound(res);
     const fields = [
-      "name", "category", "unit_label", "preferred_supplier_id", "manual_stock", "is_outlet", "reorder_point", "target_stock",
+      "name", "category", "unit_label", "preferred_supplier_id", "manual_stock", "is_outlet", "is_priority_restock", "reorder_point", "target_stock",
       "image_url_override", "usage_type", "family", "subfamily", "variant", "base_material", "finish", "notes"
     ].filter((field) => Object.prototype.hasOwnProperty.call(req.body, field));
     if (!fields.length) return res.json(materialPayload(before));
     const params = { id: req.params.id };
     for (const field of fields) {
-      if (field === "is_outlet") params[field] = req.body[field] ? 1 : 0;
+      if (field === "is_outlet" || field === "is_priority_restock") params[field] = req.body[field] ? 1 : 0;
       else params[field] = req.body[field] === "" ? null : req.body[field];
     }
     exec(`UPDATE materials SET ${nowPatch("materials", fields)} WHERE id=$id`, params);

@@ -693,10 +693,8 @@
               <div>
                 <p class="eyebrow">Operaciones</p>
                 <h1>Materiales</h1>
-                <p id="materialResultText">Catálogo operativo.</p>
               </div>
               <div class="materials-head-actions">
-                <span id="materialsUpdatedMeta" class="income-updated-meta"></span>
                 <button type="button" class="button-with-icon" data-new-material><svg><use href="#icon-plus"></use></svg><span>Nuevo material</span></button>
               </div>
             </div>
@@ -710,7 +708,7 @@
                     <h2>Reposición prioritaria</h2>
                     <p>Materiales con stock por debajo del punto de reposición.</p>
                   </div>
-                  <button type="button" class="ghost dashboard-panel-link" data-material-lane="reorder">Ver todas</button>
+                  <button type="button" class="ghost dashboard-panel-link" data-material-lane="priority">Ver todas</button>
                 </div>
                 <div id="materialPriorityCards" class="materials-priority-cards"></div>
               </section>
@@ -770,7 +768,6 @@
 
                 <div class="materials-table">
                   <div class="materials-table-head">
-                    <span></span>
                     <span>Material</span>
                     <span>Proveedor</span>
                     <span>Stock Shopify</span>
@@ -873,6 +870,10 @@
                         <label><span class="field-label"><svg><use href="#icon-chart"></use></svg><span>Stock Shopify</span></span><input name="effective_stock_qty" inputmode="decimal" readonly></label>
                         <label><span class="field-label"><svg><use href="#icon-alert"></use></svg><span>Punto de reposición</span></span><input name="reorder_point" inputmode="decimal" placeholder="Ej: 20"></label>
                         <label><span class="field-label"><svg><use href="#icon-kit"></use></svg><span>Stock objetivo</span></span><input name="target_stock" inputmode="decimal" placeholder="Ej: 100"></label>
+                      </div>
+                      <div class="form-grid two material-flags-grid">
+                        <label class="check material-priority-check"><input name="is_priority_restock" type="checkbox"><span>Reposición prioritaria</span></label>
+                        <div class="input-help">Márcalo para que aparezca en la franja de reposición prioritaria y tenga seguimiento preferente.</div>
                       </div>
                       <label><span class="field-label"><svg><use href="#icon-note"></use></svg><span>Notas internas</span></span><textarea name="notes" rows="4" placeholder="Proveedor alternativo, observaciones, uso..."></textarea></label>
                     </section>

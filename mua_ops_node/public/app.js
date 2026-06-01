@@ -1329,6 +1329,7 @@ async function saveMaterial(event) {
   const form = event.currentTarget;
   const data = formObject(form);
   data.is_outlet = Boolean(form.elements.is_outlet?.checked);
+  data.is_priority_restock = Boolean(form.elements.is_priority_restock?.checked);
   const id = data.id;
   delete data.id;
   const saved = await api(id ? `/api/materials/${id}` : "/api/materials", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
@@ -1776,7 +1777,7 @@ function bindEvents() {
       }
       if (t.dataset.editPayoutDetails) {
         const payout = await api(`/api/channel-payouts/${t.dataset.editPayoutDetails}`);
-        showPayoutEditor(payout, true);
+        showPayoutEditor(payout);
       }
       if (t.dataset.saveLine !== undefined) {
         const form = $("#lineForm");

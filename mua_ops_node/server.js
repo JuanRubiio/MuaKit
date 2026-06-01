@@ -132,6 +132,7 @@ function materialPayload(row) {
     shopify_available_qty: optionalN(row.shopify_available_qty),
     effective_stock_qty: optionalN(row.effective_stock_qty),
     is_outlet: Boolean(Number(row.is_outlet || 0)),
+    is_priority_restock: Boolean(Number(row.is_priority_restock || 0)),
     usage_type: normalizeUsageType(row.usage_type),
     family: row.family || "",
     subfamily: row.subfamily || "",
@@ -366,6 +367,7 @@ const SCHEMA_MIGRATIONS = [
       preferred_supplier_id INTEGER REFERENCES suppliers(id),
       manual_stock REAL,
       is_outlet INTEGER NOT NULL DEFAULT 0,
+      is_priority_restock INTEGER NOT NULL DEFAULT 0,
       reorder_point REAL,
       target_stock REAL,
       image_url_override TEXT DEFAULT '',
@@ -591,6 +593,7 @@ const SCHEMA_MIGRATIONS = [
     up: ({ ensureColumn }) => {
       ensureColumn("materials", "image_url_override", "TEXT DEFAULT ''");
       ensureColumn("materials", "is_outlet", "INTEGER NOT NULL DEFAULT 0");
+      ensureColumn("materials", "is_priority_restock", "INTEGER NOT NULL DEFAULT 0");
       ensureColumn("materials", "usage_type", "TEXT DEFAULT ''");
       ensureColumn("materials", "family", "TEXT DEFAULT ''");
       ensureColumn("materials", "subfamily", "TEXT DEFAULT ''");

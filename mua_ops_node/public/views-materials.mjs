@@ -165,6 +165,7 @@ export function createMaterialViews(ctx) {
       image_url_override: elements.image_url_override?.value || "",
       image_url: elements.image_url_override?.value || "",
       is_outlet: Boolean(elements.is_outlet?.checked),
+      is_priority_restock: Boolean(elements.is_priority_restock?.checked),
       usage_type: elements.usage_type?.value || "",
       family: elements.family?.value || "",
       subfamily: elements.subfamily?.value || "",
@@ -184,15 +185,16 @@ export function createMaterialViews(ctx) {
     const missingSupplier = materials.filter((row) => !number(row.preferred_supplier_id));
     const outlet = materials.filter((row) => row.is_outlet);
     const reorder = materials.filter((row) => isReorderRisk(row));
+    const priorityReorder = reorder.filter((row) => row.is_priority_restock);
 
     return [
       {
         key: "reorder",
         title: "Reposición urgente",
-        hint: reorder[0]?.name || "No hay compras urgentes.",
-        count: reorder.length,
-        lane: "reorder",
-        tone: reorder.length ? "warn" : "ok"
+        hint: priorityReorder[0]?.name || "No hay compras prioritarias urgentes.",
+        count: priorityReorder.length,
+        lane: "priority",
+        tone: priorityReorder.length ? "warn" : "ok"
       },
       {
         key: "noCost",
@@ -265,6 +267,7 @@ export function createMaterialViews(ctx) {
   function applyLane(rows, costMap) {
     const lane = state.materialLane || "all";
     if (lane === "reorder") return rows.filter((row) => isReorderRisk(row));
+    if (lane === "priority") return rows.filter((row) => isReorderRisk(row) && row.is_priority_restock);
     if (lane === "noCost") return rows.filter((row) => !hasCost(row, costMap) && !row.is_outlet);
     if (lane === "noImage") return rows.filter((row) => !hasImage(row));
     if (lane === "missingSupplier") return rows.filter((row) => !number(row.preferred_supplier_id));
@@ -276,15 +279,12 @@ export function createMaterialViews(ctx) {
   function renderMaterialsOverview(rows, costMap, kitMap) {
     const active = activeMaterials();
     const reorder = active.filter((row) => isReorderRisk(row));
+    const priorityReorder = reorder.filter((row) => row.is_priority_restock);
     const withCost = active.filter((row) => hasCost(row, costMap));
     const noImage = active.filter((row) => !hasImage(row));
     const inKits = active.filter((row) => kitUsage(row.id, kitMap).length);
     const outlet = active.filter((row) => row.is_outlet);
     const missingSupplier = active.filter((row) => !number(row.preferred_supplier_id));
-
-    $("#materialsUpdatedMeta").textContent = active.length
-      ? `Actualizado · ${new Date().toLocaleDateString("es-ES")}`
-      : "Catálogo listo para revisar";
 
     $("#materialSummaryCards").innerHTML = [
       {
@@ -344,9 +344,14 @@ export function createMaterialViews(ctx) {
       )
       .join("");
 
-    const priorityRows = reorder
+    const priorityRows = priorityReorder
       .sort((a, b) => stockNumber(a) - stockNumber(b) || reorderNumber(b) - reorderNumber(a))
       .slice(0, 4);
+    const prioritySuggestions = reorder
+      .filter((row) => !row.is_priority_restock)
+      .sort((a, b) => stockNumber(a) - stockNumber(b) || reorderNumber(b) - reorderNumber(a))
+      .slice(0, 4);
+    $("#materialPriorityCards").className = `materials-priority-cards ${priorityRows.length ? "" : "is-empty"}`.trim();
     $("#materialPriorityCards").innerHTML = priorityRows.length
       ? priorityRows
           .map((material) => {
@@ -361,7 +366,6 @@ export function createMaterialViews(ctx) {
                   <div class="materials-priority-copy">
                     <strong>${text(material.name)}</strong>
                     <small>${text(material.preferred_supplier_name || "Sin proveedor")}</small>
-                    <p>${text(hierarchySummary(material) || material.category || "Sin clasificación")}</p>
                   </div>
                 </div>
                 <div class="materials-priority-stats">
@@ -371,14 +375,50 @@ export function createMaterialViews(ctx) {
                 </div>
                 <div class="materials-priority-meter" aria-hidden="true"><i style="width:${fill}%"></i></div>
                 <div class="materials-priority-actions">
-                  <span class="status-pill warn">Reponer</span>
+                  <span class="status-pill warn">Prioritario</span>
                   <button type="button" class="ghost button-with-icon" data-view-material="${material.id}"><svg><use href="#icon-eye"></use></svg><span>Ver</span></button>
                 </div>
               </article>
             `;
           })
           .join("")
-      : `<div class="empty-state small"><strong>Sin compras urgentes</strong>Los materiales con stock crítico aparecerán aquí.</div>`;
+      : `
+        <article class="materials-priority-empty">
+          <div class="materials-priority-empty-copy">
+            <strong>Sin prioridades de reposición</strong>
+            <p>Marca las joyas con mayor rotación como materiales prioritarios para vigilarlas aquí cuando su stock empiece a tensarse.</p>
+          </div>
+          <button type="button" class="ghost button-with-icon" data-jump-view="materials">
+            <svg><use href="#icon-plus"></use></svg><span>Seleccionar materiales</span>
+          </button>
+        </article>
+        ${
+          prioritySuggestions.length
+            ? `<div class="materials-priority-suggestions">
+                <div class="materials-priority-suggestions-head">
+                  <strong>Candidatas para priorizar</strong>
+                  <small>Joyas ya tensionadas por stock que conviene revisar primero.</small>
+                </div>
+                <div class="materials-priority-suggestions-grid">
+                  ${prioritySuggestions
+                    .map(
+                      (material) => `
+                    <button type="button" class="materials-priority-suggestion" data-view-material="${material.id}">
+                      <span class="materials-priority-thumb">${materialThumb(material, "priority")}</span>
+                      <span class="materials-priority-suggestion-copy">
+                        <strong>${text(material.name)}</strong>
+                        <small>Stock ${text(String(stockNumber(material)))} · Mínimo ${text(String(reorderNumber(material) || "-"))}</small>
+                      </span>
+                      <span class="status-pill pending">Sugerencia</span>
+                    </button>
+                  `
+                    )
+                    .join("")}
+                </div>
+              </div>`
+            : ""
+        }
+      `;
 
     const queueItems = reviewItems(active, costMap);
     $("#materialReviewQueue").innerHTML = queueItems
@@ -424,6 +464,7 @@ export function createMaterialViews(ctx) {
   function renderMaterialStatusTabs(rows, costMap, kitMap) {
     const tabs = [
       { key: "all", label: "Todos", count: rows.length },
+      { key: "priority", label: "Prioritarios", count: rows.filter((row) => isReorderRisk(row) && row.is_priority_restock).length },
       { key: "reorder", label: "A reponer", count: rows.filter((row) => isReorderRisk(row)).length },
       { key: "noCost", label: "Sin coste", count: rows.filter((row) => !hasCost(row, costMap) && !row.is_outlet).length },
       { key: "outlet", label: "Outlet", count: rows.filter((row) => row.is_outlet).length },
@@ -458,13 +499,10 @@ export function createMaterialViews(ctx) {
             const imageMarkup = materialThumb(material, "table");
             return `
               <article class="materials-table-row ${String(currentMaterialId) === String(material.id) ? "active" : ""} ${material.is_deleted ? "deleted" : ""}">
-                <span class="materials-check" aria-hidden="true"></span>
                 <div class="materials-cell-main">
                   <div class="materials-cell-thumb">${imageMarkup}</div>
                   <div class="materials-cell-copy">
                     <strong>${text(material.name)}</strong>
-                    <small>${text(hierarchySummary(material) || material.category || "Sin clasificación")}</small>
-                    <small class="meta">${text(material.notes || "Sin observaciones")}</small>
                   </div>
                 </div>
                 <span>${text(material.preferred_supplier_name || "Sin proveedor")}</span>
@@ -494,7 +532,7 @@ export function createMaterialViews(ctx) {
             `;
           })
           .join("")
-      : `<div class="empty-state"><strong>Sin materiales con esos filtros</strong>Ajusta búsqueda, jerarquías o la cola de revisión para volver a poblar la tabla.</div>`;
+      : `<div class="empty-state"><strong>Sin materiales con esos filtros</strong>Ajusta búsqueda o la cola de revisión para volver a poblar la tabla.</div>`;
   }
 
   function renderMaterialWorkspace(explicitMaterial = null) {
@@ -547,6 +585,7 @@ export function createMaterialViews(ctx) {
           ${material.base_material ? badge(material.base_material) : ""}
           ${material.finish ? badge(material.finish) : ""}
           ${material.is_outlet ? badge("outlet", "warn") : ""}
+          ${material.is_priority_restock ? badge("prioritario", "accent") : ""}
         </div>
         <small>${text(material.preferred_supplier_name || "Sin proveedor")} · Stock Shopify ${text(String(stockNumber(material)))}</small>
       </div>
@@ -609,6 +648,14 @@ export function createMaterialViews(ctx) {
         tone: kits.length ? "ok" : "neutral",
         title: "Uso en kits",
         detail: kits.length ? `${kits.length} recetas lo están usando.` : "Aún no está vinculado a ningún kit."
+      },
+      {
+        icon: "icon-alert",
+        tone: material.is_priority_restock ? "ok" : "neutral",
+        title: "Seguimiento prioritario",
+        detail: material.is_priority_restock
+          ? "Se vigila su reposición como joya de alta rotación."
+          : "No está marcado como material prioritario."
       }
     ];
     $("#materialFormReviewState").innerHTML = review
@@ -664,6 +711,13 @@ export function createMaterialViews(ctx) {
         detail: isReorderRisk(material)
           ? `Stock ${text(String(stockNumber(material)))} frente a mínimo ${text(String(reorderNumber(material)))}.`
           : "Define punto de reposición y objetivo para activar alertas."
+      },
+      {
+        icon: "icon-alert",
+        title: material.is_priority_restock ? "Vigilancia prioritaria activa" : "Sin vigilancia prioritaria",
+        detail: material.is_priority_restock
+          ? "Seguirá apareciendo en la reposición prioritaria cuando baje de stock."
+          : "Actívalo si es una joya clave en ventas."
       }
     ];
     $("#materialFormNextSteps").innerHTML = nextSteps
@@ -683,7 +737,7 @@ export function createMaterialViews(ctx) {
 
     $("#materialFormRegistryInfo").innerHTML = `
       <div class="income-origin-row"><span>Proveedor</span><strong>${text(material.preferred_supplier_name || "Sin asignar")}</strong></div>
-      <div class="income-origin-row"><span>Jerarquía</span><strong>${text(hierarchySummary(material) || "Pendiente")}</strong></div>
+      <div class="income-origin-row"><span>Prioridad</span><strong>${material.is_priority_restock ? "Reposición prioritaria" : "Seguimiento estándar"}</strong></div>
       <div class="income-origin-row"><span>Tipo</span><strong>${material.is_outlet ? "Outlet" : "Catálogo principal"}</strong></div>
       <div class="income-origin-row"><span>Imagen</span><strong>${hasImage(material) ? "Disponible" : "Pendiente"}</strong></div>
       <div class="income-origin-row"><span>Coste medio</span><strong>${cost == null ? "Sin coste" : formatEuro(cost)}</strong></div>
@@ -743,8 +797,7 @@ export function createMaterialViews(ctx) {
     });
 
     const meta = paginateRows("materials", sorted);
-    $("#materialResultText").textContent = `${meta.total} materiales visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
-
+    
     renderMaterialsOverview(rows, costMap, kitMap);
     renderMaterialStatusTabs(rows, costMap, kitMap);
     renderMaterialsTable(meta.rows, costMap, kitMap);
