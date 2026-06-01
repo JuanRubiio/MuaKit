@@ -167,8 +167,8 @@ export function createDashboardViews(ctx) {
       },
       series: [{
         type: "pie",
-        radius: ["50%", "72%"],
-        center: ["50%", "38%"],
+        radius: ["56%", "78%"],
+        center: ["50%", "42%"],
         avoidLabelOverlap: true,
         itemStyle: { borderRadius: 8, borderColor: "#fff", borderWidth: 2 },
         label: { show: false },
@@ -199,8 +199,8 @@ export function createDashboardViews(ctx) {
       },
       series: [{
         type: "pie",
-        radius: ["50%", "72%"],
-        center: ["50%", "38%"],
+        radius: ["56%", "78%"],
+        center: ["50%", "42%"],
         avoidLabelOverlap: true,
         itemStyle: { borderRadius: 8, borderColor: "#fff", borderWidth: 2 },
         label: { show: false },
@@ -327,9 +327,10 @@ export function createDashboardViews(ctx) {
           </span>
         </span>
         <span class="ops-item-side">
-          <span class="amount">${item.count}</span>
-          ${badge(item.tone === "warn" ? "revisar" : "ok", item.tone)}
-        </span>
+          <span class="ops-item-side-inline">
+            <span class="amount">${item.count}</span>
+            ${badge(item.tone === "warn" ? "revisar" : "ok", item.tone)}
+          </span>
         </span>
       </button>
     `).join("")}</div>`;
@@ -359,7 +360,17 @@ export function createDashboardViews(ctx) {
         </div>
         ${reorderRows.map((row) => {
           const material = state.materials.find((item) => item.name === row.name);
-          const thumb = img(material?.image_url || "", text(row.name));
+          const imageUrl = material?.image_url_override || material?.image_url || "";
+                    const initials = text(row.name)
+            .trim()
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((part) => part.charAt(0).toUpperCase())
+            .join("")
+            .slice(0, 2) || "MK";
+          const thumb = imageUrl
+            ? `<img src="${text(imageUrl)}" loading="lazy" alt="" onerror="this.outerHTML='&lt;div class=&quot;image-empty dashboard-thumb-fallback&quot;&gt;${initials}&lt;/div&gt;'">`
+            : `<div class="image-empty dashboard-thumb-fallback">${initials}</div>`;
           const critical = number(row.effective_stock_qty) <= number(row.reorder_point);
           return `
             <button type="button" class="dashboard-reorder-row" data-jump-view="materials">
@@ -381,3 +392,4 @@ export function createDashboardViews(ctx) {
 
   return { renderDashboardCharts, renderDashboard };
 }
+

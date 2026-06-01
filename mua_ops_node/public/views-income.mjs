@@ -187,23 +187,25 @@ export function createIncomeViews(ctx) {
         legend: { show: false },
         series: [{
           type: "pie",
-          radius: ["54%", "76%"],
-          center: ["38%", "48%"],
-          itemStyle: { borderColor: "#fffdf9", borderWidth: 4 },
+          radius: ["60%", "82%"],
+          center: ["34%", "50%"],
+          itemStyle: { borderColor: "#ffffff", borderWidth: 5, borderRadius: 10 },
           label: { show: false },
           data: channels.map((row) => ({ name: row.label, value: number(row.net_amount) }))
         }]
       }, true);
       requestAnimationFrame(() => chart.resize());
     }
-    $("#incomeChannelBreakdown").innerHTML = channels.map((row) => `
-      <article class="income-breakdown-row">
-        <span class="income-breakdown-dot ${row.channel}"></span>
-        <strong>${row.label}</strong>
-        <small>${euro.format(number(row.net_amount))}</small>
-        <em>${total ? `${((number(row.net_amount) / total) * 100).toFixed(1).replace(".", ",")}%` : "0%"}</em>
-      </article>
-    `).join("") || `<div class="empty-state compact">Todav\u00eda no hay ingresos por canal.</div>`;
+    $("#incomeChannelBreakdown").innerHTML = channels.length
+      ? `<div class="income-breakdown-list">${channels.map((row) => `
+          <article class="income-breakdown-row">
+            <span class="income-breakdown-dot ${row.channel}"></span>
+            <strong>${row.label}</strong>
+            <small>${euro.format(number(row.net_amount))}</small>
+            <em>${total ? `${((number(row.net_amount) / total) * 100).toFixed(1).replace(".", ",")}%` : "0%"}</em>
+          </article>
+        `).join("")}</div>`
+      : `<div class="empty-state compact">Todav\u00eda no hay ingresos por canal.</div>`;
   }
 
   function renderIncomeStatusTabs(sourceRows, filteredRows) {
@@ -224,12 +226,15 @@ export function createIncomeViews(ctx) {
     const node = $("#incomeStatusTabs");
     const activeLane = node?.dataset.activeLane || "all";
     if (node) {
-      node.innerHTML = tabs.map(([key, label]) => `
-        <button type="button" class="${activeLane === key ? "active" : ""}" data-income-lane="${key}">
-          <span>${label}</span>
-          <strong>${counts[key]}</strong>
-        </button>
-      `).join("");
+      node.innerHTML = `
+        <div class="invoice-status-strip">
+          ${tabs.map(([key, label]) => `
+            <button type="button" class="invoice-status-tab ${activeLane === key ? "is-active" : ""}" data-income-lane="${key}">
+              ${label}<span>${counts[key]}</span>
+            </button>
+          `).join("")}
+        </div>
+      `;
     }
     $("#incomeUpdatedMeta").innerHTML = filteredRows.length
       ? `<svg><use href="#icon-refresh"></use></svg><span>Actualizado \u00B7 ${text(filteredRows[0]?.payout_date || "")}</span>`
@@ -286,16 +291,6 @@ export function createIncomeViews(ctx) {
     const monthRows = rows.filter((row) => String(row.payout_date || "").slice(0, 7) === monthKey);
     const pendingRows = rows.filter((row) => !paidStatuses.has(String(row.status || "")));
     const lastRow = [...rows].sort((a, b) => `${b.payout_date || ""}${b.id}`.localeCompare(`${a.payout_date || ""}${a.id}`))[0];
-    const channelBreakdown = Array.from(
-      rows.reduce((map, row) => {
-        const key = row.channel;
-        const bucket = map.get(key) || { channel: key, net_amount: 0 };
-        bucket.net_amount += number(row.net_amount);
-        map.set(key, bucket);
-        return map;
-      }, new Map()).values()
-    ).sort((a, b) => number(b.net_amount) - number(a.net_amount));
-    const dominantChannel = channelBreakdown[0];
     const totalNet = rows.reduce((sum, row) => sum + number(row.net_amount), 0);
     const monthNet = monthRows.reduce((sum, row) => sum + number(row.net_amount), 0);
     const pendingNet = pendingRows.reduce((sum, row) => sum + number(row.net_amount), 0);
@@ -340,51 +335,7 @@ export function createIncomeViews(ctx) {
           <small>${lastRow ? `${euro.format(number(lastRow.net_amount))} \u00B7 ${channelLabel(lastRow.channel)}` : "Todav\u00eda sin ingresos"}</small>
         </div>
       </article>
-      <article class="card income-kpi-card tone-neutral is-channel-card">
-        <div class="income-kpi-copy">
-          <span>Canales (neto)</span>
-          <strong>${dominantChannel ? channelLabel(dominantChannel.channel) : "Sin canales"}</strong>
-          <small>${dominantChannel ? `${euro.format(number(dominantChannel.net_amount))} \u00B7 l\u00edder actual` : "Pendiente de actividad"}</small>
-        </div>
-        <div class="income-mini-breakdown" id="incomeMiniBreakdown"></div>
-        <div class="income-mini-donut" id="incomeMiniDonut"></div>
-      </article>
     `;
-    const breakdownNode = $("#incomeMiniBreakdown");
-    if (breakdownNode) {
-      const total = channelBreakdown.reduce((sum, row) => sum + number(row.net_amount), 0);
-      breakdownNode.innerHTML = channelBreakdown.map((row) => `
-        <span><i class="income-breakdown-dot ${row.channel}"></i><strong>${channelLabel(row.channel)}</strong><small>${euro.format(number(row.net_amount))}</small><em>${total ? `${((number(row.net_amount) / total) * 100).toFixed(1).replace(".", ",")}%` : "0%"}</em></span>
-      `).join("");
-    }
-  }
-
-  function renderMiniDonut(rows) {
-    const chart = dashboardChart("incomeMiniDonut");
-    if (!chart) return;
-    const colors = chartColors();
-    const channels = Array.from(
-      rows.reduce((map, row) => {
-        const key = row.channel;
-        const bucket = map.get(key) || { channel: key, net_amount: 0 };
-        bucket.net_amount += number(row.net_amount);
-        map.set(key, bucket);
-        return map;
-      }, new Map()).values()
-    ).filter((row) => number(row.net_amount) > 0);
-    chart.setOption({
-      animationDuration: 300,
-      color: [colors.shopify, colors.etsy, colors.bizum],
-      series: [{
-        type: "pie",
-        radius: ["54%", "82%"],
-        center: ["50%", "50%"],
-        label: { show: false },
-        itemStyle: { borderColor: "#fffdf9", borderWidth: 3 },
-        data: channels.map((row) => ({ name: channelLabel(row.channel), value: number(row.net_amount) }))
-      }]
-    }, true);
-    requestAnimationFrame(() => chart.resize());
   }
 
   function conciliationStatus(payout) {
@@ -421,12 +372,11 @@ export function createIncomeViews(ctx) {
     const allRows = [...state.payouts];
     let rows = filteredPayoutRows();
     renderIncomeSummaryCards(rows);
-    renderMiniDonut(rows);
     renderIncomeTrend(rows);
     renderIncomeChannels(rows);
     renderIncomeStatusTabs(allRows, rows);
     renderReviewQueue(rows);
-    renderRecentIncome(rows);
+    $("#incomeRecentList")?.closest(".income-side-panel")?.classList.add("hidden");
     rows = sortRows(rows, $("#payoutSort")?.value, {
       date_asc: (a, b) => String(a.payout_date).localeCompare(String(b.payout_date)),
       net_desc: (a, b) => number(b.net_amount) - number(a.net_amount),
