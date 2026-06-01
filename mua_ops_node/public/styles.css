@@ -1184,6 +1184,8 @@ body.income-view-active .topbar {
   align-items: center;
   justify-content: center;
   gap: 10px;
+  min-height: 40px;
+  padding-inline: 14px;
 }
 
 .button-with-icon svg {
@@ -1288,34 +1290,34 @@ body.income-view-active .topbar {
 .income-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(270px, 1.12fr);
-  gap: 10px;
+  gap: 8px;
   align-items: start;
 }
 
 .income-kpi-card {
   min-height: 0;
-  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   overflow: hidden;
-  padding: 12px 14px;
-  min-height: 118px;
+  padding: 12px 13px;
+  min-height: 108px;
 }
 
 .income-kpi-card .income-kpi-icon {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid rgba(201, 186, 172, .38);
   background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(245,248,247,.9));
   box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
 }
 
 .income-kpi-card .income-kpi-icon svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -1325,22 +1327,22 @@ body.income-view-active .topbar {
 
 .income-kpi-copy {
   display: grid;
-  gap: 4px;
+  gap: 3px;
 }
 
 .income-kpi-copy span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .income-kpi-copy strong {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.1;
 }
 
 .income-kpi-copy small {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .income-kpi-trend {
@@ -1350,7 +1352,7 @@ body.income-view-active .topbar {
   margin-top: -2px;
   color: var(--accent);
   font-style: normal;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 760;
 }
 
@@ -1391,8 +1393,8 @@ body.income-view-active .topbar {
 
 .income-mini-donut {
   grid-area: donut;
-  width: 68px;
-  height: 68px;
+  width: 62px;
+  height: 62px;
   justify-self: end;
   align-self: center;
 }
@@ -1402,7 +1404,7 @@ body.income-view-active .topbar {
   display: grid;
   gap: 3px;
   align-content: start;
-  margin-top: 0;
+  margin-top: 2px;
 }
 
 .income-mini-breakdown span {
@@ -1437,8 +1439,8 @@ body.income-view-active .topbar {
 
 .income-hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.78fr) minmax(352px, .92fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1.72fr) minmax(336px, .88fr);
+  gap: 14px;
   align-items: stretch;
 }
 
@@ -1449,41 +1451,48 @@ body.income-view-active .topbar {
   min-height: 0;
 }
 
+.income-chart-panel,
+.income-channel-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 286px;
+}
+
 .income-chart-panel .chart-surface {
-  min-height: 220px;
+  min-height: 194px;
 }
 
 .income-chart {
-  min-height: 228px;
+  min-height: 202px;
 }
 
 .income-channel-panel .chart-surface-small {
-  min-height: 150px;
+  min-height: 136px;
 }
 
 .income-donut-chart {
-  min-height: 158px;
+  min-height: 146px;
 }
 
 .income-channel-breakdown {
   display: grid;
-  grid-template-columns: 148px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 138px minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
 }
 
 .income-breakdown-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   align-content: start;
 }
 
 .income-breakdown-row {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) auto auto;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .income-breakdown-row strong,
@@ -1572,17 +1581,16 @@ body.income-view-active .topbar {
 
 .income-content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 348px;
-  gap: 16px;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) 332px;
+  gap: 14px;
+  align-items: start;
 }
 
 .income-primary-stack,
 .income-secondary-stack {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   align-content: start;
-  height: 100%;
 }
 
 .income-review-panel,
@@ -1598,12 +1606,12 @@ body.income-view-active .topbar {
 }
 
 .income-secondary-stack {
-  grid-template-rows: minmax(0, .88fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, auto) minmax(0, auto);
 }
 
 .income-review-panel .invoice-review-list {
   min-height: 0;
-  max-height: none;
+  max-height: 358px;
   overflow: auto;
   padding-right: 4px;
 }
@@ -1615,7 +1623,7 @@ body.income-view-active .topbar {
 
 .income-side-panel .income-recent-list {
   min-height: 0;
-  max-height: none;
+  max-height: 432px;
   overflow: auto;
   padding-right: 4px;
 }
@@ -2437,10 +2445,15 @@ label.required .field-label span::after {
   align-items: center;
 }
 
-.invoice-overview-head .button-with-icon {
+.invoice-overview-head .button-with-icon,
+.income-overview-head .button-with-icon {
   min-height: 40px;
   padding-inline: 14px;
   box-shadow: 0 14px 26px rgba(0, 109, 98, .12);
+}
+
+.income-list-shell {
+  gap: 16px;
 }
 
 .invoice-list-panel {
