@@ -369,10 +369,12 @@
                       </div>
                       <button type="submit" class="ghost accent-outline button-with-icon" data-save-invoice-add-line><svg><use href="#icon-plus"></use></svg><span>Añadir línea</span></button>
                     </div>
-                    <div class="invoice-lines-empty">
-                      <span class="file-dropzone-icon muted"><svg><use href="#icon-kit"></use></svg></span>
-                      <strong>Aún no hay líneas añadidas</strong>
-                      <small>Guarda la factura y añade una línea para registrar el gasto.</small>
+                    <div id="invoiceFormLinesState" class="invoice-lines-draft-state">
+                      <div class="invoice-lines-empty">
+                        <span class="file-dropzone-icon muted"><svg><use href="#icon-kit"></use></svg></span>
+                        <strong>Aún no hay líneas añadidas</strong>
+                        <small>Guarda la factura y añade una línea para registrar el gasto.</small>
+                      </div>
                     </div>
                   </section>
                 </div>

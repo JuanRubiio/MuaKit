@@ -2190,6 +2190,23 @@ body.income-view-active .topbar {
   color: var(--ink);
 }
 
+.invoice-lines-draft-state {
+  display: grid;
+  gap: 0;
+}
+
+.invoice-lines-draft-state .invoice-line-table {
+  border-radius: var(--radius);
+}
+
+.invoice-lines-draft-state .line-card {
+  background: #fff;
+}
+
+.line-readonly-flag {
+  justify-self: end;
+}
+
 .invoice-form-footer {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;

@@ -474,6 +474,64 @@ function updateInvoiceFormPreview() {
   renderInvoiceFormReview();
 }
 
+function invoiceDocumentMeta(invoice = {}) {
+  const fileName = text(invoice.document_name || invoice.document_stored_name || "");
+  const ext = fileName.includes(".") ? fileName.split(".").pop().toLowerCase() : "";
+  if (["jpg", "jpeg"].includes(ext)) return { label: "JPG", hint: "Imagen actual de la factura." };
+  if (ext === "png") return { label: "PNG", hint: "Imagen actual de la factura." };
+  if (ext === "webp") return { label: "WEBP", hint: "Imagen actual de la factura." };
+  if (ext === "pdf") return { label: "PDF", hint: "Documento actual de la factura." };
+  if (ext) return { label: ext.toUpperCase(), hint: "Documento actual de la factura." };
+  return { label: "DOC", hint: "Documento actual de la factura." };
+}
+
+function renderInvoiceWorkspaceLines(lines = []) {
+  const mount = $("#invoiceFormLinesState");
+  if (!mount) return;
+  const activeLines = lines.filter((line) => !line.is_deleted);
+  if (!activeLines.length) {
+    mount.innerHTML = `
+      <div class="invoice-lines-empty">
+        <span class="file-dropzone-icon muted"><svg><use href="#icon-kit"></use></svg></span>
+        <strong>Aún no hay líneas añadidas</strong>
+        <small>Guarda la factura y añade una línea para registrar el gasto.</small>
+      </div>
+    `;
+    return;
+  }
+  mount.innerHTML = `
+    <div class="line-list invoice-line-table">
+      ${activeLines.map((line, index) => {
+        const summary = hierarchySummary({
+          usage_type: line.material_usage_type,
+          family: line.material_family,
+          subfamily: line.material_subfamily,
+          variant: line.material_variant,
+          base_material: line.material_base_material,
+          finish: line.material_finish
+        });
+        return `
+          <article class="line-card workspace-line-card">
+            <span class="line-index">${index + 1}</span>
+            <div class="line-card-main ${line.material_image_url ? "with-image" : ""}">
+              ${line.material_image_url ? `<div class="material-mini-thumb">${img(line.material_image_url)}</div>` : ""}
+              <div>
+                <strong>${text(line.material_name, "Sin material")}</strong>
+                <div class="meta">${line.package_count} paquetes · ${line.units_per_package} ud/paquete · ${line.total_units} ud totales</div>
+                ${summary ? `<div class="meta">${text(summary)}</div>` : ""}
+                ${line.description ? `<p>${text(line.description)}</p>` : ""}
+              </div>
+            </div>
+            <span class="amount">${euro.format(number(line.unit_price))} / ud</span>
+            <strong class="amount">${euro.format(number(line.line_total))}</strong>
+            <span class="line-readonly-flag">${badge("Registrada", "ok")}</span>
+          </article>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 function renderInvoiceFormReview(invoice = null) {
   const form = $("#invoiceForm");
   const review = $("#invoiceFormReviewState");
@@ -485,7 +543,7 @@ function renderInvoiceFormReview(invoice = null) {
   review.innerHTML = [
     ["Proveedor", hasSupplier ? "Proveedor seleccionado." : "Selecciona proveedor si aplica.", hasSupplier ? "OK" : "Revisar", hasSupplier ? "ok" : "warn", hasSupplier ? "icon-check-circle" : "icon-alert"],
     ["Total", hasTotal ? "Importe informado." : "Debe coincidir con el documento.", hasTotal ? "OK" : "Obligatorio", hasTotal ? "ok" : "warn", hasTotal ? "icon-check-circle" : "icon-alert"],
-    ["Lineas", lineCount ? `${lineCount} linea${lineCount === 1 ? "" : "s"} registrada${lineCount === 1 ? "" : "s"}.` : "Se podran anadir tras guardar.", lineCount ? "OK" : "Pendiente", lineCount ? "ok" : "warn", lineCount ? "icon-check-circle" : "icon-minus-circle"],
+    ["Líneas", lineCount ? `${lineCount} línea${lineCount === 1 ? "" : "s"} registrada${lineCount === 1 ? "" : "s"}.` : "Se podrán añadir tras guardar.", lineCount ? "OK" : "Pendiente", lineCount ? "ok" : "warn", lineCount ? "icon-check-circle" : "icon-minus-circle"],
     ["Adjunto", hasDocument ? "Documento asociado." : "Opcional pero recomendable.", hasDocument ? "OK" : "Opcional", hasDocument ? "ok" : "neutral", hasDocument ? "icon-check-circle" : "icon-paperclip"]
   ].map(([label, hint, statusText, tone, icon]) => `
     <span class="${tone}">
@@ -497,9 +555,11 @@ function renderInvoiceFormReview(invoice = null) {
   `).join("");
 }
 
-function showInvoiceEditor(invoice = null, keepDetail = false) {
+function showInvoiceEditor(source = null) {
   const form = $("#invoiceForm");
-  if (!keepDetail) $("#invoiceDetailPanel")?.classList.add("hidden");
+  const invoice = source?.invoice || source;
+  const lines = source?.lines || [];
+  $("#invoiceDetailPanel")?.classList.add("hidden");
   $("#invoices .invoice-page")?.classList.add("invoice-focus-mode");
   document.body.classList.add("invoice-focus-active");
   form.classList.remove("hidden");
@@ -507,7 +567,8 @@ function showInvoiceEditor(invoice = null, keepDetail = false) {
   state.invoiceOpenLineAfterSave = false;
   resetForm("invoiceForm");
   if (invoice) {
-    state.invoiceEditorLineCount = number(invoice.line_count);
+    state.selectedInvoiceId = invoice.id;
+    state.invoiceEditorLineCount = lines.length ? lines.filter((line) => !line.is_deleted).length : number(invoice.line_count);
     setForm(form, invoice);
     $("#invoiceFormTitle").textContent = text(invoice.supplier_name, `Editar factura #${invoice.id}`);
     $("#invoiceFormSubtitle").textContent = `${text(invoice.invoice_number, "Sin referencia")} · ${text(invoice.invoice_date, "Sin fecha")}`;
@@ -518,11 +579,14 @@ function showInvoiceEditor(invoice = null, keepDetail = false) {
       if (label) label.textContent = "Guardar cambios";
       else button.textContent = "Guardar cambios";
     });
+    const docMeta = invoiceDocumentMeta(invoice);
     $("#invoiceFormDocumentState").innerHTML = invoice.document_stored_name
-      ? `<div class="invoice-doc-file compact"><span class="doc-file-icon">PDF</span><span><strong>${text(invoice.document_name, "Documento adjunto")}</strong><small>Documento actual de la factura.</small></span></div>`
+      ? `<div class="invoice-doc-file compact"><span class="doc-file-icon">${docMeta.label}</span><span><strong>${text(invoice.document_name, "Documento adjunto")}</strong><small>${docMeta.hint}</small></span></div>`
       : `<div class="inline-note">Esta factura no tiene adjunto guardado.</div>`;
+    renderInvoiceWorkspaceLines(lines);
   } else {
     state.invoiceEditorLineCount = 0;
+    state.selectedInvoiceId = null;
     $("#invoiceFormTitle").textContent = "Nueva factura";
     $("#invoiceFormSubtitle").textContent = "Completa los datos de la factura y guarda para añadir líneas.";
     $("#invoiceFormStatusBadge").textContent = "Borrador";
@@ -537,6 +601,7 @@ function showInvoiceEditor(invoice = null, keepDetail = false) {
       if (form.elements.status) form.elements.status.value = state.settings.default_invoice_status || "draft";
       if (form.elements.category) form.elements.category.value = state.settings.default_invoice_category || "materiales";
     }
+    renderInvoiceWorkspaceLines([]);
   }
   updateInvoiceFormPreview();
   renderInvoiceFormReview(invoice);
@@ -1704,7 +1769,7 @@ function bindEvents() {
       if (t.dataset.closeInvoiceDetail !== undefined) closeInvoicePanels();
       if (t.dataset.editInvoiceDetails) {
         const detail = await api(`/api/invoices/${t.dataset.editInvoiceDetails}`);
-        showInvoiceEditor(detail.invoice, true);
+        showInvoiceEditor(detail);
       }
       if (t.dataset.saveKitItem !== undefined) {
         const form = $("#kitItemForm");

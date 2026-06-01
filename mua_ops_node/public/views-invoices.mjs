@@ -77,7 +77,7 @@ export function createInvoiceViews(ctx) {
     $("#invoiceSummaryCards").innerHTML = [
       ["Total visibles", totalVisible, totalVisible ? "100% del total" : "Sin resultados", "rose", "icon-file"],
       ["Pendientes / borrador", draftCount, totalVisible ? `${((draftCount / Math.max(totalVisible, 1)) * 100).toFixed(1).replace(".", ",")}% del total` : "0% del total", "gold", "icon-file"],
-      ["Sin lineas", withoutLinesCount, totalVisible ? `${((withoutLinesCount / Math.max(totalVisible, 1)) * 100).toFixed(1).replace(".", ",")}% del total` : "0% del total", "gold", "icon-coin"],
+      ["Sin líneas", withoutLinesCount, totalVisible ? `${((withoutLinesCount / Math.max(totalVisible, 1)) * 100).toFixed(1).replace(".", ",")}% del total` : "0% del total", "gold", "icon-coin"],
       ["Con adjunto", withAttachmentCount, totalVisible ? `${((withAttachmentCount / Math.max(totalVisible, 1)) * 100).toFixed(1).replace(".", ",")}% del total` : "0% del total", "accent", "icon-image"],
       ["Importe total", euro.format(totalAmount), `${activeRows.length} facturas activas`, "rose", "icon-coin"]
     ].map(([label, value, hint, tone, icon]) => `
@@ -102,7 +102,7 @@ export function createInvoiceViews(ctx) {
 
     const reviewRows = [
       ["Facturas en borrador", draftCount, draftCount ? "Pendientes de completar" : "Sin borradores", "draft", "icon-alert", "danger"],
-      ["Sin lineas", withoutLinesCount, withoutLinesCount ? "Requieren revisar lineas" : "Todas con lineas", "without_lines", "icon-minus-circle", "warn"],
+      ["Sin líneas", withoutLinesCount, withoutLinesCount ? "Requieren revisar líneas" : "Todas con líneas", "without_lines", "icon-minus-circle", "warn"],
       ["Sin proveedor", noSupplierCount, noSupplierCount ? "Faltan datos del proveedor" : "Proveedor completo", "supplier_missing", "icon-users", "danger"],
       ["Adjuntos por revisar", pendingAttachmentCount, pendingAttachmentCount ? "Facturas sin adjunto" : "Adjuntos al dia", "attachment_missing", "icon-paperclip", "accent"]
     ];
@@ -170,10 +170,14 @@ export function createInvoiceViews(ctx) {
     document.body.classList.add("invoice-focus-active");
     panel.classList.remove("hidden");
 
+    const fileName = text(detail.invoice.document_name || detail.invoice.document_stored_name || "");
+    const ext = fileName.includes(".") ? fileName.split(".").pop().toLowerCase() : "";
+    const docType = ["jpg", "jpeg"].includes(ext) ? "JPG" : ext === "png" ? "PNG" : ext === "webp" ? "WEBP" : ext === "pdf" ? "PDF" : (ext ? ext.toUpperCase() : "DOC");
+    const docHint = ["jpg", "jpeg", "png", "webp"].includes(ext) ? "Imagen guardada en soporte local." : "Documento guardado en soporte local.";
     const docMarkup = detail.invoice.document_stored_name
       ? `<div class="invoice-doc-file">
-          <span class="doc-file-icon">PDF</span>
-          <span><strong>${text(detail.invoice.document_name, "Documento adjunto")}</strong><small>Documento guardado en soporte local.</small></span>
+          <span class="doc-file-icon">${docType}</span>
+          <span><strong>${text(detail.invoice.document_name, "Documento adjunto")}</strong><small>${docHint}</small></span>
         </div>
         <div class="row-actions slim">${docLink(detail.invoice)}</div>`
       : `<div class="invoice-lines-empty compact">
@@ -184,9 +188,9 @@ export function createInvoiceViews(ctx) {
 
     const reviewItems = [
       ["Proveedor", detail.invoice.supplier_id ? "ok" : "warn", detail.invoice.supplier_id ? "Seleccionado" : "Falta proveedor"],
-      ["Numero de factura", detail.invoice.invoice_number ? "ok" : "warn", detail.invoice.invoice_number ? "Informado" : "Sin referencia"],
+      ["Número de factura", detail.invoice.invoice_number ? "ok" : "warn", detail.invoice.invoice_number ? "Informado" : "Sin referencia"],
       ["Fecha", detail.invoice.invoice_date ? "ok" : "warn", detail.invoice.invoice_date ? "Informada" : "Pendiente"],
-      ["Lineas", activeLineCount ? "ok" : "warn", activeLineCount ? `${activeLineCount} linea${activeLineCount === 1 ? "" : "s"} revisada${activeLineCount === 1 ? "" : "s"}` : "Sin lineas"],
+      ["Líneas", activeLineCount ? "ok" : "warn", activeLineCount ? `${activeLineCount} línea${activeLineCount === 1 ? "" : "s"} revisada${activeLineCount === 1 ? "" : "s"}` : "Sin líneas"],
       ["Total", number(detail.invoice.total) > 0 ? "ok" : "warn", number(detail.invoice.total) > 0 ? "Aceptado" : "Revisar"]
     ];
 
@@ -198,11 +202,11 @@ export function createInvoiceViews(ctx) {
             <h2>${text(detail.invoice.supplier_name, "Factura sin proveedor")}</h2>
             <span class="external-link-mark" aria-hidden="true">&#8599;</span>
           </div>
-          <p>${text(detail.invoice.invoice_number, "sin numero")} · ${text(detail.invoice.invoice_date)}</p>
+          <p>${text(detail.invoice.invoice_number, "sin número")} · ${text(detail.invoice.invoice_date)}</p>
           <div class="tags">
             ${badge(statusLabel(detail.invoice.status), detail.invoice.status === "draft" ? "warn" : "ok")}
             ${badge(detail.invoice.category)}
-            ${badge(`${activeLineCount} linea${activeLineCount === 1 ? "" : "s"}`, detail.lines.length ? "ok" : "warn")}
+            ${badge(`${activeLineCount} línea${activeLineCount === 1 ? "" : "s"}`, detail.lines.length ? "ok" : "warn")}
             ${detail.invoice.document_stored_name ? badge("Adjunto") : badge("Sin adjunto", "warn")}
           </div>
         </div>
@@ -212,7 +216,7 @@ export function createInvoiceViews(ctx) {
           <button type="button" class="ghost" data-duplicate-invoice="${detail.invoice.id}">Duplicar</button>
           <button type="button" class="ghost danger-text" data-delete-invoice="${detail.invoice.id}">Archivar</button>
           <button type="button" data-edit-invoice-details="${detail.invoice.id}">Editar factura</button>
-          <button type="button" class="ghost accent-outline" data-open-line-form="${detail.invoice.id}">Nueva linea</button>
+          <button type="button" class="ghost accent-outline" data-open-line-form="${detail.invoice.id}">Nueva línea</button>
         </div>
       </div>
 
@@ -227,11 +231,11 @@ export function createInvoiceViews(ctx) {
           <div class="invoice-fact-grid">
             <span><small>Proveedor</small><strong>${text(detail.invoice.supplier_name, "Sin proveedor")}</strong></span>
             <span><small>Fecha</small><strong>${text(detail.invoice.invoice_date, "-")}</strong></span>
-            <span><small>Numero / referencia</small><strong>${text(detail.invoice.invoice_number, "-")}</strong></span>
-            <span><small>Categoria</small><strong>${text(detail.invoice.category)}</strong></span>
+            <span><small>Número / referencia</small><strong>${text(detail.invoice.invoice_number, "-")}</strong></span>
+            <span><small>Categoría</small><strong>${text(detail.invoice.category)}</strong></span>
             <span><small>Estado</small><strong>${statusLabel(detail.invoice.status)}</strong></span>
             <span><small>Subtotal</small><strong>${euro.format(number(detail.invoice.subtotal))}</strong></span>
-            <span><small>Envio</small><strong>${euro.format(number(detail.invoice.shipping))}</strong></span>
+            <span><small>Envío</small><strong>${euro.format(number(detail.invoice.shipping))}</strong></span>
             <span><small>IVA</small><strong>${euro.format(number(detail.invoice.tax))}</strong></span>
             <span class="invoice-fact-total"><small>Total</small><strong>${euro.format(number(detail.invoice.total))}</strong></span>
           </div>
@@ -252,7 +256,7 @@ export function createInvoiceViews(ctx) {
           <section class="panel invoice-check-card">
             <div class="panel-head compact-head">
               <div>
-                <h2>Revision</h2>
+                <h2>Revisión</h2>
                 <p>Estado de completitud de la factura.</p>
               </div>
             </div>
@@ -271,23 +275,23 @@ export function createInvoiceViews(ctx) {
       <section class="panel invoice-lines-panel">
         <div class="panel-head">
           <div>
-            <h2>Lineas de factura (${activeLineCount})</h2>
+            <h2>Líneas de factura (${activeLineCount})</h2>
             <p>Materiales o conceptos imputados a esta factura.</p>
           </div>
           <div class="row-actions">
-            <button type="button" data-open-line-form="${detail.invoice.id}">Nueva linea</button>
+            <button type="button" data-open-line-form="${detail.invoice.id}">Nueva línea</button>
           </div>
         </div>
 
         <div class="line-list invoice-line-table">
-          ${detail.lines.map((line, index) => lineMarkup(line, index)).join("") || `<div class="invoice-lines-empty"><span class="file-dropzone-icon muted"><svg><use href="#icon-kit"></use></svg></span><strong>Aun no hay lineas añadidas</strong><small>Añade una linea para comenzar a registrar el gasto.</small></div>`}
+          ${detail.lines.map((line, index) => lineMarkup(line, index)).join("") || `<div class="invoice-lines-empty"><span class="file-dropzone-icon muted"><svg><use href="#icon-kit"></use></svg></span><strong>Aún no hay líneas añadidas</strong><small>Añade una línea para comenzar a registrar el gasto.</small></div>`}
         </div>
       </section>
 
       <form id="lineForm" class="panel line-form ${state.invoiceLineFormOpen ? "" : "hidden"}">
         <div class="panel-head compact-head">
           <div>
-            <h2 id="lineFormTitle">Nueva linea</h2>
+            <h2 id="lineFormTitle">Nueva línea</h2>
             <p>Introduce paquetes, unidades y precio.</p>
           </div>
           <button type="button" class="ghost" data-close-line-form>Cerrar</button>
@@ -298,8 +302,8 @@ export function createInvoiceViews(ctx) {
         ${materialInvoice
           ? materialPickerMarkup({ context: "line", required: true, includePreview: true })
           : `<input type="hidden" name="material_id" value="">
-             <div class="inline-note">Esta factura es de ${text(detail.invoice.category)}. Las lineas se registran sin material del catalogo.</div>`}
-        <label>Descripcion (opcional)<input name="description" placeholder="Ej. 4 paquetes x 5 cadenas"></label>
+             <div class="inline-note">Esta factura es de ${text(detail.invoice.category)}. Las líneas se registran sin material del catálogo.</div>`}
+        <label>Descripción (opcional)<input name="description" placeholder="Ej. 4 paquetes x 5 cadenas"></label>
         <div class="numbers">
           <label>Paquetes<input name="package_count" inputmode="decimal" value="1"></label>
           <label>Ud/paquete<input name="units_per_package" inputmode="decimal" value="1"></label>
@@ -309,11 +313,11 @@ export function createInvoiceViews(ctx) {
         <label>Notas<textarea name="notes" rows="2"></textarea></label>
         <div id="linePreview" class="calc-preview">
           <span><small>Unidades</small><strong data-preview-units>1</strong></span>
-          <span><small>Total linea</small><strong data-preview-line-total>0,00 EUR</strong></span>
+          <span><small>Total línea</small><strong data-preview-line-total>0,00 EUR</strong></span>
           <span><small>Coste unitario</small><strong data-preview-unit>0,00 EUR</strong></span>
         </div>
         <div class="row-actions">
-          <button type="button" data-save-line>Guardar linea</button>
+          <button type="button" data-save-line>Guardar línea</button>
           <button type="button" class="ghost" data-reset-form="lineForm">Limpiar</button>
         </div>
       </form>
@@ -322,7 +326,7 @@ export function createInvoiceViews(ctx) {
         <div class="invoice-amount-summary">
           <span><small>Subtotal</small><strong>${euro.format(number(detail.invoice.subtotal))}</strong></span>
           <span><small>Descuento</small><strong>${euro.format(number(detail.invoice.discount))}</strong></span>
-          <span><small>Envio</small><strong>${euro.format(number(detail.invoice.shipping))}</strong></span>
+          <span><small>Envío</small><strong>${euro.format(number(detail.invoice.shipping))}</strong></span>
           <span><small>IVA</small><strong>${euro.format(number(detail.invoice.tax))}</strong></span>
           <span class="total"><small>Total</small><strong>${euro.format(number(detail.invoice.total))}</strong></span>
         </div>
@@ -392,3 +396,4 @@ export function createInvoiceViews(ctx) {
 
   return { loadInvoices, renderInvoices, openInvoice, openInvoiceWorkspace, bindLineForm };
 }
+
