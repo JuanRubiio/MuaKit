@@ -71,6 +71,20 @@ export function createMaterialViews(ctx) {
     return value == null || value === "" ? fallback : euro.format(number(value));
   }
 
+  function materialThumb(material, className = "") {
+    const imageUrl = material?.image_url_override || material?.image_url || "";
+    const initials = text(material?.name || "MK")
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("")
+      .slice(0, 2) || "MK";
+    return imageUrl
+      ? `<img src="${text(imageUrl)}" loading="lazy" alt="" onerror="this.outerHTML='&lt;div class=&quot;image-empty material-thumb-fallback ${className}&quot;&gt;${initials}&lt;/div&gt;'">`
+      : `<div class="image-empty material-thumb-fallback ${className}">${initials}</div>`;
+  }
+
   function stockNumber(material) {
     return number(material.effective_stock_qty);
   }
@@ -332,7 +346,7 @@ export function createMaterialViews(ctx) {
 
     const priorityRows = reorder
       .sort((a, b) => stockNumber(a) - stockNumber(b) || reorderNumber(b) - reorderNumber(a))
-      .slice(0, 5);
+      .slice(0, 4);
     $("#materialPriorityCards").innerHTML = priorityRows.length
       ? priorityRows
           .map((material) => {
@@ -343,7 +357,7 @@ export function createMaterialViews(ctx) {
             return `
               <article class="materials-priority-card">
                 <div class="materials-priority-card-head">
-                  <div class="materials-priority-thumb">${img(material.image_url_override || material.image_url)}</div>
+                  <div class="materials-priority-thumb">${materialThumb(material, "priority")}</div>
                   <div class="materials-priority-copy">
                     <strong>${text(material.name)}</strong>
                     <small>${text(material.preferred_supplier_name || "Sin proveedor")}</small>
@@ -393,13 +407,13 @@ export function createMaterialViews(ctx) {
             const kits = kitUsage(material.id, kitMap);
             return `
               <button type="button" class="materials-side-item" data-view-material="${material.id}">
-                <span class="materials-side-thumb">${img(material.image_url_override || material.image_url)}</span>
+                <span class="materials-side-thumb">${materialThumb(material, "recent")}</span>
                 <span>
                   <strong>${text(material.name)}</strong>
                   <small>${text(material.category || "Sin categoría")} · ${text(material.preferred_supplier_name || "Sin proveedor")}</small>
                   <small class="meta">${kits.length ? `${kits.length} kits · ` : ""}Stock ${text(String(stockNumber(material)))}</small>
+                  <small class="meta emphasis">${hasCost(material, costMap) ? formatEuro(unitCost(material, costMap)) : "Sin coste"}</small>
                 </span>
-                <em>${hasCost(material, costMap) ? formatEuro(unitCost(material, costMap)) : "Sin coste"}</em>
               </button>
             `;
           })
@@ -441,8 +455,7 @@ export function createMaterialViews(ctx) {
           .map((material) => {
             const kits = kitUsage(material.id, kitMap);
             const cost = unitCost(material, costMap);
-            const risk = isReorderRisk(material);
-            const imageMarkup = img(material.image_url_override || material.image_url);
+            const imageMarkup = materialThumb(material, "table");
             return `
               <article class="materials-table-row ${String(currentMaterialId) === String(material.id) ? "active" : ""} ${material.is_deleted ? "deleted" : ""}">
                 <span class="materials-check" aria-hidden="true"></span>
@@ -451,11 +464,9 @@ export function createMaterialViews(ctx) {
                   <div class="materials-cell-copy">
                     <strong>${text(material.name)}</strong>
                     <small>${text(hierarchySummary(material) || material.category || "Sin clasificación")}</small>
-                    <small class="meta">${text(material.notes || material.preferred_supplier_name || "Sin observaciones")}</small>
+                    <small class="meta">${text(material.notes || "Sin observaciones")}</small>
                   </div>
                 </div>
-                <span>${badge(material.category || "Sin categoría")}</span>
-                <span>${text(material.family || "—")}</span>
                 <span>${text(material.preferred_supplier_name || "Sin proveedor")}</span>
                 <div class="materials-stock-cell">
                   <strong>${text(String(stockNumber(material)))}</strong>
@@ -524,7 +535,7 @@ export function createMaterialViews(ctx) {
     const imageUrl = material.image_url_override || material.image_url || "";
     $("#materialFormPreview").classList.toggle("hidden", !material.name && !imageUrl);
     $("#materialFormPreview").innerHTML = `
-      <div class="selected-material-card-media">${img(imageUrl)}</div>
+      <div class="selected-material-card-media">${materialThumb(material, "preview")}</div>
       <div class="selected-material-card-copy">
         <strong>${text(material.name || "Nuevo material")}</strong>
         <div class="tags">
@@ -749,3 +760,4 @@ export function createMaterialViews(ctx) {
     renderMaterialWorkspace
   };
 }
+
