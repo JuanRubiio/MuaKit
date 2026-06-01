@@ -471,8 +471,8 @@
 
             <div class="income-content-grid">
               <div class="income-primary-stack">
-                <section class="panel income-filter-panel">
-                  <div class="filter-grid income-filters">
+                <section class="panel invoice-filter-panel income-filter-panel">
+                  <div class="filter-grid invoice-filters income-filters">
                     <label>Buscar<input id="payoutSearch" type="search" placeholder="Número, referencia, cliente..."></label>
                     <label>Canal
                       <select id="payoutChannelFilter">
@@ -495,9 +495,8 @@
                         <option value="channel_asc">Canal A-Z</option>
                       </select>
                     </label>
-                    <label class="toggle-switch"><input id="payoutsDeleted" type="checkbox"><span class="toggle-slider"></span><span>Archivados</span></label>
+                    <label class="check"><input id="payoutsDeleted" type="checkbox"> Archivados</label>
                   </div>
-                  <div id="incomeStatusTabs" class="invoice-status-tabs"></div>
                 </section>
 
                 <section class="panel income-list-panel income-list-shell entity-list-panel">
@@ -507,6 +506,8 @@
                       <p id="incomeResultText">Seguimiento de ingresos por canal y conciliación.</p>
                     </div>
                   </div>
+
+                  <div id="incomeStatusTabs" class="invoice-status-tabs"></div>
 
                   <div class="income-table">
                     <div class="income-table-head">
