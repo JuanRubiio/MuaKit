@@ -382,6 +382,19 @@ function resetForm(id) {
       else button.textContent = "Guardar ingreso";
     });
   }
+  if (id === "materialForm") {
+    form.dataset.submitMode = "save";
+    if ($("#materialFormStatusBadge")) {
+      $("#materialFormStatusBadge").textContent = "Borrador catálogo";
+      $("#materialFormStatusBadge").className = "status-pill warn";
+    }
+    if ($("#materialFormSubtitle")) $("#materialFormSubtitle").textContent = "Completa la información del material para inventario, costes y kits.";
+    $$("[data-material-save-label]").forEach((button) => {
+      const label = button.querySelector("[data-button-label]");
+      if (label) label.textContent = "Guardar material";
+      else button.textContent = "Guardar material";
+    });
+  }
 }
 
 function payoutStatusLabel(value) {
@@ -610,44 +623,25 @@ function showInvoiceEditor(source = null) {
 
 function closeMaterialPanels() {
   $("#materialForm")?.classList.add("hidden");
+  $("#materials .materials-page")?.classList.remove("materials-focus-mode");
+  document.body.classList.remove("materials-focus-active");
 }
 
 function showMaterialEditor(material = null) {
   const form = $("#materialForm");
-  const preview = $("#materialFormPreview");
+  $("#materials .materials-page")?.classList.add("materials-focus-mode");
+  document.body.classList.add("materials-focus-active");
   form.classList.remove("hidden");
   resetForm("materialForm");
   if (material) {
     setForm(form, material);
-    $("#materialFormTitle").textContent = `Editar material #${material.id}`;
-    const imageUrl = material.image_url || material.image_url_override || "";
-    if (preview) {
-      if (imageUrl) {
-        preview.classList.remove("hidden");
-        preview.innerHTML = `
-          <div class="material-mini-thumb">${img(imageUrl)}</div>
-          <div>
-            <strong>${text(material.name)}</strong>
-            <div class="tags">
-              ${material.category ? badge(material.category) : ""}
-              ${material.is_outlet ? badge("outlet", "warn") : ""}
-              ${hierarchyParts(material).map((value) => badge(value)).join("")}
-            </div>
-            <div class="meta">Stock Shopify ${material.effective_stock_qty ?? "-"}</div>
-          </div>
-        `;
-      } else {
-        preview.classList.add("hidden");
-        preview.innerHTML = "";
-      }
-    }
-  } else {
-    $("#materialFormTitle").textContent = "Nuevo material";
-    if (preview) {
-      preview.classList.add("hidden");
-      preview.innerHTML = "";
-    }
   }
+  $$("[data-material-save-label]").forEach((button) => {
+    const label = button.querySelector("[data-button-label]");
+    if (label) label.textContent = material ? "Guardar cambios" : "Guardar material";
+    else button.textContent = material ? "Guardar cambios" : "Guardar material";
+  });
+  renderMaterialWorkspace(material);
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -773,7 +767,9 @@ function filteredMaterialOptions(selected = "", first = "Sin material", source =
 }
 
 function img(url) {
-  return url ? `<img src="${escapeHtml(url)}" loading="lazy" alt="">` : `<div class="image-empty"></div>`;
+  return url
+    ? `<img src="${escapeHtml(url)}" loading="lazy" alt="" onerror="this.outerHTML='&lt;div class=&quot;image-empty&quot;&gt;&lt;/div&gt;'">`
+    : `<div class="image-empty"></div>`;
 }
 
 function badge(value, tone = "") {
@@ -1218,6 +1214,10 @@ function renderMaterials() {
   return viewModules.materials?.renderMaterials();
 }
 
+function renderMaterialWorkspace(material = null) {
+  return viewModules.materials?.renderMaterialWorkspace(material);
+}
+
 async function loadInvoices() {
   return viewModules.invoices?.loadInvoices();
 }
@@ -1247,7 +1247,9 @@ function renderSuppliers() {
 }
 
 async function loadCosts() {
-  return viewModules.operations?.loadCosts();
+  const result = await viewModules.operations?.loadCosts();
+  if ($("#materials")?.classList.contains("active")) renderMaterials();
+  return result;
 }
 
 function renderCosts() {
@@ -1263,7 +1265,9 @@ function renderCostHistoryChart(lots) {
 }
 
 async function loadKits() {
-  return viewModules.operations?.loadKits();
+  const result = await viewModules.operations?.loadKits();
+  if ($("#materials")?.classList.contains("active")) renderMaterials();
+  return result;
 }
 
 function renderKits() {
@@ -1328,9 +1332,14 @@ async function saveMaterial(event) {
   const id = data.id;
   delete data.id;
   const saved = await api(id ? `/api/materials/${id}` : "/api/materials", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
-  await Promise.all([loadMaterials(), loadSummary(), loadDashboardFinance()]);
+  await Promise.all([loadMaterials(), loadSummary(), loadDashboardFinance(), loadCosts(), loadKits()]);
   const current = state.materials.find((item) => item.id == saved.id) || saved;
   showMaterialEditor(current);
+  if (form.dataset.submitMode === "save_and_cost") {
+    setActiveView("costs");
+    await openCostDetail(current.id);
+  }
+  form.dataset.submitMode = "save";
   toast("Material guardado");
 }
 
@@ -1601,9 +1610,12 @@ async function refreshAll() {
 function setActiveView(view) {
   if (view !== "invoices") document.body.classList.remove("invoice-focus-active");
   if (view !== "income") document.body.classList.remove("income-focus-active");
+  if (view !== "materials") document.body.classList.remove("materials-focus-active");
   if (view !== "invoices") $("#invoices .invoice-page")?.classList.remove("invoice-focus-mode");
   if (view !== "income") $("#income .income-page")?.classList.remove("income-focus-mode");
+  if (view !== "materials") $("#materials .materials-page")?.classList.remove("materials-focus-mode");
   document.body.classList.toggle("income-view-active", view === "income");
+  document.body.classList.toggle("materials-view-active", view === "materials");
   $$(".tab,.view").forEach((el) => el.classList.remove("active"));
   $(`.tab[data-view="${view}"]`)?.classList.add("active");
   $(`#${view}`)?.classList.add("active");
@@ -1709,7 +1721,14 @@ function bindEvents() {
       if (t.dataset.refreshDiagnostics !== undefined) await loadSystemHealth();
       if (t.dataset.createBackup !== undefined) await createSystemBackup();
       if (t.dataset.newMaterial !== undefined) showMaterialEditor();
+      if (t.dataset.materialLane) {
+        state.materialLane = t.dataset.materialLane;
+        resetPagination("materials");
+        renderMaterials();
+      }
       if (t.dataset.closeMaterialPanels !== undefined) closeMaterialPanels();
+      if (t.dataset.materialSaveLabel !== undefined) $("#materialForm").dataset.submitMode = "save";
+      if (t.dataset.saveMaterialCost !== undefined) $("#materialForm").dataset.submitMode = "save_and_cost";
       if (t.dataset.newSupplier !== undefined) showSupplierEditor();
       if (t.dataset.closeSupplierPanels !== undefined) closeSupplierPanels();
       if (t.dataset.newKit !== undefined) showKitEditor();
@@ -1866,6 +1885,7 @@ function bindEvents() {
       updatePayoutFormPreview();
       renderPayoutFormReview();
     }
+    if (event.target.closest("#materialForm")) renderMaterialWorkspace();
     if (event.target.closest("#lineForm")) updateLinePreview();
   });
 
@@ -1876,6 +1896,7 @@ function bindEvents() {
       updatePayoutFormPreview();
       renderPayoutFormReview();
     }
+    if (event.target.closest("#materialForm")) renderMaterialWorkspace();
     if (event.target.closest("#lineForm")) updateLinePreview();
     if (event.target.closest("#lineForm") && event.target.name?.startsWith("line_")) syncMaterialPicker($("#lineForm"), "line", { required: true });
     if (event.target.closest("#lineForm") && event.target.name === "material_id") syncMaterialPicker($("#lineForm"), "line", { required: true });

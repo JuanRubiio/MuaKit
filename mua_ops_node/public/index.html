@@ -688,20 +688,49 @@
         </section>
 
         <section id="materials" class="view">
-          <div class="entity-page">
-            <section class="panel entity-list-panel">
-              <div class="panel-head invoice-head">
-                <div>
-                  <h2>Materiales</h2>
-                  <p id="materialResultText">Catalogo operativo.</p>
-                </div>
-                <div class="row-actions">
-                  <button type="button" data-new-material>Nuevo material</button>
-                </div>
+          <div class="materials-page">
+            <div class="materials-overview-head">
+              <div>
+                <p class="eyebrow">Operaciones</p>
+                <h1>Materiales</h1>
+                <p id="materialResultText">Catálogo operativo.</p>
               </div>
-              <div class="filter-grid">
-                <label>Buscar<input id="materialSearch" type="search" placeholder="Nombre o nota"></label>
-                <label>Categoria<select id="materialCategoryFilter"></select></label>
+              <div class="materials-head-actions">
+                <span id="materialsUpdatedMeta" class="income-updated-meta"></span>
+                <button type="button" class="button-with-icon" data-new-material><svg><use href="#icon-plus"></use></svg><span>Nuevo material</span></button>
+              </div>
+            </div>
+
+            <div id="materialSummaryCards" class="materials-summary-grid"></div>
+
+            <div class="materials-priority-grid">
+              <section class="panel materials-priority-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Reposición prioritaria</h2>
+                    <p>Materiales con stock por debajo del punto de reposición.</p>
+                  </div>
+                  <button type="button" class="ghost dashboard-panel-link" data-material-lane="reorder">Ver todas</button>
+                </div>
+                <div id="materialPriorityCards" class="materials-priority-cards"></div>
+              </section>
+
+              <aside class="panel materials-review-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Cola de revisión</h2>
+                    <p>Alertas rápidas para mantener el catálogo listo.</p>
+                  </div>
+                  <span class="panel-head-icon" aria-hidden="true"><svg><use href="#icon-sliders"></use></svg></span>
+                </div>
+                <div id="materialReviewQueue" class="invoice-review-list"></div>
+              </aside>
+            </div>
+
+            <section class="panel materials-filter-panel">
+              <div class="filter-grid materials-filters">
+                <label>Buscar<input id="materialSearch" type="search" placeholder="Nombre, nota, familia..."></label>
+                <label>Categoría<select id="materialCategoryFilter"></select></label>
                 <label>Proveedor<select id="materialSupplierFilter"></select></label>
                 <label>Uso<select id="materialUsageFilter"></select></label>
                 <label>Familia<select id="materialFamilyFilter"></select></label>
@@ -719,53 +748,195 @@
                 <label>Orden
                   <select id="materialSort">
                     <option value="name_asc">Nombre A-Z</option>
-                    <option value="category_asc">Categoria</option>
+                    <option value="category_asc">Categoría</option>
                     <option value="stock_asc">Menor stock</option>
                     <option value="stock_desc">Mayor stock</option>
                   </select>
                 </label>
                 <label class="check"><input id="materialsDeleted" type="checkbox"> Archivados</label>
               </div>
-              <div id="materialList" class="list material-list"></div>
-              <div id="materialPagination" class="pagination-bar"></div>
             </section>
 
-            <form id="materialForm" class="panel entity-module hidden">
-              <div class="panel-head">
-                <div>
-                  <h2 id="materialFormTitle">Nuevo material</h2>
-                  <p>Catalogo interno usado para costes.</p>
+            <div class="materials-content-grid">
+              <section class="panel materials-list-panel materials-list-shell">
+                <div class="panel-head invoice-head">
+                  <div>
+                    <h2>Listado</h2>
+                    <p>Filtra, prioriza y abre cada material desde la tabla.</p>
+                  </div>
                 </div>
-                <button type="button" class="ghost" data-close-material-panels>Cerrar</button>
+
+                <div id="materialStatusTabs" class="invoice-status-tabs"></div>
+
+                <div class="materials-table">
+                  <div class="materials-table-head">
+                    <span></span>
+                    <span>Material</span>
+                    <span>Categoría</span>
+                    <span>Familia</span>
+                    <span>Proveedor</span>
+                    <span>Stock Shopify</span>
+                    <span>Reposición</span>
+                    <span>Objetivo</span>
+                    <span>Coste ud.</span>
+                    <span>Imagen</span>
+                    <span>En kits</span>
+                    <span>Acciones</span>
+                  </div>
+                  <div id="materialList" class="materials-table-list"></div>
+                </div>
+                <div id="materialPagination" class="pagination-bar"></div>
+              </section>
+
+              <aside class="panel materials-side-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Últimos añadidos</h2>
+                    <p>Lo más reciente para retomar rápido.</p>
+                  </div>
+                  <button type="button" class="ghost dashboard-panel-link" data-material-lane="all">Ver todos</button>
+                </div>
+                <div id="materialRecentList" class="materials-recent-list"></div>
+              </aside>
+            </div>
+
+            <form id="materialForm" class="material-workspace invoice-workspace entity-module hidden">
+              <div class="invoice-workspace-hero">
+                <div>
+                  <p class="eyebrow">Operaciones / Materiales</p>
+                  <div class="invoice-title-row">
+                    <h2 id="materialFormTitle">Nuevo material</h2>
+                    <span id="materialFormStatusBadge" class="status-pill warn">Borrador catálogo</span>
+                  </div>
+                  <p id="materialFormSubtitle">Completa la información del material para inventario, costes y kits.</p>
+                </div>
+                <div class="invoice-hero-actions">
+                  <button type="button" class="ghost button-with-icon" data-close-material-panels><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar</span></button>
+                  <button type="submit" class="button-with-icon" data-material-save-label><svg><use href="#icon-save"></use></svg><span data-button-label>Guardar material</span></button>
+                  <button type="submit" class="ghost accent-outline button-with-icon" data-save-material-cost><svg><use href="#icon-plus"></use></svg><span>Guardar y crear coste</span></button>
+                </div>
               </div>
-              <div id="materialFormPreview" class="selected-material-card hidden"></div>
+
               <input type="hidden" name="id">
-              <div class="form-grid four">
-                <label>Nombre<input name="name" required></label>
-                <label>Categoria<select name="category"></select></label>
-                <label>Unidad<input name="unit_label" value="ud"></label>
-                <label>Proveedor preferente<select name="preferred_supplier_id"></select></label>
-              </div>
-              <div class="form-grid four">
-                <label>Stock Shopify<input name="effective_stock_qty" inputmode="decimal" readonly></label>
-                <label class="check"><input name="is_outlet" type="checkbox"> Outlet</label>
-                <label>Punto reposicion<input name="reorder_point" inputmode="decimal"></label>
-                <label>Stock objetivo<input name="target_stock" inputmode="decimal"></label>
-              </div>
-              <div class="form-grid four">
-                <label>Uso<input name="usage_type" placeholder="material_kit, packaging..."></label>
-                <label>Familia<input name="family" placeholder="joya, cadena, packaging..."></label>
-                <label>Subfamilia<input name="subfamily" placeholder="anillo, colgante..."></label>
-                <label>Variante<input name="variant" placeholder="circular, corazon..."></label>
-              </div>
-              <div class="form-grid two">
-                <label>Material base<input name="base_material" placeholder="acero, plata..."></label>
-                <label>Acabado / color<input name="finish" placeholder="dorado, plateado, banada en oro..."></label>
-              </div>
-              <label>Notas<textarea name="notes" rows="2"></textarea></label>
-              <div class="row-actions">
-                <button type="submit">Guardar material</button>
-                <button type="button" class="ghost" data-reset-form="materialForm">Limpiar</button>
+
+              <div class="invoice-workspace-grid">
+                <div class="invoice-workspace-main">
+                  <div class="materials-form-grid">
+                    <section class="panel invoice-editor-card">
+                      <div class="panel-head compact-head">
+                        <div>
+                          <h2>1. Identidad del material</h2>
+                          <p>Nombre, categoría y proveedor de referencia.</p>
+                        </div>
+                      </div>
+
+                      <div id="materialFormPreview" class="selected-material-card hidden"></div>
+
+                      <div class="form-grid two">
+                        <label class="required"><span class="field-label"><svg><use href="#icon-tag"></use></svg><span>Nombre del material</span></span><input name="name" required placeholder="Ej: Anillo Bosque (plata bañada en oro)"></label>
+                        <label><span class="field-label"><svg><use href="#icon-users"></use></svg><span>Proveedor preferente</span></span><select name="preferred_supplier_id"></select></label>
+                      </div>
+
+                      <div class="form-grid four">
+                        <label class="required"><span class="field-label"><svg><use href="#icon-cube"></use></svg><span>Categoría</span></span><select name="category"></select></label>
+                        <label class="required"><span class="field-label"><svg><use href="#icon-hash"></use></svg><span>Unidad</span></span><input name="unit_label" value="ud"></label>
+                        <label><span class="field-label"><svg><use href="#icon-image"></use></svg><span>URL de imagen</span></span><input name="image_url_override" placeholder="https://ejemplo.com/imagen.jpg"></label>
+                        <label class="check material-outlet-check"><input name="is_outlet" type="checkbox"><span>Marcar como outlet</span></label>
+                      </div>
+                    </section>
+
+                    <section class="panel invoice-editor-card">
+                      <div class="panel-head compact-head">
+                        <div>
+                          <h2>2. Taxonomía y atributos</h2>
+                          <p>Uso, familia y acabados del material.</p>
+                        </div>
+                      </div>
+                      <div class="form-grid four">
+                        <label><span class="field-label"><svg><use href="#icon-cube"></use></svg><span>Uso</span></span><input name="usage_type" placeholder="material kit, packaging..."></label>
+                        <label><span class="field-label"><svg><use href="#icon-tag"></use></svg><span>Familia</span></span><input name="family" placeholder="joya, cadena..."></label>
+                        <label><span class="field-label"><svg><use href="#icon-tag"></use></svg><span>Subfamilia</span></span><input name="subfamily" placeholder="anillo, colgante..."></label>
+                        <label><span class="field-label"><svg><use href="#icon-tag"></use></svg><span>Variante</span></span><input name="variant" placeholder="circular, corazón..."></label>
+                      </div>
+                      <div class="form-grid two">
+                        <label><span class="field-label"><svg><use href="#icon-cube"></use></svg><span>Material base</span></span><input name="base_material" placeholder="acero, plata..."></label>
+                        <label><span class="field-label"><svg><use href="#icon-tag"></use></svg><span>Acabado / color</span></span><input name="finish" placeholder="dorado, plateado, bañado en oro..."></label>
+                      </div>
+                    </section>
+
+                    <section class="panel invoice-editor-card">
+                      <div class="panel-head compact-head">
+                        <div>
+                          <h2>3. Stock y reposición</h2>
+                          <p>Stock real desde Shopify y configuración de compra.</p>
+                        </div>
+                      </div>
+                      <div class="form-grid three">
+                        <label><span class="field-label"><svg><use href="#icon-chart"></use></svg><span>Stock Shopify</span></span><input name="effective_stock_qty" inputmode="decimal" readonly></label>
+                        <label><span class="field-label"><svg><use href="#icon-alert"></use></svg><span>Punto de reposición</span></span><input name="reorder_point" inputmode="decimal" placeholder="Ej: 20"></label>
+                        <label><span class="field-label"><svg><use href="#icon-kit"></use></svg><span>Stock objetivo</span></span><input name="target_stock" inputmode="decimal" placeholder="Ej: 100"></label>
+                      </div>
+                      <label><span class="field-label"><svg><use href="#icon-note"></use></svg><span>Notas internas</span></span><textarea name="notes" rows="4" placeholder="Proveedor alternativo, observaciones, uso..."></textarea></label>
+                    </section>
+
+                    <section class="panel invoice-lines-draft material-kits-panel">
+                      <div class="panel-head compact-head">
+                        <div>
+                          <h2>4. Uso en kits</h2>
+                          <p>Vinculación del material con recetas y composiciones activas.</p>
+                        </div>
+                        <button type="button" class="ghost button-with-icon" data-jump-view="kits"><svg><use href="#icon-plus"></use></svg><span>Vincular kit</span></button>
+                      </div>
+                      <div id="materialFormKitUsage" class="material-kit-usage"></div>
+                    </section>
+                  </div>
+
+                  <div class="invoice-form-footer panel material-form-footer">
+                    <div class="invoice-amount-summary">
+                      <span><small>Stock Shopify</small><strong id="materialFooterStock">0 ud</strong></span>
+                      <span><small>Reposición</small><strong id="materialFooterReorder">Sin mínimo</strong></span>
+                      <span><small>Objetivo</small><strong id="materialFooterTarget">Sin objetivo</strong></span>
+                      <span class="total"><small>Coste medio</small><strong id="materialFooterCost">Sin coste</strong></span>
+                    </div>
+                    <div class="row-actions">
+                      <button type="button" class="ghost button-with-icon" data-reset-form="materialForm"><svg><use href="#icon-archive"></use></svg><span>Limpiar</span></button>
+                      <button type="submit" class="button-with-icon" data-material-save-label><svg><use href="#icon-save"></use></svg><span data-button-label>Guardar material</span></button>
+                    </div>
+                  </div>
+                </div>
+
+                <aside class="invoice-workspace-side">
+                  <section class="panel invoice-check-card">
+                    <div class="panel-head compact-head">
+                      <div>
+                        <h2>Revisión del material</h2>
+                        <p>Comprueba que el catálogo queda listo para usar.</p>
+                      </div>
+                    </div>
+                    <div id="materialFormReviewState" class="invoice-check-list"></div>
+                    <div id="materialFormSuggestion" class="invoice-inline-status income-suggestion"></div>
+                  </section>
+
+                  <section class="panel invoice-check-card">
+                    <div class="panel-head compact-head">
+                      <div>
+                        <h2>Siguientes acciones sugeridas</h2>
+                        <p>Atajos para continuar con costes y kits.</p>
+                      </div>
+                    </div>
+                    <div id="materialFormNextSteps" class="material-next-steps"></div>
+                  </section>
+
+                  <section class="panel invoice-check-card">
+                    <div class="panel-head compact-head">
+                      <div>
+                        <h2>Información del registro</h2>
+                        <p>Estado actual del material en la app.</p>
+                      </div>
+                    </div>
+                    <div id="materialFormRegistryInfo" class="income-origin-list"></div>
+                  </section>
+                </aside>
               </div>
             </form>
           </div>
