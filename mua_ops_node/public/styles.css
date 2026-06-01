@@ -1299,6 +1299,7 @@ body.income-view-active .topbar {
   align-items: center;
   overflow: hidden;
   padding: 12px 14px;
+  min-height: 118px;
 }
 
 .income-kpi-card .income-kpi-icon {
@@ -1334,7 +1335,7 @@ body.income-view-active .topbar {
 }
 
 .income-kpi-copy strong {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.1;
 }
 
@@ -1438,7 +1439,7 @@ body.income-view-active .topbar {
   display: grid;
   grid-template-columns: minmax(0, 1.78fr) minmax(352px, .92fr);
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .income-chart-panel,
@@ -1449,25 +1450,25 @@ body.income-view-active .topbar {
 }
 
 .income-chart-panel .chart-surface {
-  min-height: 246px;
+  min-height: 220px;
 }
 
 .income-chart {
-  min-height: 262px;
+  min-height: 228px;
 }
 
 .income-channel-panel .chart-surface-small {
-  min-height: 180px;
+  min-height: 150px;
 }
 
 .income-donut-chart {
-  min-height: 194px;
+  min-height: 158px;
 }
 
 .income-channel-breakdown {
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
 }
 
@@ -1559,7 +1560,7 @@ body.income-view-active .topbar {
 
 .income-filter-panel {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   background: linear-gradient(180deg, rgba(255,255,255,.96) 0%, rgba(249,246,240,.96) 100%);
 }
 
@@ -1567,7 +1568,7 @@ body.income-view-active .topbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 348px;
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .income-primary-stack,
@@ -1575,16 +1576,23 @@ body.income-view-active .topbar {
   display: grid;
   gap: 16px;
   align-content: start;
+  height: 100%;
 }
 
 .income-review-panel,
 .income-side-panel {
   display: grid;
   grid-template-rows: auto 1fr;
+  min-height: 0;
+}
+
+.income-secondary-stack {
+  grid-template-rows: minmax(0, .88fr) minmax(0, 1fr);
 }
 
 .income-review-panel .invoice-review-list {
-  max-height: 316px;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
   padding-right: 4px;
 }
@@ -1595,7 +1603,8 @@ body.income-view-active .topbar {
 }
 
 .income-side-panel .income-recent-list {
-  max-height: 404px;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
   padding-right: 4px;
 }

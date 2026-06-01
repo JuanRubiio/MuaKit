@@ -39,7 +39,7 @@ export function createIncomeViews(ctx) {
     if (accountHint) return accountHint;
     const sourceFile = text(row.raw_source_file).trim();
     if (sourceFile && !/manual\|/i.test(sourceFile)) return sourceFile;
-    return `${channelLabel(row.channel)} · ${text(row.payout_date)}`;
+    return `${channelLabel(row.channel)} \u00B7 ${text(row.payout_date)}`;
   }
 
   function renderIncome() {
@@ -182,7 +182,7 @@ export function createIncomeViews(ctx) {
           backgroundColor: "rgba(255,255,255,.96)",
           borderColor: "rgba(201,186,172,.9)",
           textStyle: { color: "#2e2622", fontFamily: "Inter, sans-serif" },
-          formatter: ({ name, value, percent }) => `${name}<br><strong>${euro.format(number(value))}</strong> · ${percent}%`
+          formatter: ({ name, value, percent }) => `${name}<br><strong>${euro.format(number(value))}</strong> \u00B7 ${percent}%`
         },
         legend: { show: false },
         series: [{
@@ -203,7 +203,7 @@ export function createIncomeViews(ctx) {
         <small>${euro.format(number(row.net_amount))}</small>
         <em>${total ? `${((number(row.net_amount) / total) * 100).toFixed(1).replace(".", ",")}%` : "0%"}</em>
       </article>
-    `).join("") || `<div class="empty-state compact">Todavía no hay ingresos por canal.</div>`;
+    `).join("") || `<div class="empty-state compact">Todav\u00eda no hay ingresos por canal.</div>`;
   }
 
   function renderIncomeStatusTabs(sourceRows, filteredRows) {
@@ -232,7 +232,7 @@ export function createIncomeViews(ctx) {
       `).join("");
     }
     $("#incomeUpdatedMeta").innerHTML = filteredRows.length
-      ? `<svg><use href="#icon-refresh"></use></svg><span>Actualizado · ${text(filteredRows[0]?.payout_date || "")}</span>`
+      ? `<svg><use href="#icon-refresh"></use></svg><span>Actualizado \u00B7 ${text(filteredRows[0]?.payout_date || "")}</span>`
       : `<svg><use href="#icon-refresh"></use></svg><span>Sin ingresos visibles</span>`;
   }
 
@@ -242,10 +242,10 @@ export function createIncomeViews(ctx) {
     const noAccount = rows.filter((row) => !String(row.bank_account_hint || "").trim());
     const toReconcile = rows.filter((row) => paidStatuses.has(String(row.status || "")) && (!String(row.bank_reference || "").trim() || !String(row.bank_account_hint || "").trim()));
     return [
-      ["pending", "Pendientes de cobro", pendingRows.length, pendingRows[0] ? `${channelLabel(pendingRows[0].channel)} · ${text(pendingRows[0].payout_date)}` : "Todos los ingresos están ejecutados", pendingRows.length ? "warn" : "ok", "icon-clock"],
-      ["missing_reference", "Sin referencia", noReference.length, noReference[0] ? `${channelLabel(noReference[0].channel)} · completar pedido o banco` : "Todos los ingresos tienen referencia", noReference.length ? "warn" : "ok", "icon-alert"],
-      ["missing_account", "Sin cuenta", noAccount.length, noAccount[0] ? `${channelLabel(noAccount[0].channel)} · asignar cuenta` : "Todas las cuentas están informadas", noAccount.length ? "warn" : "ok", "icon-bank"],
-      ["reconcile", "Por conciliar", toReconcile.length, toReconcile[0] ? `${channelLabel(toReconcile[0].channel)} · revisar conciliación` : "No hay ingresos bloqueados", toReconcile.length ? "neutral" : "ok", "icon-check-circle"]
+      ["pending", "Pendientes de cobro", pendingRows.length, pendingRows[0] ? `${channelLabel(pendingRows[0].channel)} \u00B7 ${text(pendingRows[0].payout_date)}` : "Todos los ingresos est\u00e1n ejecutados", pendingRows.length ? "warn" : "ok", "icon-clock"],
+      ["missing_reference", "Sin referencia", noReference.length, noReference[0] ? `${channelLabel(noReference[0].channel)} \u00B7 completar pedido o banco` : "Todos los ingresos tienen referencia", noReference.length ? "warn" : "ok", "icon-alert"],
+      ["missing_account", "Sin cuenta", noAccount.length, noAccount[0] ? `${channelLabel(noAccount[0].channel)} \u00B7 asignar cuenta` : "Todas las cuentas est\u00e1n informadas", noAccount.length ? "warn" : "ok", "icon-bank"],
+      ["reconcile", "Por conciliar", toReconcile.length, toReconcile[0] ? `${channelLabel(toReconcile[0].channel)} \u00B7 revisar conciliaci\u00f3n` : "No hay ingresos bloqueados", toReconcile.length ? "neutral" : "ok", "icon-check-circle"]
     ];
   }
 
@@ -278,7 +278,7 @@ export function createIncomeViews(ctx) {
         </span>
         <em>${euro.format(number(row.net_amount))}</em>
       </button>
-    `).join("") || `<div class="empty-state compact">Todavía no hay ingresos recientes.</div>`;
+    `).join("") || `<div class="empty-state compact">Todav\u00eda no hay ingresos recientes.</div>`;
   }
 
   function renderIncomeSummaryCards(rows) {
@@ -305,7 +305,7 @@ export function createIncomeViews(ctx) {
     const prevRows = rows.filter((row) => String(row.payout_date || "").slice(0, 7) === prevKey);
     const prevTotal = prevRows.reduce((sum, row) => sum + number(row.net_amount), 0);
     const delta = prevTotal > 0 ? ((monthNet - prevTotal) / prevTotal) * 100 : null;
-    const deltaText = delta == null ? "Sin comparativa previa" : `${delta >= 0 ? "↑" : "↓"} ${Math.abs(delta).toFixed(1).replace(".", ",")}% vs. periodo anterior`;
+    const deltaText = delta == null ? "Sin comparativa previa" : `${delta >= 0 ? "\u2191" : "\u2193"} ${Math.abs(delta).toFixed(1).replace(".", ",")}% vs. periodo anterior`;
     $("#incomeSummaryCards").innerHTML = `
       <article class="card income-kpi-card tone-accent">
         <span class="income-kpi-icon"><svg><use href="#icon-chart"></use></svg></span>
@@ -335,16 +335,16 @@ export function createIncomeViews(ctx) {
       <article class="card income-kpi-card tone-gold">
         <span class="income-kpi-icon"><svg><use href="#icon-calendar"></use></svg></span>
         <div class="income-kpi-copy">
-          <span>Último ingreso</span>
+          <span>\u00daltimo ingreso</span>
           <strong>${lastRow ? text(lastRow.payout_date) : "Sin datos"}</strong>
-          <small>${lastRow ? `${euro.format(number(lastRow.net_amount))} · ${channelLabel(lastRow.channel)}` : "Todavía sin ingresos"}</small>
+          <small>${lastRow ? `${euro.format(number(lastRow.net_amount))} \u00B7 ${channelLabel(lastRow.channel)}` : "Todav\u00eda sin ingresos"}</small>
         </div>
       </article>
       <article class="card income-kpi-card tone-neutral is-channel-card">
         <div class="income-kpi-copy">
           <span>Canales (neto)</span>
           <strong>${dominantChannel ? channelLabel(dominantChannel.channel) : "Sin canales"}</strong>
-          <small>${dominantChannel ? `${euro.format(number(dominantChannel.net_amount))} · líder actual` : "Pendiente de actividad"}</small>
+          <small>${dominantChannel ? `${euro.format(number(dominantChannel.net_amount))} \u00B7 l\u00edder actual` : "Pendiente de actividad"}</small>
         </div>
         <div class="income-mini-breakdown" id="incomeMiniBreakdown"></div>
         <div class="income-mini-donut" id="incomeMiniDonut"></div>
@@ -473,10 +473,10 @@ export function createIncomeViews(ctx) {
         <div>
           <p class="eyebrow">Operaciones / Ingresos</p>
           <div class="invoice-title-row">
-            <h2>${channelLabel(payout.channel)} · ${text(payout.payout_date)}</h2>
+            <h2>${channelLabel(payout.channel)} \u00B7 ${text(payout.payout_date)}</h2>
             <span class="status-pill ${paidStatuses.has(String(payout.status || "")) ? "ok" : "warn"}">${payoutStatusLabel(payout.status)}</span>
           </div>
-          <p>${channelLabel(payout.channel)} · ${euro.format(number(payout.net_amount))} netos · ${text(payout.bank_reference || "Sin referencia bancaria")}</p>
+          <p>${channelLabel(payout.channel)} \u00B7 ${euro.format(number(payout.net_amount))} netos \u00B7 ${text(payout.bank_reference || "Sin referencia bancaria")}</p>
         </div>
         <div class="invoice-hero-actions">
           <button type="button" class="ghost button-with-icon" data-close-payout-panels><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar</span></button>
@@ -501,7 +501,7 @@ export function createIncomeViews(ctx) {
             </div>
             <div class="income-calc-summary detail">
               <span><small>Bruto</small><strong>${euro.format(number(payout.gross_amount))}</strong></span>
-              <span class="operator">−</span>
+              <span class="operator">\u2212</span>
               <span><small>Comisiones</small><strong>${euro.format(number(payout.fees_amount))}</strong></span>
               <span class="operator">=</span>
               <span class="total"><small>Neto</small><strong>${euro.format(number(payout.net_amount))}</strong></span>
@@ -517,8 +517,8 @@ export function createIncomeViews(ctx) {
           <section class="panel invoice-check-card">
             <div class="panel-head compact-head">
               <div>
-                <h2>2. Conciliación</h2>
-                <p>Indicadores rápidos del registro.</p>
+                <h2>2. Conciliaci\u00f3n</h2>
+                <p>Indicadores r\u00e1pidos del registro.</p>
               </div>
             </div>
             <div class="invoice-check-list">${detailReview(payout)}</div>
