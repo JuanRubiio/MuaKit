@@ -388,7 +388,7 @@ function resetForm(id) {
       $("#materialFormStatusBadge").textContent = "Borrador catálogo";
       $("#materialFormStatusBadge").className = "status-pill warn";
     }
-    if ($("#materialFormSubtitle")) $("#materialFormSubtitle").textContent = "Completa la información del material para inventario, costes y kits.";
+    if ($("#materialFormSubtitle")) $("#materialFormSubtitle").textContent = "Completa la información del material para inventario, stock y costes.";
     $$("[data-material-save-label]").forEach((button) => {
       const label = button.querySelector("[data-button-label]");
       if (label) label.textContent = "Guardar material";

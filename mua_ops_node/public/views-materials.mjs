@@ -16,8 +16,12 @@ export function createMaterialViews(ctx) {
     optionList,
     distinctValues,
     img,
-    hierarchySummary
+    hierarchySummary,
+    chartColors,
+    dashboardChart
   } = ctx;
+
+  const materialCostDetailCache = new Map();
 
   const REVIEW_ICONS = {
     noImage: "icon-image",
@@ -126,6 +130,32 @@ export function createMaterialViews(ctx) {
     return null;
   }
 
+  function latestCost(material, costMap) {
+    const row = costRow(material, costMap);
+    if (!row) return null;
+    if (row.last_unit_cost_inc_vat != null) return number(row.last_unit_cost_inc_vat);
+    if (row.weighted_avg_unit_cost_inc_vat != null) return number(row.weighted_avg_unit_cost_inc_vat);
+    return null;
+  }
+
+  async function loadMaterialCostDetail(materialId) {
+    const numericId = Number(materialId || 0);
+    if (!numericId) return null;
+    const detail = await api(`/api/costs/materials/${numericId}`);
+    materialCostDetailCache.set(numericId, detail);
+    return detail;
+  }
+
+  function stockHealth(material) {
+    const stock = stockNumber(material);
+    const minimum = reorderNumber(material);
+    const target = number(material.target_stock);
+    if (minimum && stock <= minimum) return { label: "Reposición urgente", tone: "warn" };
+    if (minimum && stock <= reorderThreshold(material)) return { label: "Vigilar reposición", tone: "pending" };
+    if (target && stock >= target) return { label: "Objetivo cubierto", tone: "ok" };
+    return { label: "Stock estable", tone: "neutral" };
+  }
+
   function kitUsage(materialId, kitMap) {
     return kitMap.get(Number(materialId)) || [];
   }
@@ -154,6 +184,7 @@ export function createMaterialViews(ctx) {
     const form = $("#materialForm");
     if (!form) return null;
     const elements = form.elements;
+    const persisted = state.materials.find((item) => String(item.id) === String(elements.id?.value || ""));
     return {
       id: elements.id?.value || "",
       name: elements.name?.value || "",
@@ -163,7 +194,7 @@ export function createMaterialViews(ctx) {
       category: elements.category?.value || "",
       unit_label: elements.unit_label?.value || "ud",
       image_url_override: elements.image_url_override?.value || "",
-      image_url: elements.image_url_override?.value || "",
+      image_url: persisted?.image_url || "",
       is_outlet: Boolean(elements.is_outlet?.checked),
       is_priority_restock: Boolean(elements.is_priority_restock?.checked),
       usage_type: elements.usage_type?.value || "",
@@ -535,15 +566,142 @@ export function createMaterialViews(ctx) {
       : `<div class="empty-state"><strong>Sin materiales con esos filtros</strong>Ajusta búsqueda o la cola de revisión para volver a poblar la tabla.</div>`;
   }
 
+  async function renderMaterialCostDetail(material) {
+    const chartNode = $("#materialCostChart");
+    const summaryNode = $("#materialCostSummary");
+    const lotsNode = $("#materialCostLots");
+    if (!chartNode || !summaryNode || !lotsNode) return;
+
+    if (!material?.id) {
+      summaryNode.innerHTML = `
+        <article class="material-cost-metric"><small>Coste medio</small><strong>Sin guardar</strong><span>Guárdalo para empezar a registrar lotes.</span></article>
+        <article class="material-cost-metric"><small>Último coste</small><strong>—</strong><span>Aún no hay compras asociadas.</span></article>
+        <article class="material-cost-metric"><small>Proveedor principal</small><strong>${text(material?.preferred_supplier_name || "Sin proveedor")}</strong><span>Se tomará del registro del material.</span></article>
+        <article class="material-cost-metric"><small>Gasto total</small><strong>—</strong><span>Sin histórico de compras todavía.</span></article>
+      `;
+      chartNode.innerHTML = `<div class="empty-state small"><strong>Sin histórico de coste</strong>Guarda el material y añade su primer lote para ver la evolución.</div>`;
+      lotsNode.innerHTML = "";
+      return;
+    }
+
+    chartNode.innerHTML = "";
+    summaryNode.innerHTML = `<div class="inline-note"><strong>Cargando coste...</strong><small>Recuperando lotes y cálculo medio del material.</small></div>`;
+    lotsNode.innerHTML = "";
+
+    const materialId = Number(material.id);
+    const detail = await loadMaterialCostDetail(materialId).catch(() => null);
+    const currentId = Number($("#materialForm")?.elements?.id?.value || materialId);
+    if (currentId !== materialId) return;
+
+    if (!detail) {
+      summaryNode.innerHTML = `<div class="inline-note"><strong>Sin datos de coste</strong><small>No hemos podido cargar el histórico todavía.</small></div>`;
+      chartNode.innerHTML = `<div class="empty-state small"><strong>Coste no disponible</strong>Revisa el detalle de costes o vuelve a intentarlo.</div>`;
+      return;
+    }
+
+    const { summary, lots } = detail;
+    const weighted = summary?.weighted_avg_unit_cost_inc_vat == null ? null : number(summary.weighted_avg_unit_cost_inc_vat);
+    const latest = summary?.last_unit_cost_inc_vat == null ? null : number(summary.last_unit_cost_inc_vat);
+    const totalSpend = summary?.total_spend_inc_vat == null ? lots.reduce((sum, lot) => sum + number(lot.line_total), 0) : number(summary.total_spend_inc_vat);
+    const supplier = text(summary?.supplier_name || material.preferred_supplier_name || "Sin proveedor");
+
+    summaryNode.innerHTML = `
+      <article class="material-cost-metric"><small>Coste medio</small><strong>${formatEuro(weighted, "Sin coste")}</strong><span>${lots.length} lotes activos</span></article>
+      <article class="material-cost-metric"><small>Último coste</small><strong>${formatEuro(latest, "—")}</strong><span>${lots.at(-1)?.invoice_date ? text(lots.at(-1).invoice_date) : "Aún sin fecha"}</span></article>
+      <article class="material-cost-metric"><small>Proveedor principal</small><strong>${supplier}</strong><span>${lots.length ? `${lots.filter((lot) => lower(lot.supplier_name) === lower(supplier)).length} compras registradas` : "Sin compras todavía"}</span></article>
+      <article class="material-cost-metric"><small>Gasto total</small><strong>${formatEuro(totalSpend, "—")}</strong><span>${lots.length ? `${lots.reduce((sum, lot) => sum + number(lot.total_units), 0)} uds compradas` : "Sin unidades registradas"}</span></article>
+    `;
+
+    if (!lots.length) {
+      chartNode.innerHTML = `<div class="empty-state small"><strong>Sin evolución de coste</strong>Este material todavía no tiene líneas de factura asociadas.</div>`;
+      lotsNode.innerHTML = "";
+      return;
+    }
+
+    const chart = dashboardChart("materialCostChart");
+    if (chart) {
+      const colors = chartColors();
+      const singleSeries = lots.length <= 2;
+      chart.setOption({
+        animationDuration: 350,
+        grid: { left: 50, right: 18, top: 24, bottom: 46 },
+        tooltip: {
+          trigger: "axis",
+          valueFormatter: (value) => euro.format(Number(value || 0))
+        },
+        xAxis: {
+          type: "category",
+          data: lots.map((lot) =>
+            singleSeries
+              ? `${String(lot.invoice_date || "").slice(2)}`
+              : `${String(lot.invoice_date || "").slice(2)} · ${lot.invoice_number || "s/n"}`
+          ),
+          axisLine: { lineStyle: { color: "#d9cec1" } },
+          axisLabel: { color: "#766e68", interval: 0, rotate: singleSeries ? 0 : 18 }
+        },
+        yAxis: {
+          type: "value",
+          axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
+          splitLine: { lineStyle: { color: "#eee6dc" } }
+        },
+        series: [
+          {
+            name: "Coste unitario",
+            type: "line",
+            smooth: true,
+            symbol: "circle",
+            symbolSize: 7,
+            lineStyle: { width: 3, color: colors.materiales },
+            itemStyle: { color: colors.materiales },
+            areaStyle: {
+              color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: `${colors.materiales}26` },
+                { offset: 1, color: `${colors.materiales}06` }
+              ])
+            },
+            data: lots.map((lot) => number(lot.unit_cost))
+          }
+        ]
+      }, true);
+    }
+
+    lotsNode.innerHTML = `
+      <div class="material-cost-lots-head">
+        <strong>Últimos lotes</strong>
+        <small>${lots.length} compras activas vinculadas al material.</small>
+      </div>
+      <div class="material-cost-lots-list">
+        ${lots
+          .slice()
+          .reverse()
+          .slice(0, 4)
+          .map(
+            (lot) => `
+          <article class="material-cost-lot">
+            <div>
+              <strong>${text(lot.invoice_date)} · ${text(lot.supplier_name || "Sin proveedor")}</strong>
+              <small>${text(lot.invoice_number || "Sin número")} · ${text(String(lot.package_count))} paquetes · ${text(String(lot.total_units))} uds</small>
+            </div>
+            <div class="material-cost-lot-values">
+              <strong>${formatEuro(lot.unit_cost, "—")}</strong>
+              <small>${formatEuro(lot.line_total, "—")}</small>
+            </div>
+          </article>
+        `
+          )
+          .join("")}
+      </div>
+    `;
+  }
+
   function renderMaterialWorkspace(explicitMaterial = null) {
     const form = $("#materialForm");
     if (!form || form.classList.contains("hidden")) return;
 
     const material = currentMaterialFormState(explicitMaterial) || {};
     const costMap = materialCostMap();
-    const kitMap = materialKitMap();
-    const kits = material.id ? kitUsage(material.id, kitMap) : [];
     const cost = material.id ? unitCost(material, costMap) : null;
+    const lastCost = material.id ? latestCost(material, costMap) : null;
     const supplierSelect = form.elements.preferred_supplier_id;
     const categorySelect = form.elements.category;
 
@@ -566,13 +724,33 @@ export function createMaterialViews(ctx) {
     }
 
     if (!form.elements.unit_label.value) form.elements.unit_label.value = material.unit_label || "ud";
-    if (form.elements.effective_stock_qty && !String(form.elements.effective_stock_qty.value || "").trim()) {
-      form.elements.effective_stock_qty.value = String(stockNumber(material));
-    }
+    form.elements.effective_stock_qty.value = String(stockNumber(material));
 
     const imageUrl = material.image_url_override || material.image_url || "";
-    $("#materialFormPreview").classList.toggle("hidden", !material.name && !imageUrl);
-    $("#materialFormPreview").innerHTML = `
+    const health = stockHealth(material);
+    const supplierName = text(material.preferred_supplier_name || "Sin proveedor");
+    const stock = stockNumber(material);
+    const reorder = reorderNumber(material);
+    const target = number(material.target_stock);
+
+    $("#materialFormTitle").textContent = material.id ? text(material.name || `Material #${material.id}`) : "Nuevo material";
+    $("#materialFormStatusBadge").textContent = material.id ? "Catálogo activo" : "Borrador catálogo";
+    $("#materialFormStatusBadge").className = `status-pill ${material.id ? "ok" : "warn"}`;
+    $("#materialFormSubtitle").textContent = material.id
+      ? `${supplierName} · ${hasImage(material) ? "1 imagen" : "Sin imagen"} · ${material.is_outlet ? "Outlet" : "Catálogo principal"}`
+      : "Completa la información principal del material y deja listo su seguimiento económico.";
+
+    $("#materialWorkspaceKpis").innerHTML = `
+      <article class="material-workspace-kpi"><small>Stock Shopify</small><strong>${text(String(stock))} ${text(material.unit_label || "ud")}</strong><span>${supplierName}</span></article>
+      <article class="material-workspace-kpi"><small>Salud</small><strong>${text(health.label)}</strong><span>${reorder ? `Mínimo ${text(String(reorder))} ${text(material.unit_label || "ud")}` : "Define punto de reposición"}</span></article>
+      <article class="material-workspace-kpi"><small>Reposición</small><strong>${reorder ? `${text(String(reorder))} ${text(material.unit_label || "ud")}` : "—"}</strong><span>Punto de reposición</span></article>
+      <article class="material-workspace-kpi"><small>Objetivo</small><strong>${target ? `${text(String(target))} ${text(material.unit_label || "ud")}` : "—"}</strong><span>Stock objetivo</span></article>
+      <article class="material-workspace-kpi"><small>Coste medio</small><strong>${formatEuro(cost, "Sin coste")}</strong><span>${lastCost != null ? `Último ${formatEuro(lastCost)}` : "Sin histórico de compra"}</span></article>
+    `;
+
+    const preview = $("#materialFormPreview");
+    preview.classList.toggle("hidden", !material.name && !imageUrl);
+    preview.innerHTML = `
       <div class="selected-material-card-media">${materialThumb(material, "preview")}</div>
       <div class="selected-material-card-copy">
         <strong>${text(material.name || "Nuevo material")}</strong>
@@ -586,76 +764,61 @@ export function createMaterialViews(ctx) {
           ${material.finish ? badge(material.finish) : ""}
           ${material.is_outlet ? badge("outlet", "warn") : ""}
           ${material.is_priority_restock ? badge("prioritario", "accent") : ""}
+          ${hasImage(material) ? badge("1 imagen", "ok") : badge("sin imagen", "warn")}
         </div>
-        <small>${text(material.preferred_supplier_name || "Sin proveedor")} · Stock Shopify ${text(String(stockNumber(material)))}</small>
+        <small>${supplierName}</small>
       </div>
     `;
 
-    $("#materialFormTitle").textContent = material.id ? text(material.name || `Material #${material.id}`) : "Nuevo material";
-    $("#materialFormStatusBadge").textContent = material.id ? "Catálogo activo" : "Borrador catálogo";
-    $("#materialFormStatusBadge").className = `status-pill ${material.id ? "ok" : "warn"}`;
-    $("#materialFormSubtitle").textContent = material.id
-      ? `${text(material.category || "Sin categoría")} · ${text(material.preferred_supplier_name || "Sin proveedor")} · ${kits.length} kits vinculados`
-      : "Completa la información del material para inventario, costes y kits.";
-
-    $("#materialFormKitUsage").innerHTML = kits.length
-      ? kits
-          .map(
-            (item) => `
-        <article class="material-kit-row">
-          <div>
-            <strong>${text(item.kitName)}${item.version ? ` · ${text(item.version)}` : ""}</strong>
-            <small>${text(item.role)} · ${text(String(item.quantity))} por kit</small>
-          </div>
-          <button type="button" class="ghost button-with-icon" data-open-kit="${item.kitId}">
-            <svg><use href="#icon-eye"></use></svg><span>Ver kit</span>
-          </button>
-        </article>
-      `
-          )
-          .join("")
-      : `<div class="empty-state small"><strong>Sin uso en kits</strong>Cuando este material forme parte de una receta aparecerá aquí.</div>`;
+    $("#materialHealthPanel").innerHTML = `
+      <div class="material-health-kpi">
+        <span><small>Stock Shopify</small><strong>${text(String(stock))} ${text(material.unit_label || "ud")}</strong></span>
+        <span class="status-pill ${health.tone === "warn" ? "warn" : health.tone === "ok" ? "ok" : "neutral"}">${text(health.label)}</span>
+      </div>
+      <div class="material-health-metrics">
+        <span><small>Punto reposición</small><strong>${reorder ? `${text(String(reorder))} ${text(material.unit_label || "ud")}` : "Sin mínimo"}</strong></span>
+        <span><small>Stock objetivo</small><strong>${target ? `${text(String(target))} ${text(material.unit_label || "ud")}` : "Sin objetivo"}</strong></span>
+      </div>
+      <div class="material-health-bar">
+        <i style="width:${Math.max(6, Math.min(target || reorder || 1, stock) / Math.max(target || reorder || 1, 1) * 100)}%"></i>
+      </div>
+      <div class="material-health-note ${health.tone}">
+        ${isReorderRisk(material)
+          ? `<strong>Reponer ahora</strong><small>El stock actual ya está por debajo del umbral esperado.</small>`
+          : `<strong>Stock controlado</strong><small>El material mantiene un nivel de inventario razonable.</small>`}
+      </div>
+    `;
 
     const review = [
-      {
-        icon: "icon-tag",
-        tone: material.name ? "ok" : "warn",
-        title: "Identidad",
-        detail: material.name ? "Nombre y categoría listos." : "Falta el nombre del material."
-      },
-      {
-        icon: "icon-users",
-        tone: number(material.preferred_supplier_id) ? "ok" : "warn",
-        title: "Proveedor",
-        detail: number(material.preferred_supplier_id)
-          ? text(material.preferred_supplier_name || "Proveedor asignado.")
-          : "Conviene asignar un proveedor."
-      },
       {
         icon: "icon-image",
         tone: hasImage(material) ? "ok" : "warn",
         title: "Imagen",
-        detail: hasImage(material) ? "El material ya tiene vista previa." : "Falta una imagen para reconocerlo."
+        detail: hasImage(material) ? "La vista principal ya está disponible." : "Falta una imagen identificable."
       },
       {
         icon: "icon-coin",
         tone: cost != null ? "ok" : "pending",
         title: "Coste",
-        detail: cost != null ? `Coste medio ${formatEuro(cost)}` : "Guárdalo y crea su coste medio."
+        detail: cost != null ? `Coste medio ${formatEuro(cost)}` : "Guárdalo y registra su primer lote."
       },
       {
-        icon: "icon-kit",
-        tone: kits.length ? "ok" : "neutral",
-        title: "Uso en kits",
-        detail: kits.length ? `${kits.length} recetas lo están usando.` : "Aún no está vinculado a ningún kit."
+        icon: "icon-users",
+        tone: number(material.preferred_supplier_id) ? "ok" : "warn",
+        title: "Proveedor",
+        detail: number(material.preferred_supplier_id) ? supplierName : "Conviene asignar un proveedor."
+      },
+      {
+        icon: "icon-chart",
+        tone: reorder ? (isReorderRisk(material) ? "warn" : "ok") : "neutral",
+        title: "Reposición",
+        detail: reorder ? `Punto ${text(String(reorder))} · objetivo ${target ? text(String(target)) : "sin definir"}` : "Aún no tiene mínimo definido."
       },
       {
         icon: "icon-alert",
         tone: material.is_priority_restock ? "ok" : "neutral",
-        title: "Seguimiento prioritario",
-        detail: material.is_priority_restock
-          ? "Se vigila su reposición como joya de alta rotación."
-          : "No está marcado como material prioritario."
+        title: "Prioridad",
+        detail: material.is_priority_restock ? "Se vigila como referencia clave de venta." : "Seguimiento estándar."
       }
     ];
     $("#materialFormReviewState").innerHTML = review
@@ -676,77 +839,42 @@ export function createMaterialViews(ctx) {
       ? "warn"
       : cost == null
         ? "pending"
-        : kits.length
-          ? "ok"
-          : "neutral";
+        : isReorderRisk(material)
+          ? "warn"
+          : "ok";
     const suggestionText = !material.name || !material.category
       ? "Completa la identidad básica del material antes de guardarlo."
       : cost == null
-        ? "Guárdalo y abre Costes para registrar su primer lote."
-        : kits.length
-          ? "Ya está listo para inventario, kits y seguimiento económico."
-          : "El siguiente paso natural es vincularlo a un kit o receta.";
+        ? "El siguiente paso natural es registrar su primer lote de coste."
+        : isReorderRisk(material)
+          ? "Conviene lanzar una reposición o revisar stock cuanto antes."
+          : "La ficha queda lista para seguimiento de stock y coste.";
     $("#materialFormSuggestion").className = `invoice-inline-status income-suggestion ${suggestionTone}`;
     $("#materialFormSuggestion").innerHTML = `
       <span class="status-dot"></span>
       <strong>${text(suggestionText)}</strong>
     `;
 
-    const nextSteps = [
-      {
-        icon: "icon-coin",
-        title: cost == null ? "Crear coste ahora" : "Revisar evolución del coste",
-        detail: cost == null ? "Después de guardar podrás abrir su ficha de costes." : "Abre el detalle del coste por lotes.",
-        action: material.id ? `<button type="button" class="ghost button-with-icon" data-open-cost="${material.id}"><svg><use href="#icon-eye"></use></svg><span>Ver costes</span></button>` : ""
-      },
-      {
-        icon: "icon-kit",
-        title: kits.length ? "Comprobar recetas activas" : "Preparar uso en kits",
-        detail: kits.length ? "Este material ya tiene impacto operativo." : "Úsalo en recetas cuando el catálogo esté listo.",
-        action: kits[0] ? `<button type="button" class="ghost button-with-icon" data-open-kit="${kits[0].kitId}"><svg><use href="#icon-eye"></use></svg><span>Abrir kit</span></button>` : ""
-      },
-      {
-        icon: "icon-chart",
-        title: isReorderRisk(material) ? "Material en zona de reposición" : "Stock estable",
-        detail: isReorderRisk(material)
-          ? `Stock ${text(String(stockNumber(material)))} frente a mínimo ${text(String(reorderNumber(material)))}.`
-          : "Define punto de reposición y objetivo para activar alertas."
-      },
-      {
-        icon: "icon-alert",
-        title: material.is_priority_restock ? "Vigilancia prioritaria activa" : "Sin vigilancia prioritaria",
-        detail: material.is_priority_restock
-          ? "Seguirá apareciendo en la reposición prioritaria cuando baje de stock."
-          : "Actívalo si es una joya clave en ventas."
-      }
-    ];
-    $("#materialFormNextSteps").innerHTML = nextSteps
-      .map(
-        (step) => `
-      <article class="material-next-step">
-        <i class="invoice-check-icon neutral" aria-hidden="true"><svg><use href="#${step.icon}"></use></svg></i>
-        <div>
-          <strong>${text(step.title)}</strong>
-          <small>${text(step.detail)}</small>
-        </div>
-        ${step.action || ""}
-      </article>
-    `
-      )
-      .join("");
-
     $("#materialFormRegistryInfo").innerHTML = `
-      <div class="income-origin-row"><span>Proveedor</span><strong>${text(material.preferred_supplier_name || "Sin asignar")}</strong></div>
-      <div class="income-origin-row"><span>Prioridad</span><strong>${material.is_priority_restock ? "Reposición prioritaria" : "Seguimiento estándar"}</strong></div>
+      <div class="income-origin-row"><span>Proveedor</span><strong>${supplierName}</strong></div>
+      <div class="income-origin-row"><span>Fuente de imagen</span><strong>${material.image_url_override ? "Personalizada" : hasImage(material) ? "Shopify" : "Pendiente"}</strong></div>
       <div class="income-origin-row"><span>Tipo</span><strong>${material.is_outlet ? "Outlet" : "Catálogo principal"}</strong></div>
-      <div class="income-origin-row"><span>Imagen</span><strong>${hasImage(material) ? "Disponible" : "Pendiente"}</strong></div>
+      <div class="income-origin-row"><span>Seguimiento</span><strong>${material.is_priority_restock ? "Reposición prioritaria" : "Estándar"}</strong></div>
       <div class="income-origin-row"><span>Coste medio</span><strong>${cost == null ? "Sin coste" : formatEuro(cost)}</strong></div>
     `;
 
-    $("#materialFooterStock").textContent = `${text(String(stockNumber(material)))} ud`;
-    $("#materialFooterReorder").textContent = reorderNumber(material) ? `${text(String(reorderNumber(material)))} ud` : "Sin mínimo";
-    $("#materialFooterTarget").textContent = number(material.target_stock) ? `${text(String(number(material.target_stock)))} ud` : "Sin objetivo";
-    $("#materialFooterCost").textContent = cost == null ? "Sin coste" : formatEuro(cost);
+    const openCostButton = $("#materialOpenCostButton");
+    if (openCostButton) {
+      if (material.id) {
+        openCostButton.dataset.openCost = String(material.id);
+        openCostButton.disabled = false;
+      } else {
+        delete openCostButton.dataset.openCost;
+        openCostButton.disabled = true;
+      }
+    }
+
+    renderMaterialCostDetail(material);
   }
 
   function renderMaterials() {
