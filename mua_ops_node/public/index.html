@@ -583,15 +583,15 @@
                     <div class="income-channel-picker" role="radiogroup" aria-label="Canal del ingreso">
                       <label class="channel-choice">
                         <input type="radio" name="channel" value="shopify" checked>
-                        <span><i class="channel-choice-badge shopify"><svg><use href="#icon-channel-shopify"></use></svg></i><strong>Shopify</strong><small>Canal principal</small></span>
+                        <span><i class="channel-choice-badge shopify"><img src="/assets/entity-icons/shopify.svg" alt=""></i><strong>Shopify</strong><small>Canal principal</small></span>
                       </label>
                       <label class="channel-choice">
                         <input type="radio" name="channel" value="etsy">
-                        <span><i class="channel-choice-badge etsy"><svg><use href="#icon-channel-etsy"></use></svg></i><strong>Etsy</strong><small>Marketplace</small></span>
+                        <span><i class="channel-choice-badge etsy"><img src="/assets/entity-icons/etsy.svg" alt=""></i><strong>Etsy</strong><small>Marketplace</small></span>
                       </label>
                       <label class="channel-choice">
                         <input type="radio" name="channel" value="bizum">
-                        <span><i class="channel-choice-badge bizum"><svg><use href="#icon-channel-bizum"></use></svg></i><strong>Bizum</strong><small>Ingreso directo</small></span>
+                        <span><i class="channel-choice-badge bizum"><img src="/assets/entity-icons/bizum.svg" alt=""></i><strong>Bizum</strong><small>Ingreso directo</small></span>
                       </label>
                     </div>
 
@@ -667,7 +667,7 @@
                     <div class="income-origin-list">
                       <article class="income-origin-item">
                         <small>Origen</small>
-                        <strong id="payoutFormSourceLabel">Manual</strong>
+                        <strong id="payoutFormSourceLabel" class="income-origin-label">Manual</strong>
                       </article>
                       <article class="income-origin-item">
                         <small>Referencia</small>
@@ -821,10 +821,6 @@
                     <aside class="material-focus-sidebar">
                       <section class="panel material-visual-panel">
                         <div id="materialFormPreview" class="selected-material-card hidden"></div>
-                        <div class="inline-note">
-                          <strong>Imagen principal</strong>
-                          <small>La imagen se sincroniza desde Shopify salvo que definas una URL personalizada en el registro.</small>
-                        </div>
                       </section>
 
                       <section class="panel material-health-panel">
@@ -878,11 +874,6 @@
                           <label class="check material-priority-check"><input name="is_priority_restock" type="checkbox"><span>Reposición prioritaria</span></label>
                         </div>
 
-                        <div class="inline-note form-span-full">
-                          <strong>Imagen principal</strong>
-                          <small>La imagen se toma de Shopify por defecto. Solo añade una URL manual si quieres sustituirla para este material.</small>
-                        </div>
-
                         <label><span class="field-label"><svg><use href="#icon-note"></use></svg><span>Notas internas</span></span><textarea name="notes" rows="4" placeholder="Proveedor alternativo, observaciones o contexto de compra..."></textarea></label>
                       </section>
 
@@ -899,7 +890,15 @@
 
                         <div id="materialCostSummary" class="material-cost-summary-grid"></div>
                         <div id="materialCostChart" class="chart-surface chart-surface-small"></div>
-                        <div id="materialCostLots" class="material-cost-lots"></div>
+                        <section class="material-cost-lots-section">
+                          <div class="material-cost-lots-head">
+                            <div>
+                              <strong>Histórico de lotes</strong>
+                              <small id="materialCostLotsMeta">Compras vinculadas a este material.</small>
+                            </div>
+                          </div>
+                          <div id="materialCostLots" class="material-cost-lots"></div>
+                        </section>
                       </section>
                     </div>
                   </div>

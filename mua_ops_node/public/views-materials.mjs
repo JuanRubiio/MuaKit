@@ -138,6 +138,16 @@ export function createMaterialViews(ctx) {
     return null;
   }
 
+  function resetMaterialCostChartSurface(messageHtml = "") {
+    const chartNode = $("#materialCostChart");
+    if (!chartNode) return;
+    const existing = window.echarts?.getInstanceByDom?.(chartNode);
+    if (existing && !(typeof existing.isDisposed === "function" && existing.isDisposed())) {
+      existing.dispose();
+    }
+    chartNode.innerHTML = messageHtml;
+  }
+
   async function loadMaterialCostDetail(materialId) {
     const numericId = Number(materialId || 0);
     if (!numericId) return null;
@@ -567,10 +577,10 @@ export function createMaterialViews(ctx) {
   }
 
   async function renderMaterialCostDetail(material) {
-    const chartNode = $("#materialCostChart");
     const summaryNode = $("#materialCostSummary");
     const lotsNode = $("#materialCostLots");
-    if (!chartNode || !summaryNode || !lotsNode) return;
+    const lotsMetaNode = $("#materialCostLotsMeta");
+    if (!summaryNode || !lotsNode) return;
 
     if (!material?.id) {
       summaryNode.innerHTML = `
@@ -579,13 +589,15 @@ export function createMaterialViews(ctx) {
         <article class="material-cost-metric"><small>Proveedor principal</small><strong>${text(material?.preferred_supplier_name || "Sin proveedor")}</strong><span>Se tomará del registro del material.</span></article>
         <article class="material-cost-metric"><small>Gasto total</small><strong>—</strong><span>Sin histórico de compras todavía.</span></article>
       `;
-      chartNode.innerHTML = `<div class="empty-state small"><strong>Sin histórico de coste</strong>Guarda el material y añade su primer lote para ver la evolución.</div>`;
+      resetMaterialCostChartSurface(`<div class="empty-state small"><strong>Sin histórico de coste</strong>Guarda el material y añade su primer lote para ver la evolución.</div>`);
+      if (lotsMetaNode) lotsMetaNode.textContent = "Compras vinculadas a este material.";
       lotsNode.innerHTML = "";
       return;
     }
 
-    chartNode.innerHTML = "";
+    resetMaterialCostChartSurface("");
     summaryNode.innerHTML = `<div class="inline-note"><strong>Cargando coste...</strong><small>Recuperando lotes y cálculo medio del material.</small></div>`;
+    if (lotsMetaNode) lotsMetaNode.textContent = "Recuperando histórico de compras.";
     lotsNode.innerHTML = "";
 
     const materialId = Number(material.id);
@@ -595,7 +607,8 @@ export function createMaterialViews(ctx) {
 
     if (!detail) {
       summaryNode.innerHTML = `<div class="inline-note"><strong>Sin datos de coste</strong><small>No hemos podido cargar el histórico todavía.</small></div>`;
-      chartNode.innerHTML = `<div class="empty-state small"><strong>Coste no disponible</strong>Revisa el detalle de costes o vuelve a intentarlo.</div>`;
+      resetMaterialCostChartSurface(`<div class="empty-state small"><strong>Coste no disponible</strong>Revisa el detalle de costes o vuelve a intentarlo.</div>`);
+      if (lotsMetaNode) lotsMetaNode.textContent = "No hemos podido recuperar los lotes asociados.";
       return;
     }
 
@@ -613,8 +626,9 @@ export function createMaterialViews(ctx) {
     `;
 
     if (!lots.length) {
-      chartNode.innerHTML = `<div class="empty-state small"><strong>Sin evolución de coste</strong>Este material todavía no tiene líneas de factura asociadas.</div>`;
-      lotsNode.innerHTML = "";
+      resetMaterialCostChartSurface(`<div class="empty-state small"><strong>Sin evolución de coste</strong>Este material todavía no tiene líneas de factura asociadas.</div>`);
+      if (lotsMetaNode) lotsMetaNode.textContent = "Aún no hay lotes registrados.";
+      lotsNode.innerHTML = `<div class="empty-state small"><strong>Sin lotes asociados</strong>Cuando registres una compra para este material la verás aquí.</div>`;
       return;
     }
 
@@ -622,69 +636,76 @@ export function createMaterialViews(ctx) {
     if (chart) {
       const colors = chartColors();
       const singleSeries = lots.length <= 2;
-      chart.setOption({
-        animationDuration: 350,
-        grid: { left: 50, right: 18, top: 24, bottom: 46 },
-        tooltip: {
-          trigger: "axis",
-          valueFormatter: (value) => euro.format(Number(value || 0))
+      chart.setOption(
+        {
+          animationDuration: 350,
+          grid: { left: 50, right: 18, top: 24, bottom: 46 },
+          tooltip: {
+            trigger: "axis",
+            valueFormatter: (value) => euro.format(Number(value || 0))
+          },
+          xAxis: {
+            type: "category",
+            data: lots.map((lot) =>
+              singleSeries
+                ? `${String(lot.invoice_date || "").slice(2)}`
+                : `${String(lot.invoice_date || "").slice(2)} · ${lot.invoice_number || "s/n"}`
+            ),
+            axisLine: { lineStyle: { color: "#d9cec1" } },
+            axisLabel: { color: "#766e68", interval: 0, rotate: singleSeries ? 0 : 18 }
+          },
+          yAxis: {
+            type: "value",
+            axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
+            splitLine: { lineStyle: { color: "#eee6dc" } }
+          },
+          series: [
+            {
+              name: "Coste unitario",
+              type: "line",
+              smooth: true,
+              symbol: "circle",
+              symbolSize: 7,
+              lineStyle: { width: 3, color: colors.materiales },
+              itemStyle: { color: colors.materiales },
+              areaStyle: {
+                color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                  { offset: 0, color: `${colors.materiales}26` },
+                  { offset: 1, color: `${colors.materiales}06` }
+                ])
+              },
+              data: lots.map((lot) => number(lot.unit_cost))
+            }
+          ]
         },
-        xAxis: {
-          type: "category",
-          data: lots.map((lot) =>
-            singleSeries
-              ? `${String(lot.invoice_date || "").slice(2)}`
-              : `${String(lot.invoice_date || "").slice(2)} · ${lot.invoice_number || "s/n"}`
-          ),
-          axisLine: { lineStyle: { color: "#d9cec1" } },
-          axisLabel: { color: "#766e68", interval: 0, rotate: singleSeries ? 0 : 18 }
-        },
-        yAxis: {
-          type: "value",
-          axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
-          splitLine: { lineStyle: { color: "#eee6dc" } }
-        },
-        series: [
-          {
-            name: "Coste unitario",
-            type: "line",
-            smooth: true,
-            symbol: "circle",
-            symbolSize: 7,
-            lineStyle: { width: 3, color: colors.materiales },
-            itemStyle: { color: colors.materiales },
-            areaStyle: {
-              color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: `${colors.materiales}26` },
-                { offset: 1, color: `${colors.materiales}06` }
-              ])
-            },
-            data: lots.map((lot) => number(lot.unit_cost))
-          }
-        ]
-      }, true);
+        true
+      );
+      requestAnimationFrame(() => chart.resize());
+    } else {
+      resetMaterialCostChartSurface(`<div class="empty-state small"><strong>Gráfica no disponible</strong>El histórico sigue accesible en la lista de lotes.</div>`);
+    }
+
+    if (lotsMetaNode) {
+      lotsMetaNode.textContent = `${lots.length} compras activas vinculadas al material.`;
     }
 
     lotsNode.innerHTML = `
-      <div class="material-cost-lots-head">
-        <strong>Últimos lotes</strong>
-        <small>${lots.length} compras activas vinculadas al material.</small>
-      </div>
       <div class="material-cost-lots-list">
         ${lots
           .slice()
           .reverse()
-          .slice(0, 4)
           .map(
             (lot) => `
           <article class="material-cost-lot">
-            <div>
+            <div class="material-cost-lot-copy">
               <strong>${text(lot.invoice_date)} · ${text(lot.supplier_name || "Sin proveedor")}</strong>
               <small>${text(lot.invoice_number || "Sin número")} · ${text(String(lot.package_count))} paquetes · ${text(String(lot.total_units))} uds</small>
+              ${lot.description ? `<small>${text(lot.description)}</small>` : ""}
             </div>
             <div class="material-cost-lot-values">
               <strong>${formatEuro(lot.unit_cost, "—")}</strong>
               <small>${formatEuro(lot.line_total, "—")}</small>
+              ${lot.invoice_id ? `<button type="button" class="ghost button-with-icon compact" data-view-invoice="${lot.invoice_id}"><svg><use href="#icon-eye"></use></svg><span>Ver factura</span></button>` : ""}
             </div>
           </article>
         `
@@ -737,7 +758,7 @@ export function createMaterialViews(ctx) {
     $("#materialFormStatusBadge").textContent = material.id ? "Catálogo activo" : "Borrador catálogo";
     $("#materialFormStatusBadge").className = `status-pill ${material.id ? "ok" : "warn"}`;
     $("#materialFormSubtitle").textContent = material.id
-      ? `${supplierName} · ${hasImage(material) ? "1 imagen" : "Sin imagen"} · ${material.is_outlet ? "Outlet" : "Catálogo principal"}`
+      ? `${supplierName} · ${material.is_outlet ? "Outlet" : "Catálogo principal"}`
       : "Completa la información principal del material y deja listo su seguimiento económico.";
 
     $("#materialWorkspaceKpis").innerHTML = `
@@ -764,7 +785,6 @@ export function createMaterialViews(ctx) {
           ${material.finish ? badge(material.finish) : ""}
           ${material.is_outlet ? badge("outlet", "warn") : ""}
           ${material.is_priority_restock ? badge("prioritario", "accent") : ""}
-          ${hasImage(material) ? badge("1 imagen", "ok") : badge("sin imagen", "warn")}
         </div>
         <small>${supplierName}</small>
       </div>

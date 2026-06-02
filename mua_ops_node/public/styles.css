@@ -904,6 +904,25 @@ main {
   white-space: nowrap;
 }
 
+.invoice-cell-supplier {
+  display: inline-grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.invoice-supplier-avatar {
+  width: 28px;
+  height: 28px;
+}
+
+.invoice-cell-supplier-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .invoice-table-actions {
   justify-content: flex-end;
   margin-top: 0;
@@ -1523,6 +1542,21 @@ body.materials-view-active .topbar,
   border-radius: 999px;
 }
 
+.entity-avatar {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.entity-avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
 .income-breakdown-dot {
   width: 10px;
   height: 10px;
@@ -1559,6 +1593,12 @@ body.materials-view-active .topbar,
   color: #fff;
   border: 1px solid rgba(255, 255, 255, .2);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+}
+
+.income-channel-dot.entity-avatar {
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .income-channel-dot svg,
@@ -2450,6 +2490,11 @@ body.materials-view-active .topbar,
   gap: 10px;
 }
 
+.material-cost-lots-section {
+  display: grid;
+  gap: 12px;
+}
+
 .material-cost-lots-head {
   display: flex;
   justify-content: space-between;
@@ -2460,6 +2505,18 @@ body.materials-view-active .topbar,
 .material-cost-lots-list {
   display: grid;
   gap: 10px;
+  max-height: 304px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.material-cost-lots-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.material-cost-lots-list::-webkit-scrollbar-thumb {
+  background: rgba(166, 150, 137, .45);
+  border-radius: 999px;
 }
 
 .material-cost-lot {
@@ -2472,11 +2529,17 @@ body.materials-view-active .topbar,
   background: #fff;
 }
 
-.material-cost-lot-values {
+.material-cost-lot-copy {
   display: grid;
   gap: 4px;
+}
+
+.material-cost-lot-values {
+  display: grid;
+  gap: 6px;
   text-align: right;
   justify-items: end;
+  align-content: center;
 }
 
 .material-form-footer {
@@ -2744,6 +2807,14 @@ body.materials-view-active .topbar,
   border: 1px solid rgba(255,255,255,.18);
 }
 
+.channel-choice-badge img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
 .channel-choice-badge.shopify { background: var(--accent); }
 .channel-choice-badge.etsy { background: #f97316; }
 .channel-choice-badge.bizum { background: #5ecfc8; }
@@ -2755,6 +2826,22 @@ body.materials-view-active .topbar,
 
 .channel-choice strong {
   grid-column: 2;
+}
+
+.income-origin-label {
+  display: inline-grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.income-origin-avatar {
+  width: 28px;
+  height: 28px;
+}
+
+.entity-label-text {
+  min-width: 0;
 }
 
 .income-calc-summary {
@@ -3928,6 +4015,19 @@ textarea {
 
 .row-main {
   min-width: 0;
+}
+
+.entity-row-head {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.supplier-avatar {
+  width: 40px;
+  height: 40px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .08);
 }
 
 .row strong,

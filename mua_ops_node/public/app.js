@@ -65,6 +65,40 @@ const CHANNEL_LABELS = {
   etsy: "Etsy",
   bizum: "Bizum"
 };
+const ENTITY_ICON_KEYS = {
+  suppliers: {
+    aliexpress: "aliexpress",
+    shein: "shein",
+    etsy: "etsy",
+    malagapack: "malagapack",
+    correos: "correos",
+    meta: "meta",
+    shopify: "shopify",
+    likinagency: "likinagency",
+    canva: "canva",
+    capcut: "capcut",
+    vodafone: "vodafone",
+    otro: "otro"
+  },
+  payers: {
+    "shopify payments": "shopify-payments",
+    shopify_payments: "shopify-payments",
+    shopify: "shopify",
+    etsy: "etsy",
+    bizum: "bizum",
+    klarna: "klarna",
+    visa: "visa",
+    master: "mastercard",
+    mastercard: "mastercard",
+    manual: "manual",
+    card: "card"
+  },
+  channels: {
+    shopify: "shopify",
+    etsy: "etsy",
+    bizum: "bizum"
+  }
+};
 const DASHBOARD_EXPENSE_LABELS = {
   total: "Gasto total",
   materiales: "Materiales",
@@ -205,6 +239,9 @@ function createViewContext() {
     distinctValues,
     supplierOptions,
     img,
+    entityIconKey,
+    entityIconPath,
+    entityIconMarkup,
     statusLabel,
     docLink,
     hierarchySummary,
@@ -422,7 +459,11 @@ function updatePayoutFormPreview() {
   $("#payoutFooterFees").textContent = euro.format(fees);
   $("#payoutFooterNet").textContent = euro.format(net);
   $("#payoutFooterSummary").textContent = source === "Importado" ? `Ingreso ${channelLabel(channel)} importado` : `Ingreso manual ${channelLabel(channel)}`;
-  $("#payoutFormSourceLabel").textContent = source;
+  $("#payoutFormSourceLabel").innerHTML = entityIconLabelMarkup(channel, {
+    type: "channel",
+    label: `${source} · ${channelLabel(channel)}`,
+    iconClass: "income-origin-avatar"
+  });
   $("#payoutFormReferenceLabel").textContent = form.elements.bank_reference?.value?.trim() || "Pendiente";
   $("#payoutFormAccountLabel").textContent = form.elements.bank_account_hint?.value?.trim() || "Sin asignar";
 }
@@ -770,6 +811,47 @@ function img(url) {
   return url
     ? `<img src="${escapeHtml(url)}" loading="lazy" alt="" onerror="this.outerHTML='&lt;div class=&quot;image-empty&quot;&gt;&lt;/div&gt;'">`
     : `<div class="image-empty"></div>`;
+}
+
+function normalizeEntityIconKey(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function entityIconKey(value, type = "supplier") {
+  const normalized = normalizeEntityIconKey(value);
+  if (!normalized) {
+    return type === "supplier" ? "otro" : type === "channel" ? "bizum" : "manual";
+  }
+  const map = type === "channel"
+    ? ENTITY_ICON_KEYS.channels
+    : type === "payer"
+      ? ENTITY_ICON_KEYS.payers
+      : ENTITY_ICON_KEYS.suppliers;
+  return map[normalized] || (type === "supplier" ? "otro" : type === "channel" ? "bizum" : "manual");
+}
+
+function entityIconPath(value, type = "supplier") {
+  return `/assets/entity-icons/${entityIconKey(value, type)}.svg`;
+}
+
+function entityIconMarkup(value, options = {}) {
+  const type = options.type || "supplier";
+  const className = options.className ? ` ${options.className}` : "";
+  const label = options.label || value || type;
+  return `<span class="entity-avatar${className}" aria-hidden="true"><img src="${escapeHtml(entityIconPath(value, type))}" loading="lazy" alt="${escapeHtml(label)}"></span>`;
+}
+
+function entityIconLabelMarkup(value, options = {}) {
+  const type = options.type || "channel";
+  const label = options.label || value || "";
+  const iconClass = options.iconClass || "";
+  const textClass = options.textClass ? ` ${options.textClass}` : "";
+  return `${entityIconMarkup(value, { type, className: iconClass, label })}<span class="entity-label-text${textClass}">${escapeHtml(label)}</span>`;
 }
 
 function badge(value, tone = "") {
@@ -1335,6 +1417,8 @@ async function saveMaterial(event) {
   const saved = await api(id ? `/api/materials/${id}` : "/api/materials", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
   await Promise.all([loadMaterials(), loadSummary(), loadDashboardFinance(), loadCosts(), loadKits()]);
   const current = state.materials.find((item) => item.id == saved.id) || saved;
+  current.is_outlet = Boolean(current.is_outlet ?? data.is_outlet);
+  current.is_priority_restock = Boolean(current.is_priority_restock ?? data.is_priority_restock);
   showMaterialEditor(current);
   if (form.dataset.submitMode === "save_and_cost") {
     setActiveView("costs");
