@@ -2485,6 +2485,26 @@ body.materials-view-active .topbar,
   font-family: Georgia, "Times New Roman", serif;
 }
 
+.material-cost-supplier {
+  display: inline-grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.material-cost-supplier .supplier-avatar {
+  width: 28px;
+  height: 28px;
+  box-shadow: none;
+}
+
+.material-cost-supplier span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .material-cost-lots {
   display: grid;
   gap: 10px;
@@ -2493,6 +2513,10 @@ body.materials-view-active .topbar,
 .material-cost-lots-section {
   display: grid;
   gap: 12px;
+}
+
+.material-cost-history-panel {
+  gap: 14px;
 }
 
 .material-cost-lots-head {

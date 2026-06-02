@@ -808,7 +808,6 @@
                 <div class="invoice-hero-actions">
                   <button type="button" class="ghost button-with-icon" data-close-material-panels><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar</span></button>
                   <button type="submit" class="button-with-icon" data-material-save-label><svg><use href="#icon-save"></use></svg><span data-button-label>Guardar material</span></button>
-                  <button type="submit" class="ghost accent-outline button-with-icon" data-save-material-cost><svg><use href="#icon-plus"></use></svg><span>Guardar y crear coste</span></button>
                 </div>
               </div>
 
@@ -881,7 +880,7 @@
                         <div class="panel-head compact-head">
                           <div>
                             <h2>2. Coste y proveedor</h2>
-                            <p>Resumen económico del material y evolución por lotes.</p>
+                            <p>Resumen económico del material y lectura rápida del coste.</p>
                           </div>
                           <button type="button" id="materialOpenCostButton" class="ghost button-with-icon">
                             <svg><use href="#icon-coin"></use></svg><span>Abrir coste completo</span>
@@ -890,15 +889,16 @@
 
                         <div id="materialCostSummary" class="material-cost-summary-grid"></div>
                         <div id="materialCostChart" class="chart-surface chart-surface-small"></div>
-                        <section class="material-cost-lots-section">
-                          <div class="material-cost-lots-head">
-                            <div>
-                              <strong>Histórico de lotes</strong>
-                              <small id="materialCostLotsMeta">Compras vinculadas a este material.</small>
-                            </div>
+                      </section>
+
+                      <section class="panel material-cost-history-panel">
+                        <div class="panel-head compact-head">
+                          <div>
+                            <h2>3. Histórico de lotes</h2>
+                            <p id="materialCostLotsMeta">Compras vinculadas a este material.</p>
                           </div>
-                          <div id="materialCostLots" class="material-cost-lots"></div>
-                        </section>
+                        </div>
+                        <div id="materialCostLots" class="material-cost-lots"></div>
                       </section>
                     </div>
                   </div>

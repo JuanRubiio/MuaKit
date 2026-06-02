@@ -621,7 +621,7 @@ export function createMaterialViews(ctx) {
     summaryNode.innerHTML = `
       <article class="material-cost-metric"><small>Coste medio</small><strong>${formatEuro(weighted, "Sin coste")}</strong><span>${lots.length} lotes activos</span></article>
       <article class="material-cost-metric"><small>Último coste</small><strong>${formatEuro(latest, "—")}</strong><span>${lots.at(-1)?.invoice_date ? text(lots.at(-1).invoice_date) : "Aún sin fecha"}</span></article>
-      <article class="material-cost-metric"><small>Proveedor principal</small><strong>${supplier}</strong><span>${lots.length ? `${lots.filter((lot) => lower(lot.supplier_name) === lower(supplier)).length} compras registradas` : "Sin compras todavía"}</span></article>
+      <article class="material-cost-metric"><small>Proveedor principal</small><strong class="material-cost-supplier">${entityIconMarkup(supplier, { className: "supplier-avatar compact", label: supplier })}<span>${supplier}</span></strong><span>${lots.length ? `${lots.filter((lot) => lower(lot.supplier_name) === lower(supplier)).length} compras registradas` : "Sin compras todavía"}</span></article>
       <article class="material-cost-metric"><small>Gasto total</small><strong>${formatEuro(totalSpend, "—")}</strong><span>${lots.length ? `${lots.reduce((sum, lot) => sum + number(lot.total_units), 0)} uds compradas` : "Sin unidades registradas"}</span></article>
     `;
 
