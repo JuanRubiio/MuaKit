@@ -48,7 +48,9 @@ function detectFields(text) {
     }
   }
   const selectedTotal = totalCandidates.at(-1) || null;
-  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", lines };
+  const rateMatch = text.match(/\b1\s+(USD|EUR)\s*=\s*([0-9][0-9.,]*)\s+(EUR|USD)\b/i);
+  const exchangeRate = rateMatch ? { from: rateMatch[1].toUpperCase(), rate: amount(rateMatch[2]), to: rateMatch[3].toUpperCase() } : null;
+  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines };
 }
 
 function detectedInvoiceLines(lines) {
@@ -59,6 +61,51 @@ function detectedInvoiceLines(lines) {
     const description = line.replace(/(?:€|\$|EUR|USD|[0-9][0-9.,]*)/gi, " ");
     return hasMoney && /[a-záéíóúñ]{3,}/i.test(description);
   }).slice(0, 100);
+}
+
+function parseInvoiceLine(line, fields) {
+  const moneyMatches = [...line.matchAll(/(?:€\s*([0-9][0-9.,]*)|\$\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(EUR|USD)\b)/gi)];
+  const match = moneyMatches.at(-1);
+  if (!match) return null;
+  const originalAmount = amount(match[1] || match[2] || match[3]);
+  const originalCurrency = match[1] ? "EUR" : match[2] ? "USD" : String(match[4] || fields.currency || "EUR").toUpperCase();
+  const targetCurrency = fields.currency || originalCurrency;
+  let convertedAmount = originalAmount;
+  if (originalCurrency !== targetCurrency && fields.exchange_rate?.rate) {
+    if (fields.exchange_rate.from === originalCurrency && fields.exchange_rate.to === targetCurrency) convertedAmount = originalAmount * fields.exchange_rate.rate;
+    else if (fields.exchange_rate.to === originalCurrency && fields.exchange_rate.from === targetCurrency) convertedAmount = originalAmount / fields.exchange_rate.rate;
+  }
+  const description = line
+    .replace(match[0], "")
+    .replace(/\b(?:EUR|USD)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[·,:;-]+$/, "")
+    .trim();
+  return {
+    description: description || line,
+    original_amount: originalAmount,
+    original_currency: originalCurrency,
+    converted_amount: Number(convertedAmount.toFixed(4)),
+    target_currency: targetCurrency,
+    exchange_rate: fields.exchange_rate || null
+  };
+}
+
+function inferExpenseCategory(text, supplierCategory = "", historicalCategories = []) {
+  const normalized = normalize(text);
+  const signals = [
+    ["software", /\b(apps?|software|subscription|suscripcion|license|licencia|hosting|domain|shopify|canva|capcut|globo product options)\b/],
+    ["envios", /\b(shipping|shipment|postage|correo|correos|envio|transporte)\b/],
+    ["marketing", /\b(marketing|advertising|publicidad|campaign|campana|meta ads|google ads)\b/],
+    ["servicios", /\b(agency|agencia|consulting|consultoria|professional service|servicio profesional)\b/],
+    ["materiales", /\b(material|jewel|joya|anillo|colgante|cadena|packaging|caja|pipeta|tisu|tissue|shein|aliexpress)\b/]
+  ];
+  const strong = signals.find(([, pattern]) => pattern.test(normalized))?.[0];
+  if (strong) return strong;
+  const counts = historicalCategories.reduce((map, category) => map.set(category, (map.get(category) || 0) + 1), new Map());
+  const historical = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return historical || supplierCategory || "otros";
 }
 
 function createDocumentExtractionService({ query, one, exec, insert, saveDb, audit, UPLOAD_DIR }) {
@@ -113,10 +160,12 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   }
 
   function suggest(fields) {
-    const suppliers = query("SELECT id, name FROM suppliers WHERE is_deleted=0");
+    const suppliers = query("SELECT id, name, category FROM suppliers WHERE is_deleted=0");
     const normalizedText = normalize(fields.lines.slice(0, 20).join(" "));
     const supplier = suppliers.find((item) => normalizedText.includes(normalize(item.name))) || null;
-    return { ...fields, suggested_supplier_id: supplier?.id || null, suggested_supplier_name: supplier?.name || "" };
+    const historicalCategories = supplier ? query("SELECT category FROM invoices WHERE supplier_id=$supplier AND is_deleted=0 ORDER BY invoice_date DESC LIMIT 20", { supplier: supplier.id }).map((row) => row.category).filter(Boolean) : [];
+    const category = inferExpenseCategory(fields.lines.join(" "), supplier?.category, historicalCategories);
+    return { ...fields, category, suggested_supplier_id: supplier?.id || null, suggested_supplier_name: supplier?.name || "" };
   }
 
   async function process(importId) {
@@ -138,15 +187,17 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
       });
       exec("DELETE FROM expense_import_lines WHERE expense_import_id=$id", { id: importId });
       [...new Set(detectedInvoiceLines(fields.lines))].forEach((line, index) => {
-        const values = [...line.matchAll(/(?:€|\$)?\s*([0-9][0-9.,]*)\s*(?:EUR|USD)?/gi)].map((match) => amount(match[1])).filter((value) => value !== null);
-        const total = values.at(-1) || 0;
-        const normalizedLine = normalize(line);
-        const material = query("SELECT id, name FROM materials WHERE is_deleted=0 ORDER BY LENGTH(name) DESC").find((candidate) => normalizedLine.includes(normalize(candidate.name)));
+        const parsedLine = parseInvoiceLine(line, fields);
+        if (!parsedLine) return;
+        const normalizedLine = normalize(parsedLine.description);
+        const material = fields.category === "materiales"
+          ? query("SELECT id, name FROM materials WHERE is_deleted=0 ORDER BY LENGTH(name) DESC").find((candidate) => normalizedLine.includes(normalize(candidate.name)))
+          : null;
         insert(`INSERT INTO expense_import_lines
-          (expense_import_id, position, original_text, description, quantity, line_total, suggested_material_id, confidence, human_decision, original_data_json)
-          VALUES ($import, $position, $original, $description, 1, $total, $material, $confidence, 'pending', $originalData)`, {
-          import: importId, position: index + 1, original: line, description: line, total,
-          material: material?.id || null, confidence: material ? 85 : Math.min(confidence, 69), originalData: JSON.stringify({ values })
+          (expense_import_id, position, original_text, description, quantity, unit_price, line_total, suggested_material_id, confidence, human_decision, original_data_json)
+          VALUES ($import, $position, $original, $description, 1, $total, $total, $material, $confidence, 'pending', $originalData)`, {
+          import: importId, position: index + 1, original: line, description: parsedLine.description, total: parsedLine.converted_amount,
+          material: material?.id || null, confidence: material ? 85 : Math.min(confidence, 69), originalData: JSON.stringify(parsedLine)
         });
       });
       audit("expense_import", importId, "process", null, { status, confidence });
@@ -175,4 +226,4 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   return { enqueue, process, status: () => ({ available: true, languages: ["spa", "eng"], model_path: langPath, pending: queue.length, running }) };
 }
 
-module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, nativePageText, normalize, amount };
+module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, parseInvoiceLine, inferExpenseCategory, nativePageText, normalize, amount };

@@ -9002,6 +9002,18 @@ textarea {
   white-space: nowrap;
 }
 
+.next-evolution-panel,
+.next-evolution-panel > *,
+.next-import-hero > *,
+.next-validation-grid > *,
+.next-editable-line > * {
+  min-width: 0;
+}
+
+.next-evolution-panel {
+  width: 100%;
+}
+
 .next-import-list,
 .next-replenishment-list,
 .next-plan-list,
@@ -9149,6 +9161,70 @@ textarea {
   grid-template-columns: minmax(0, 1fr) auto 130px;
 }
 
+.next-lines-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 4px 0 6px;
+}
+
+.next-lines-balance {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.next-lines-balance span {
+  display: grid;
+  gap: 2px;
+  min-width: 128px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  background: #fafafa;
+  font-size: 11px;
+}
+
+.next-lines-balance strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.next-lines .next-editable-line {
+  grid-template-columns: minmax(220px, 1.7fr) 78px minmax(180px, 1.2fr) 112px 112px 120px auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.next-editable-line label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.next-editable-line input,
+.next-editable-line select {
+  width: 100%;
+  min-width: 0;
+}
+
+.next-editable-line .button-with-icon {
+  min-height: 39px;
+}
+
+.next-line-origin {
+  grid-column: 1 / -1;
+  display: block;
+  padding-top: 1px;
+  color: #7a5a20 !important;
+  white-space: normal;
+}
+
 .next-order {
   margin-top: 16px;
   padding: 14px;
@@ -9188,8 +9264,34 @@ textarea {
   .next-replenishment-row,
   .next-plan-row,
   .next-validation-grid,
-  .next-lines article {
+  .next-lines article,
+  .next-lines .next-editable-line {
     grid-template-columns: 1fr;
+  }
+
+  .next-import-row > *,
+  .next-editable-line > *,
+  .next-import-row button,
+  .next-editable-line button {
+    width: 100%;
+  }
+
+  .next-import-confidence {
+    text-align: left;
+  }
+
+  .next-lines-head,
+  .next-lines-balance {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .next-lines-balance span {
+    min-width: 0;
+  }
+
+  .next-line-origin {
+    grid-column: auto;
   }
 
   .next-domain-tabs {

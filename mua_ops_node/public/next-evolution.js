@@ -10,6 +10,8 @@
 
   const fmt = (value) => euro.format(Number(value || 0));
   const metric = (label, value, hint) => `<article class="next-kpi"><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></article>`;
+  const currencyFormat = (value, currency = "EUR") => new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(Number(value || 0));
+  const parseJson = (value, fallback = {}) => { try { return JSON.parse(value || ""); } catch { return fallback; } };
 
   function switchExpense(section) {
     document.querySelectorAll("[data-expense-section]").forEach((button) => button.classList.toggle("is-active", button.dataset.expenseSection === section));
@@ -34,8 +36,8 @@
     const review = rows.filter((row) => ["ready", "review"].includes(row.status)).length;
     $("#expenseImportMetrics").innerHTML = metric("En proceso", pending, "Cola local secuencial") + metric("Por validar", review, "Requieren supervisión") + metric("Confirmadas", rows.filter((row) => row.status === "confirmed").length, "Borradores creados");
     $("#expenseImportList").innerHTML = visibleRows.length ? visibleRows.map((row) => `<article class="next-import-row is-${row.status}">
-      <span class="next-file-icon"><svg><use href="#icon-file"></use></svg></span>
-      <div><strong>${text(row.original_name)}</strong><small>${Math.round(Number(row.size || 0) / 1024)} KB · ${text(row.mime_type)}</small></div>
+      ${row.detected_fields?.suggested_supplier_name ? entityIconMarkup(row.detected_fields.suggested_supplier_name, { type: "supplier", className: "supplier-avatar compact", label: row.detected_fields.suggested_supplier_name }) : `<span class="next-file-icon"><svg><use href="#icon-file"></use></svg></span>`}
+      <div><strong>${text(row.original_name)}</strong><small>${row.detected_fields?.suggested_supplier_name ? `${text(row.detected_fields.suggested_supplier_name)} · ` : ""}${Math.round(Number(row.size || 0) / 1024)} KB · ${text(row.mime_type)}</small></div>
       <span class="status-pill ${row.status === "error" ? "danger" : row.status === "confirmed" ? "ok" : "warn"}">${statusText(row.status)}</span>
       <div class="next-import-confidence"><strong>${["pending", "processing"].includes(row.status) ? `<span class="next-spinner"></span>` : `${Math.round(Number(row.confidence || 0))}%`}</strong><small>${text(row.extraction_method || (row.status === "pending" ? "En cola" : "Procesando"))}</small></div>
       <button type="button" class="ghost" data-open-expense-import="${row.id}" ${["pending", "processing"].includes(row.status) ? "disabled" : ""}>${row.status === "confirmed" ? "Ver" : "Revisar"}</button>
@@ -68,12 +70,28 @@
     const data = await api(`/api/expense-imports/${id}`);
     const item = data.import;
     const fields = item.detected_fields || {};
+    const isMaterialExpense = fields.category === "materiales";
+    const materialOptionsMarkup = (selected) => `<option value="">${isMaterialExpense ? "Sin material sugerido" : "No aplica a este gasto"}</option>${isMaterialExpense ? (state.materials || []).filter((material) => !material.is_deleted).map((material) => `<option value="${material.id}" ${String(material.id) === String(selected) ? "selected" : ""}>${text(material.name)}</option>`).join("") : ""}`;
+    const lineMarkup = (line) => {
+      const original = parseJson(line.original_data_json, {});
+      return `<article class="next-editable-line" data-import-line-row="${line.id}">
+        <label>Concepto<input data-line-field="description" value="${text(line.description)}"></label>
+        <label>Cantidad<input data-line-field="quantity" type="number" min="0" step="0.01" value="${number(line.quantity || 1)}"></label>
+        <label>Material<select data-line-field="suggested_material_id" ${isMaterialExpense ? "" : "disabled"}>${materialOptionsMarkup(line.suggested_material_id)}</select></label>
+        <label>Precio ud. ${text(fields.currency || "EUR")}<input data-line-field="unit_price" type="number" min="0" step="0.01" value="${number(line.unit_price ?? line.line_total).toFixed(2)}"></label>
+        <label>Total ${text(fields.currency || "EUR")}<input data-line-field="line_total" type="number" min="0" step="0.01" value="${number(line.line_total).toFixed(2)}"></label>
+        <label>Decisión<select data-line-field="human_decision"><option value="pending" ${line.human_decision === "pending" ? "selected" : ""}>Revisar</option><option value="accepted" ${line.human_decision === "accepted" ? "selected" : ""}>Aceptar</option><option value="rejected" ${line.human_decision === "rejected" ? "selected" : ""}>Excluir</option></select></label>
+        <button type="button" class="ghost button-with-icon" data-save-import-line="${line.id}" data-import-id="${item.id}"><svg><use href="#icon-save"></use></svg><span>Guardar</span></button>
+        ${original.original_currency && original.original_currency !== fields.currency ? `<small class="next-line-origin">Original: ${currencyFormat(original.original_amount, original.original_currency)} · convertido a ${text(fields.currency)} con cambio ${number(original.exchange_rate?.rate).toFixed(4)}</small>` : ""}
+      </article>`;
+    };
     $("#expenseImportDetail").classList.remove("hidden");
     $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · confianza ${Math.round(item.confidence)}%</p></div><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div>
       ${data.duplicates.exact ? `<div class="inline-alert danger">Duplicado bloqueante: factura #${data.duplicates.exact.id}</div>` : data.duplicates.warning ? `<div class="inline-alert warn">Posible duplicado: factura #${data.duplicates.warning.id}</div>` : ""}
       <div class="next-validation-grid">
         <form id="expenseImportReviewForm" data-import-id="${item.id}" class="form-grid three">
           <label>Proveedor sugerido<select name="suggested_supplier_id"><option value="">Sin proveedor</option>${(state.suppliers || []).filter((supplier) => !supplier.is_deleted).map((supplier) => `<option value="${supplier.id}" ${String(supplier.id) === String(fields.suggested_supplier_id) ? "selected" : ""}>${text(supplier.name)}</option>`).join("")}</select></label>
+          <label>Tipo de gasto<select name="category">${INVOICE_CATEGORIES.map((category) => `<option value="${category}" ${category === fields.category ? "selected" : ""}>${text(category.charAt(0).toUpperCase() + category.slice(1))}</option>`).join("")}</select></label>
           <label>Número de factura<input name="invoice_number" value="${text(fields.invoice_number || "")}"></label>
           <label>Fecha<input name="invoice_date" value="${text(fields.invoice_date || "")}"></label>
           <label>Total<input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"></label>
@@ -82,7 +100,7 @@
         </form>
         <div class="next-detected-pages"><strong>Lectura por página</strong>${item.pages.map((page) => `<div><span>Página ${page.page} · ${text(page.method)}</span><b>${Math.round(page.confidence)}%</b></div>`).join("")}</div>
       </div>
-      <div class="next-lines"><h3>Líneas sugeridas</h3>${data.lines.length ? data.lines.map((line) => `<article><div><strong>${text(line.description)}</strong><small>${text(line.suggested_material_name || "Sin material sugerido")}</small></div><b>${fmt(line.line_total)}</b><select data-import-line="${line.id}" data-import-id="${item.id}"><option value="pending" ${line.human_decision === "pending" ? "selected" : ""}>Revisar</option><option value="accepted" ${line.human_decision === "accepted" ? "selected" : ""}>Aceptar</option><option value="rejected" ${line.human_decision === "rejected" ? "selected" : ""}>Excluir</option></select></article>`).join("") : `<div class="empty-state">No se detectaron líneas fiables. Puedes crear el gasto y completarlas después.</div>`}</div>
+      <div class="next-lines"><div class="next-lines-head"><div><h3>Líneas sugeridas</h3><p>Edita los datos detectados y decide qué líneas pasarán al gasto borrador.</p></div><div class="next-lines-balance"><span>Suma líneas <strong>${currencyFormat(data.lines.reduce((sum, line) => sum + number(line.line_total), 0), fields.currency || "EUR")}</strong></span><span>Total factura <strong>${currencyFormat(fields.total, fields.currency || "EUR")}</strong></span></div></div>${data.lines.length ? data.lines.map(lineMarkup).join("") : `<div class="empty-state">No se detectaron líneas fiables. Puedes crear el gasto y completarlas después.</div>`}</div>
       <div class="row-actions"><button type="button" class="ghost" data-discard-import="${item.id}">Descartar</button><button type="button" ${data.duplicates.exact ? "disabled" : ""} data-confirm-import="${item.id}">Confirmar y crear factura borrador</button></div>`;
     $("#expenseImportDetail").scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -124,6 +142,17 @@
       if (button.dataset.reprocessImport) { await api(`/api/expense-imports/${button.dataset.reprocessImport}/reprocess`, { method: "POST" }); await loadImports(); }
       if (button.dataset.discardImport) { await api(`/api/expense-imports/${button.dataset.discardImport}/discard`, { method: "POST" }); await loadImports(); }
       if (button.dataset.confirmImport) { const result = await api(`/api/expense-imports/${button.dataset.confirmImport}/confirm`, { method: "POST", body: JSON.stringify({}) }); toast(`Factura borrador #${result.invoice_id} creada`); switchExpense("registered"); await loadInvoices(); }
+      if (button.dataset.saveImportLine) {
+        const row = button.closest("[data-import-line-row]");
+        const body = Object.fromEntries(Array.from(row.querySelectorAll("[data-line-field]")).map((input) => [input.dataset.lineField, input.value]));
+        body.quantity = number(body.quantity);
+        body.unit_price = number(body.unit_price);
+        body.line_total = number(body.line_total);
+        body.suggested_material_id = body.suggested_material_id || null;
+        await api(`/api/expense-imports/${button.dataset.importId}/lines/${button.dataset.saveImportLine}`, { method: "PATCH", body: JSON.stringify(body) });
+        toast("Línea actualizada");
+        await openImport(button.dataset.importId);
+      }
       if (button.id === "createPurchasePlan") {
         const material_ids = Array.from(document.querySelectorAll("[data-replenishment-select]:checked")).map((node) => Number(node.dataset.replenishmentSelect));
         await api("/api/purchase-plans", { method: "POST", body: JSON.stringify({ material_ids }) });
@@ -146,6 +175,14 @@
     const select = event.target.closest("[data-import-line]");
     if (!select) return;
     await api(`/api/expense-imports/${select.dataset.importId}/lines/${select.dataset.importLine}`, { method: "PATCH", body: JSON.stringify({ human_decision: select.value }) }).catch((error) => toast(error.message));
+  });
+
+  document.body.addEventListener("input", (event) => {
+    if (!event.target.matches('[data-line-field="quantity"],[data-line-field="unit_price"]')) return;
+    const row = event.target.closest("[data-import-line-row]");
+    const quantity = number(row.querySelector('[data-line-field="quantity"]').value);
+    const unitPrice = number(row.querySelector('[data-line-field="unit_price"]').value);
+    row.querySelector('[data-line-field="line_total"]').value = (quantity * unitPrice).toFixed(2);
   });
 
   $("#expenseImportUploadForm")?.addEventListener("submit", async (event) => {

@@ -3,7 +3,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const initSqlJs = require("sql.js");
-const { amount: parsedAmount, detectFields, detectedInvoiceLines } = require("./lib/services/document-extraction");
+const { amount: parsedAmount, detectFields, detectedInvoiceLines, parseInvoiceLine, inferExpenseCategory } = require("./lib/services/document-extraction");
 
 const ROOT = path.resolve(__dirname, "..");
 const SERVER = path.join(__dirname, "server.js");
@@ -263,6 +263,10 @@ async function run() {
   assert(euroFields.total === 17.25 && euroFields.currency === "EUR", "The currency attached to invoice total should win over other currencies");
   assert(euroFields.invoice_number === "543058864" && euroFields.invoice_date === "2026-06-12", "Common invoice references and named dates should be normalized");
   assert(detectedInvoiceLines(["TOTAL €17.25 EUR", "Mua Kit Apps (1 item) €17.25 EUR", "Globo Product Options $19.90 USD", "Payment status paid"]).length === 1, "Only plausible product lines should become suggestions");
+  const convertedLine = parseInvoiceLine("Globo Product Options $19.90 USD", { currency: "EUR", exchange_rate: { from: "USD", rate: 0.8669, to: "EUR" } });
+  assert(convertedLine.description === "Globo Product Options" && convertedLine.converted_amount === 17.2513, "Suggested lines should keep a clean description and convert to invoice currency");
+  assert(inferExpenseCategory("Globo Product Options subscription", "materiales", ["materiales"]) === "software", "Strong document signals should override supplier defaults");
+  assert(inferExpenseCategory("Pedido mixto", "materiales", ["software", "software", "materiales"]) === "software", "Mixed suppliers should use historical invoice context");
   cleanTestDir();
   const mockShopifyServer = await createMockShopifyServer();
   let serverOutput = "";
