@@ -11,13 +11,18 @@
   const fmt = (value) => euro.format(Number(value || 0));
   const metric = (label, value, hint) => `<article class="next-kpi"><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></article>`;
   const currencyFormat = (value, currency = "EUR") => new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(Number(value || 0));
-  const parseJson = (value, fallback = {}) => { try { return JSON.parse(value || ""); } catch { return fallback; } };
+  function showImportList() {
+    $("#expenseImportListView").classList.remove("hidden");
+    $("#expenseImportDetail").classList.add("hidden");
+    $("#expenseImportDetail").innerHTML = "";
+    loadImports();
+  }
 
   function switchExpense(section) {
     document.querySelectorAll("[data-expense-section]").forEach((button) => button.classList.toggle("is-active", button.dataset.expenseSection === section));
     expenseDefault.forEach((node) => node.classList.toggle("hidden", section !== "registered"));
     $("#expenseImportPanel").classList.toggle("hidden", section !== "imports");
-    if (section === "imports") loadImports();
+    if (section === "imports") showImportList();
   }
 
   function switchMaterials(section) {
@@ -73,7 +78,6 @@
     const isMaterialExpense = fields.category === "materiales";
     const materialOptionsMarkup = (selected) => `<option value="">${isMaterialExpense ? "Sin material sugerido" : "No aplica a este gasto"}</option>${isMaterialExpense ? (state.materials || []).filter((material) => !material.is_deleted).map((material) => `<option value="${material.id}" ${String(material.id) === String(selected) ? "selected" : ""}>${text(material.name)}</option>`).join("") : ""}`;
     const lineMarkup = (line) => {
-      const original = parseJson(line.original_data_json, {});
       return `<article class="next-editable-line" data-import-line-row="${line.id}">
         <label>Concepto<input data-line-field="description" value="${text(line.description)}"></label>
         <label>Cantidad<input data-line-field="quantity" type="number" min="0" step="0.01" value="${number(line.quantity || 1)}"></label>
@@ -82,11 +86,11 @@
         <label>Total ${text(fields.currency || "EUR")}<input data-line-field="line_total" type="number" min="0" step="0.01" value="${number(line.line_total).toFixed(2)}"></label>
         <label>Decisión<select data-line-field="human_decision"><option value="pending" ${line.human_decision === "pending" ? "selected" : ""}>Revisar</option><option value="accepted" ${line.human_decision === "accepted" ? "selected" : ""}>Aceptar</option><option value="rejected" ${line.human_decision === "rejected" ? "selected" : ""}>Excluir</option></select></label>
         <button type="button" class="ghost button-with-icon" data-save-import-line="${line.id}" data-import-id="${item.id}"><svg><use href="#icon-save"></use></svg><span>Guardar</span></button>
-        ${original.original_currency && original.original_currency !== fields.currency ? `<small class="next-line-origin">Original: ${currencyFormat(original.original_amount, original.original_currency)} · convertido a ${text(fields.currency)} con cambio ${number(original.exchange_rate?.rate).toFixed(4)}</small>` : ""}
       </article>`;
     };
+    $("#expenseImportListView").classList.add("hidden");
     $("#expenseImportDetail").classList.remove("hidden");
-    $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · confianza ${Math.round(item.confidence)}%</p></div><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div>
+    $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · confianza ${Math.round(item.confidence)}%</p></div><div class="row-actions"><button class="ghost button-with-icon" data-close-expense-import><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar revisión</span></button><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div></div>
       ${data.duplicates.exact ? `<div class="inline-alert danger">Duplicado bloqueante: factura #${data.duplicates.exact.id}</div>` : data.duplicates.warning ? `<div class="inline-alert warn">Posible duplicado: factura #${data.duplicates.warning.id}</div>` : ""}
       <div class="next-validation-grid">
         <form id="expenseImportReviewForm" data-import-id="${item.id}" class="form-grid three">
@@ -138,9 +142,10 @@
     try {
       if (button.dataset.expenseSection) switchExpense(button.dataset.expenseSection);
       if (button.dataset.materialsSection) switchMaterials(button.dataset.materialsSection);
+      if (Object.prototype.hasOwnProperty.call(button.dataset, "closeExpenseImport")) showImportList();
       if (button.dataset.openExpenseImport) await openImport(button.dataset.openExpenseImport);
       if (button.dataset.reprocessImport) { await api(`/api/expense-imports/${button.dataset.reprocessImport}/reprocess`, { method: "POST" }); await loadImports(); }
-      if (button.dataset.discardImport) { await api(`/api/expense-imports/${button.dataset.discardImport}/discard`, { method: "POST" }); await loadImports(); }
+      if (button.dataset.discardImport) { await api(`/api/expense-imports/${button.dataset.discardImport}/discard`, { method: "POST" }); showImportList(); }
       if (button.dataset.confirmImport) { const result = await api(`/api/expense-imports/${button.dataset.confirmImport}/confirm`, { method: "POST", body: JSON.stringify({}) }); toast(`Factura borrador #${result.invoice_id} creada`); switchExpense("registered"); await loadInvoices(); }
       if (button.dataset.saveImportLine) {
         const row = button.closest("[data-import-line-row]");

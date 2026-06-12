@@ -9014,6 +9014,11 @@ textarea {
   width: 100%;
 }
 
+.next-import-list-view {
+  display: grid;
+  gap: 16px;
+}
+
 .next-import-list,
 .next-replenishment-list,
 .next-plan-list,
