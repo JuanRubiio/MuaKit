@@ -1,7 +1,41 @@
 const { chromium } = require("playwright");
+const { spawn } = require("child_process");
+const http = require("http");
+
+function canReach(url) {
+  return new Promise((resolve) => {
+    const req = http.get(url, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on("error", () => resolve(false));
+    req.setTimeout(1000, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function waitForServer(url, timeoutMs = 20000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await canReach(url)) return;
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+  throw new Error("No arranco el servidor temporal de UI");
+}
 
 async function run() {
   const baseUrl = process.env.MUA_OPS_UI_URL || "http://127.0.0.1:5055/";
+  const healthUrl = new URL("/api/summary", baseUrl).toString();
+  let serverProcess = null;
+  if (!(await canReach(healthUrl))) {
+    serverProcess = spawn(process.execPath, ["mua_ops_node/server.js", "--port", new URL(baseUrl).port || "5055"], {
+      cwd: process.cwd(),
+      stdio: "ignore",
+    });
+    await waitForServer(healthUrl);
+  }
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   const errors = [];
@@ -19,82 +53,169 @@ async function run() {
 
     await page.locator('button[data-view="invoices"]').click();
     await page.waitForTimeout(350);
-    const firstInvoice = page.locator('[data-view-invoice]').first();
+    const firstInvoice = page.locator("[data-view-invoice]:visible").first();
     if (await firstInvoice.count()) {
       await firstInvoice.click();
       await page.waitForTimeout(500);
       const invoicePanelVisible = await page.locator("#invoiceDetailPanel:not(.hidden)").count();
       if (!invoicePanelVisible) {
-        throw new Error("No se abrió el detalle de factura en la UI clásica");
+        throw new Error("No se abrio el detalle de factura");
       }
     }
 
     await page.locator('button[data-view="materials"]').click();
     await page.waitForTimeout(350);
-    const firstMaterial = page.locator('[data-view-material]').first();
+    const firstMaterial = page.locator("[data-view-material]:visible").first();
     if (await firstMaterial.count()) {
       await firstMaterial.click();
       await page.waitForTimeout(500);
       const materialTitle = await page.locator("#materialFormTitle").innerText();
-      if (!materialTitle.includes("Editar material")) {
-        throw new Error(`No se abrió el detalle de material (título actual: ${materialTitle})`);
+      const materialPanelVisible = await page.locator("#materialForm:not(.hidden)").count();
+      if (!materialPanelVisible || !materialTitle.trim() || materialTitle.includes("Nuevo material")) {
+        throw new Error(`No se abrio el detalle de material (titulo actual: ${materialTitle})`);
       }
     }
 
     await page.locator('button[data-view="income"]').click();
     await page.waitForTimeout(350);
-    const firstPayout = page.locator('[data-open-payout]').first();
+    const firstPayout = page.locator("[data-open-payout]:visible").first();
     if (await firstPayout.count()) {
       await firstPayout.click();
       await page.waitForTimeout(500);
       const payoutPanelVisible = await page.locator("#payoutDetailPanel:not(.hidden)").count();
       if (!payoutPanelVisible) {
-        throw new Error("No se abrió el detalle de ingreso en la UI clásica");
+        throw new Error("No se abrio el detalle de ingreso");
       }
     }
 
-    await page.locator('button[data-view="costs"]').click();
-    await page.waitForTimeout(350);
-    const firstCost = page.locator('[data-open-cost]').first();
+    const firstCost = page.locator('[data-open-cost]:visible').first();
     if (await firstCost.count()) {
       await firstCost.click();
-      await page.waitForTimeout(500);
-      const costPanelVisible = await page.locator("#costDetailPanel:not(.hidden)").count();
-      if (!costPanelVisible) {
-        throw new Error("No se abrió el detalle de coste en la UI clásica");
+      await page.waitForTimeout(600);
+      const materialPanelVisible = await page.locator('#materialForm:not(.hidden)').count();
+      const materialCostSummary = await page.locator('#materialCostSummary .material-cost-metric').count();
+      if (!materialPanelVisible || !materialCostSummary) {
+        throw new Error('No se abrio el detalle de coste dentro de materiales');
       }
     }
 
     await page.locator('button[data-view="kits"]').click();
-    await page.waitForTimeout(350);
-    const firstKit = page.locator('[data-open-kit]').first();
-    if (await firstKit.count()) {
-      await firstKit.click();
+    await page.waitForTimeout(800);
+    const ordersFilters = await page.locator(".orders-filter-panel").count();
+    const ordersFixedPreview = await page.locator("#ordersFixedPreview").count();
+    const ordersReview = await page.locator("#ordersReviewQueue").count();
+    if (!ordersFilters || !ordersFixedPreview || !ordersReview) {
+      throw new Error("No cargo la nueva composicion de pedidos");
+    }
+
+    const firstOrder = page.locator("[data-open-order]:visible").first();
+    if (await firstOrder.count()) {
+      await firstOrder.click();
       await page.waitForTimeout(500);
-      const kitPanelVisible = await page.locator("#kitDetailPanel:not(.hidden)").count();
-      if (!kitPanelVisible) {
-        throw new Error("No se abrió el detalle de kit en la UI clásica");
+      const orderPanelVisible = await page.locator("#kitDetailPanel:not(.hidden)").count();
+      const orderAudit = await page.locator(".orders-audit-panel").count();
+      const orderLines = await page.locator(".orders-material-row").count();
+      const orderToggles = await page.locator("[data-order-line-include]").count();
+      if (!orderPanelVisible) {
+        throw new Error("No se abrio el detalle de pedido");
+      }
+      if (!orderAudit) {
+        throw new Error("No cargo la auditoria de rentabilidad del pedido");
+      }
+      if (!orderLines || !orderToggles) {
+        throw new Error("No cargo el desglose de materiales con interruptores de coste");
+      }
+      const disabledCheckedToggles = await page.locator('[data-order-line-include][disabled]:checked').count();
+      if (disabledCheckedToggles) {
+        throw new Error("Hay lineas sin coste bloqueadas pero visualmente siguen marcadas como incluidas");
+      }
+    }
+
+    const fixedTab = page.locator('[data-orders-section="fixed"]:visible').first();
+    if (await fixedTab.count()) {
+      await fixedTab.click();
+      await page.waitForTimeout(500);
+      const fixedList = await page.locator("#ordersFixedList").count();
+      const fixedRows = await page.locator(".orders-fixed-row").count();
+      const fixedToggles = await page.locator("[data-kit-item-include]").count();
+      if (!fixedList) {
+        throw new Error("No cargo la lista de sets fijos");
+      }
+      if (fixedRows && !fixedToggles) {
+        throw new Error("Los componentes del set fijo no muestran interruptor de coste");
       }
     }
 
     await page.locator('button[data-view="audit"]').click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(800);
     const auditSummary = await page.locator("#auditSummary").count();
-    if (!auditSummary) {
-      throw new Error("No cargó la vista de actividad en la UI clásica");
+    const auditKpis = await page.locator(".audit-kpi").count();
+    const auditRows = await page.locator(".audit-row-actions [data-open-audit-detail]").count();
+    if (!auditSummary || !auditKpis) {
+      throw new Error("No cargo la vista de actividad");
+    }
+    if (auditRows) {
+      await page.locator(".audit-row-actions [data-open-audit-detail]:visible").first().click();
+      await page.waitForTimeout(500);
+      const auditDetail = await page.locator("#auditDetailPanel:not(.hidden)").count();
+      const auditDiff = await page.locator(".audit-diff-panel").count();
+      if (!auditDetail || !auditDiff) {
+        throw new Error("No se abrio el detalle de actividad");
+      }
+      await page.locator("[data-close-audit-detail]:visible").click();
+      await page.waitForTimeout(300);
+      if (!(await page.locator("#auditDetailPanel.hidden").count())) {
+        throw new Error("No se cerro el detalle de actividad");
+      }
     }
 
     await page.locator('button[data-view="settings"]').click();
     await page.waitForTimeout(500);
 
     const pageTitle = await page.locator("#pageTitle").innerText();
-    const hasSystemHealth = await page.locator("#systemHealthCards").count();
-
-    if (pageTitle !== "Configuración") {
-      throw new Error(`La vista final no es Configuración (actual: ${pageTitle})`);
+    const settingsStatusItems = await page.locator("#settingsStatusStrip .settings-status-item").count();
+    if (settingsStatusItems < 4) {
+      throw new Error(`El resumen de Configuracion no muestra suficientes estados (actual: ${settingsStatusItems})`);
     }
-    if (!hasSystemHealth) {
-      throw new Error("No se encontró el bloque de diagnóstico técnico");
+
+    const settingsSections = [
+      ["general", ".settings-section-head", ".settings-context-card"],
+      ["dashboard", ".settings-color-grid", ".settings-context-card"],
+      ["cobros", '[name="default_payout_channel"]', ".settings-context-card"],
+      ["shopify", "#shopifyConnectionForm", ".settings-context-card"],
+      ["diagnostico", "#systemHealthCards", ".settings-context-card"],
+      ["logs", "#technicalLogList", ".settings-context-card"],
+    ];
+    for (const [section, contentSelector, contextSelector] of settingsSections) {
+      await page.locator(`[data-settings-section="${section}"]`).click();
+      await page.waitForTimeout(250);
+      const visiblePanel = page.locator(`[data-settings-panel="${section}"]:not(.hidden)`);
+      if (!(await visiblePanel.count())) {
+        throw new Error(`No se mostro la seccion de Configuracion: ${section}`);
+      }
+      if (!(await visiblePanel.locator(contentSelector).count())) {
+        throw new Error(`La seccion ${section} no cargo su contenido principal`);
+      }
+      if (!(await page.locator(`#settingsContextAside ${contextSelector}`).count())) {
+        throw new Error(`La seccion ${section} no cargo su contexto lateral`);
+      }
+      if (section === "shopify") {
+        const connection = await page.evaluate(() => fetch("/api/shopify/connection").then((response) => response.json()));
+        const domain = await visiblePanel.locator('[name="store_domain"]').inputValue();
+        if (!domain || domain !== connection.store_domain) {
+          throw new Error(`El dominio Shopify no se cargo en el formulario (actual: ${domain || "vacio"})`);
+        }
+        for (const name of ["pull_products", "pull_inventory", "pull_orders", "pull_payouts"]) {
+          const checked = await visiblePanel.locator(`[name="${name}"]`).isChecked();
+          if (checked !== Boolean(connection[name])) {
+            throw new Error(`El alcance Shopify ${name} no refleja el valor persistido`);
+          }
+        }
+      }
+    }
+
+    if (pageTitle.normalize("NFD").replace(/\p{Diacritic}/gu, "") !== "Configuracion") {
+      throw new Error(`La vista final no es Configuracion (actual: ${pageTitle})`);
     }
     if (errors.length) {
       throw new Error(`Se detectaron errores de frontend: ${errors.join(" | ")}`);
@@ -103,6 +224,7 @@ async function run() {
     console.log("Mua Ops UI smoke test passed");
   } finally {
     await browser.close();
+    if (serverProcess) serverProcess.kill();
   }
 }
 
@@ -110,3 +232,4 @@ run().catch((error) => {
   console.error(error.message || error);
   process.exitCode = 1;
 });
+

@@ -18,6 +18,10 @@ function registerMaterialRoutes(app, ctx) {
     INVENTORY_CSV
   } = ctx;
 
+  function materialColumnSet() {
+    return new Set(query("PRAGMA table_info(materials)").map((row) => row.name));
+  }
+
   app.get("/api/materials", (req, res) => {
     const q = `%${req.query.q || ""}%`;
     const includeDeleted = req.query.include_deleted === "1";
@@ -67,28 +71,32 @@ function registerMaterialRoutes(app, ctx) {
   app.post("/api/materials", (req, res) => {
     const b = req.body;
     const inferred = inferMaterialHierarchy(b.name, b.category || "material");
+    const columns = materialColumnSet();
+    const row = {
+      name: b.name,
+      category: b.category || "material",
+      unit_label: b.unit_label || "ud",
+      preferred_supplier_id: optionalN(b.preferred_supplier_id),
+      manual_stock: optionalN(b.manual_stock),
+      is_outlet: b.is_outlet ? 1 : 0,
+      is_priority_restock: b.is_priority_restock ? 1 : 0,
+      reorder_point: optionalN(b.reorder_point),
+      target_stock: optionalN(b.target_stock),
+      image_url_override: b.image_url_override || "",
+      usage_type: b.usage_type || inferred.usage_type || "",
+      family: b.family || inferred.family || "",
+      subfamily: b.subfamily || inferred.subfamily || "",
+      variant: b.variant || inferred.variant || "",
+      base_material: b.base_material || inferred.base_material || "",
+      finish: b.finish || inferred.finish || "",
+      notes: b.notes || ""
+    };
+    const insertFields = Object.keys(row).filter((field) => columns.has(field));
+    const values = Object.fromEntries(insertFields.map((field) => [field, row[field]]));
     const id = insert(
-      `INSERT INTO materials (name, category, unit_label, preferred_supplier_id, manual_stock, is_outlet, is_priority_restock, reorder_point, target_stock, image_url_override, usage_type, family, subfamily, variant, base_material, finish, notes)
-       VALUES ($name, $category, $unit, $supplier, $stock, $is_outlet, $is_priority_restock, $reorder, $target, $imageUrl, $usage_type, $family, $subfamily, $variant, $base_material, $finish, $notes)`,
-      {
-        name: b.name,
-        category: b.category || "material",
-        unit: b.unit_label || "ud",
-        supplier: optionalN(b.preferred_supplier_id),
-        stock: optionalN(b.manual_stock),
-        is_outlet: b.is_outlet ? 1 : 0,
-        is_priority_restock: b.is_priority_restock ? 1 : 0,
-        reorder: optionalN(b.reorder_point),
-        target: optionalN(b.target_stock),
-        imageUrl: b.image_url_override || "",
-        usage_type: b.usage_type || inferred.usage_type || "",
-        family: b.family || inferred.family || "",
-        subfamily: b.subfamily || inferred.subfamily || "",
-        variant: b.variant || inferred.variant || "",
-        base_material: b.base_material || inferred.base_material || "",
-        finish: b.finish || inferred.finish || "",
-        notes: b.notes || ""
-      }
+      `INSERT INTO materials (${insertFields.join(", ")})
+       VALUES (${insertFields.map((field) => `$${field}`).join(", ")})`,
+      values
     );
     const after = materialPayload(one("SELECT * FROM materials WHERE id=$id", { id }));
     audit("material", id, "create", null, after);
@@ -99,10 +107,11 @@ function registerMaterialRoutes(app, ctx) {
   app.patch("/api/materials/:id", (req, res) => {
     const before = one("SELECT * FROM materials WHERE id=$id", { id: req.params.id });
     if (!before) return notFound(res);
+    const columns = materialColumnSet();
     const fields = [
       "name", "category", "unit_label", "preferred_supplier_id", "manual_stock", "is_outlet", "is_priority_restock", "reorder_point", "target_stock",
       "image_url_override", "usage_type", "family", "subfamily", "variant", "base_material", "finish", "notes"
-    ].filter((field) => Object.prototype.hasOwnProperty.call(req.body, field));
+    ].filter((field) => Object.prototype.hasOwnProperty.call(req.body, field) && columns.has(field));
     if (!fields.length) return res.json(materialPayload(before));
     const params = { id: req.params.id };
     for (const field of fields) {

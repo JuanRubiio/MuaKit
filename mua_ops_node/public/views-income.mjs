@@ -7,6 +7,7 @@ export function createIncomeViews(ctx) {
     number,
     lower,
     badge,
+    entityIconMarkup,
     channelLabel,
     payoutStatusLabel,
     applyTextSearch,
@@ -21,8 +22,7 @@ export function createIncomeViews(ctx) {
   const paidStatuses = new Set(["paid", "executed"]);
 
   function channelIconMarkup(channel, extraClass = "") {
-    const symbol = channel === "shopify" ? "icon-channel-shopify" : channel === "etsy" ? "icon-channel-etsy" : "icon-channel-bizum";
-    return `<span class="income-channel-dot ${channel} ${extraClass}" aria-hidden="true"><svg><use href="#${symbol}"></use></svg></span>`;
+    return entityIconMarkup(channel, { type: "channel", className: `income-channel-dot ${channel} ${extraClass}`.trim() });
   }
 
   function payoutPrimaryLabel(row) {
@@ -174,6 +174,7 @@ export function createIncomeViews(ctx) {
     const total = channels.reduce((sum, row) => sum + number(row.net_amount), 0);
     if (chart) {
       const colors = chartColors();
+      const compact = channels.length >= 4;
       chart.setOption({
         animationDuration: 350,
         color: [colors.shopify, colors.etsy, colors.bizum],
@@ -187,8 +188,8 @@ export function createIncomeViews(ctx) {
         legend: { show: false },
         series: [{
           type: "pie",
-          radius: ["60%", "82%"],
-          center: ["34%", "50%"],
+          radius: compact ? ["64%", "88%"] : ["68%", "92%"],
+          center: ["50%", "52%"],
           itemStyle: { borderColor: "#ffffff", borderWidth: 5, borderRadius: 10 },
           label: { show: false },
           data: channels.map((row) => ({ name: row.label, value: number(row.net_amount) }))

@@ -1,4 +1,4 @@
-export function createMaterialViews(ctx) {
+﻿export function createMaterialViews(ctx) {
   const {
     state,
     $,
@@ -308,7 +308,7 @@ export function createMaterialViews(ctx) {
   function applyLane(rows, costMap) {
     const lane = state.materialLane || "all";
     if (lane === "reorder") return rows.filter((row) => isReorderRisk(row));
-    if (lane === "priority") return rows.filter((row) => isReorderRisk(row) && row.is_priority_restock);
+    if (lane === "priority") return rows.filter((row) => row.is_priority_restock);
     if (lane === "noCost") return rows.filter((row) => !hasCost(row, costMap) && !row.is_outlet);
     if (lane === "noImage") return rows.filter((row) => !hasImage(row));
     if (lane === "missingSupplier") return rows.filter((row) => !number(row.preferred_supplier_id));
@@ -320,7 +320,7 @@ export function createMaterialViews(ctx) {
   function renderMaterialsOverview(rows, costMap, kitMap) {
     const active = activeMaterials();
     const reorder = active.filter((row) => isReorderRisk(row));
-    const priorityReorder = reorder.filter((row) => row.is_priority_restock);
+    const priorityMaterials = active.filter((row) => row.is_priority_restock);
     const withCost = active.filter((row) => hasCost(row, costMap));
     const noImage = active.filter((row) => !hasImage(row));
     const inKits = active.filter((row) => kitUsage(row.id, kitMap).length);
@@ -385,13 +385,13 @@ export function createMaterialViews(ctx) {
       )
       .join("");
 
-    const priorityRows = priorityReorder
-      .sort((a, b) => stockNumber(a) - stockNumber(b) || reorderNumber(b) - reorderNumber(a))
-      .slice(0, 4);
-    const prioritySuggestions = reorder
-      .filter((row) => !row.is_priority_restock)
-      .sort((a, b) => stockNumber(a) - stockNumber(b) || reorderNumber(b) - reorderNumber(a))
-      .slice(0, 4);
+    const priorityRows = priorityMaterials
+      .slice()
+      .sort((a, b) => {
+        const riskDelta = Number(isReorderRisk(b)) - Number(isReorderRisk(a));
+        if (riskDelta) return riskDelta;
+        return stockNumber(a) - stockNumber(b) || reorderNumber(b) - reorderNumber(a) || lower(a.name).localeCompare(lower(b.name));
+      });
     $("#materialPriorityCards").className = `materials-priority-cards ${priorityRows.length ? "" : "is-empty"}`.trim();
     $("#materialPriorityCards").innerHTML = priorityRows.length
       ? priorityRows
@@ -400,6 +400,7 @@ export function createMaterialViews(ctx) {
             const min = reorderNumber(material);
             const target = number(material.target_stock);
             const fill = min > 0 ? Math.max(0, Math.min(100, (current / Math.max(min, target || min)) * 100)) : 0;
+            const risk = isReorderRisk(material);
             return `
               <article class="materials-priority-card">
                 <div class="materials-priority-card-head">
@@ -414,9 +415,9 @@ export function createMaterialViews(ctx) {
                   <span><small>Mínimo</small><strong>${text(String(min || "-"))}</strong></span>
                   <span><small>Coste</small><strong>${formatEuro(unitCost(material, costMap), "—")}</strong></span>
                 </div>
-                <div class="materials-priority-meter" aria-hidden="true"><i style="width:${fill}%"></i></div>
+                <div class="materials-priority-meter ${risk ? "is-alert" : "is-healthy"}" aria-hidden="true"><i style="width:${fill}%"></i></div>
                 <div class="materials-priority-actions">
-                  <span class="status-pill warn">Prioritario</span>
+                  <span class="status-pill ${risk ? "warn" : "ok"}">${risk ? "Reponer" : "Controlado"}</span>
                   <button type="button" class="ghost button-with-icon" data-view-material="${material.id}"><svg><use href="#icon-eye"></use></svg><span>Ver</span></button>
                 </div>
               </article>
@@ -427,38 +428,12 @@ export function createMaterialViews(ctx) {
         <article class="materials-priority-empty">
           <div class="materials-priority-empty-copy">
             <strong>Sin prioridades de reposición</strong>
-            <p>Marca las joyas con mayor rotación como materiales prioritarios para vigilarlas aquí cuando su stock empiece a tensarse.</p>
+            <p>Marca las joyas con mayor rotación como prioritarias para vigilarlas aquí desde una sola banda de seguimiento.</p>
           </div>
           <button type="button" class="ghost button-with-icon" data-jump-view="materials">
             <svg><use href="#icon-plus"></use></svg><span>Seleccionar materiales</span>
           </button>
         </article>
-        ${
-          prioritySuggestions.length
-            ? `<div class="materials-priority-suggestions">
-                <div class="materials-priority-suggestions-head">
-                  <strong>Candidatas para priorizar</strong>
-                  <small>Joyas ya tensionadas por stock que conviene revisar primero.</small>
-                </div>
-                <div class="materials-priority-suggestions-grid">
-                  ${prioritySuggestions
-                    .map(
-                      (material) => `
-                    <button type="button" class="materials-priority-suggestion" data-view-material="${material.id}">
-                      <span class="materials-priority-thumb">${materialThumb(material, "priority")}</span>
-                      <span class="materials-priority-suggestion-copy">
-                        <strong>${text(material.name)}</strong>
-                        <small>Stock ${text(String(stockNumber(material)))} · Mínimo ${text(String(reorderNumber(material) || "-"))}</small>
-                      </span>
-                      <span class="status-pill pending">Sugerencia</span>
-                    </button>
-                  `
-                    )
-                    .join("")}
-                </div>
-              </div>`
-            : ""
-        }
       `;
 
     const queueItems = reviewItems(active, costMap);
@@ -505,7 +480,7 @@ export function createMaterialViews(ctx) {
   function renderMaterialStatusTabs(rows, costMap, kitMap) {
     const tabs = [
       { key: "all", label: "Todos", count: rows.length },
-      { key: "priority", label: "Prioritarios", count: rows.filter((row) => isReorderRisk(row) && row.is_priority_restock).length },
+      { key: "priority", label: "Prioritarios", count: rows.filter((row) => row.is_priority_restock).length },
       { key: "reorder", label: "A reponer", count: rows.filter((row) => isReorderRisk(row)).length },
       { key: "noCost", label: "Sin coste", count: rows.filter((row) => !hasCost(row, costMap) && !row.is_outlet).length },
       { key: "outlet", label: "Outlet", count: rows.filter((row) => row.is_outlet).length },
@@ -535,9 +510,15 @@ export function createMaterialViews(ctx) {
     $("#materialList").innerHTML = rows.length
       ? rows
           .map((material) => {
-            const kits = kitUsage(material.id, kitMap);
             const cost = unitCost(material, costMap);
             const imageMarkup = materialThumb(material, "table");
+            const providerName = material.preferred_supplier_name || "Sin proveedor";
+            const stock = stockNumber(material);
+            const reorder = reorderNumber(material);
+            const target = number(material.target_stock);
+            const divisor = Math.max(reorderThreshold(material) || 1, target || 1);
+            const fill = Math.max(6, Math.min(100, (stock / divisor) * 100));
+            const isHealthy = reorder ? stock > reorder : stock > 0;
             return `
               <article class="materials-table-row ${String(currentMaterialId) === String(material.id) ? "active" : ""} ${material.is_deleted ? "deleted" : ""}">
                 <div class="materials-cell-main">
@@ -546,27 +527,29 @@ export function createMaterialViews(ctx) {
                     <strong>${text(material.name)}</strong>
                   </div>
                 </div>
-                <span>${text(material.preferred_supplier_name || "Sin proveedor")}</span>
+                <span class="materials-provider-cell">
+                  ${entityIconMarkup(providerName, { type: "supplier", className: "materials-provider-avatar", label: providerName })}
+                  <span>${text(providerName)}</span>
+                </span>
                 <div class="materials-stock-cell">
-                  <strong>${text(String(stockNumber(material)))}</strong>
-                  <div class="materials-stock-meter"><i style="width:${Math.max(6, Math.min(100, (stockNumber(material) / Math.max(reorderThreshold(material) || 1, number(material.target_stock) || 1)) * 100))}%"></i></div>
+                  <strong>${text(String(stock))}</strong>
+                  <div class="materials-stock-meter ${isHealthy ? "is-healthy" : "is-alert"}"><i style="width:${fill}%"></i></div>
                 </div>
-                <span>${text(reorderNumber(material) ? String(reorderNumber(material)) : "—")}</span>
-                <span>${text(number(material.target_stock) ? String(number(material.target_stock)) : "—")}</span>
+                <span>${text(reorder ? String(reorder) : "—")}</span>
+                <span>${text(target ? String(target) : "—")}</span>
                 <span>${cost == null ? "—" : formatEuro(cost)}</span>
-                <span>${hasImage(material) ? badge("Sí", "ok") : badge("No", "warn")}</span>
-                <span>${kits.length ? badge(`${kits.length}`, "ok") : badge("0")}</span>
+                <span>${material.is_priority_restock ? badge("Sí", "accent") : badge("No")}</span>
                 <div class="row-actions icon-actions">
-                  <button type="button" class="ghost icon-only" data-view-material="${material.id}" aria-label="Abrir material">
+                  <button type="button" class="ghost icon-only" data-view-material="${material.id}" aria-label="Ver material" title="Ver material">
                     <svg><use href="#icon-eye"></use></svg>
                   </button>
-                  <button type="button" class="ghost icon-only" data-open-cost="${material.id}" aria-label="Abrir costes">
+                  <button type="button" class="ghost icon-only" data-open-cost="${material.id}" aria-label="Ver coste" title="Ver coste">
                     <svg><use href="#icon-coin"></use></svg>
                   </button>
                   ${
                     material.is_deleted
-                      ? `<button type="button" class="ghost icon-only" data-restore-material="${material.id}" aria-label="Restaurar material"><svg><use href="#icon-save"></use></svg></button>`
-                      : `<button type="button" class="ghost danger-text icon-only" data-delete-material="${material.id}" aria-label="Archivar material"><svg><use href="#icon-archive"></use></svg></button>`
+                      ? `<button type="button" class="ghost icon-only" data-restore-material="${material.id}" aria-label="Restaurar material" title="Restaurar material"><svg><use href="#icon-save"></use></svg></button>`
+                      : `<button type="button" class="ghost danger-text icon-only" data-delete-material="${material.id}" aria-label="Archivar material" title="Archivar material"><svg><use href="#icon-archive"></use></svg></button>`
                   }
                 </div>
               </article>
@@ -681,6 +664,11 @@ export function createMaterialViews(ctx) {
         true
       );
       requestAnimationFrame(() => chart.resize());
+      setTimeout(() => {
+        try {
+          chart.resize();
+        } catch (_) {}
+      }, 80);
     } else {
       resetMaterialCostChartSurface(`<div class="empty-state small"><strong>Gráfica no disponible</strong>El histórico sigue accesible en la lista de lotes.</div>`);
     }
@@ -777,7 +765,6 @@ export function createMaterialViews(ctx) {
         <strong>${text(material.name || "Nuevo material")}</strong>
         <div class="tags">
           ${material.category ? badge(material.category) : ""}
-          ${material.usage_type ? badge(material.usage_type) : ""}
           ${material.family ? badge(material.family) : ""}
           ${material.subfamily ? badge(material.subfamily) : ""}
           ${material.variant ? badge(material.variant) : ""}
@@ -883,17 +870,6 @@ export function createMaterialViews(ctx) {
       <div class="income-origin-row"><span>Coste medio</span><strong>${cost == null ? "Sin coste" : formatEuro(cost)}</strong></div>
     `;
 
-    const openCostButton = $("#materialOpenCostButton");
-    if (openCostButton) {
-      if (material.id) {
-        openCostButton.dataset.openCost = String(material.id);
-        openCostButton.disabled = false;
-      } else {
-        delete openCostButton.dataset.openCost;
-        openCostButton.disabled = true;
-      }
-    }
-
     renderMaterialCostDetail(material);
   }
 
@@ -961,4 +937,5 @@ export function createMaterialViews(ctx) {
     renderMaterialWorkspace
   };
 }
+
 

@@ -41,6 +41,9 @@
       <symbol id="icon-bank" viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5"/><path d="M5.5 10.5v7M10 10.5v7M14 10.5v7M18.5 10.5v7"/><path d="M3.5 19.5h17"/></symbol>
       <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="m4 20 4.3-1 9.5-9.5a2.1 2.1 0 0 0-3-3L5.3 16 4 20z"/><path d="m13.5 7.5 3 3"/></symbol>
       <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.2-4.8L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.2 4.8L20 16"/><path d="M20 20v-4h-4"/></symbol>
+      <symbol id="icon-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+      <symbol id="icon-link" viewBox="0 0 24 24"><path d="M10 13.5 14 9.5"/><path d="M8.5 15a4 4 0 0 1 0-5.7l2.1-2.1a4 4 0 0 1 5.7 0"/><path d="M15.5 9a4 4 0 0 1 0 5.7l-2.1 2.1a4 4 0 0 1-5.7 0"/></symbol>
       <symbol id="icon-channel-shopify" viewBox="0 0 24 24"><path d="M7.2 7.5h9.6l-1.1 11H8.3z"/><path d="M9 7.8c0-1.9 1.3-3.3 3-3.3s3 1.4 3 3.3"/><path d="M10.4 10.1c.7-.5 1.7-.8 2.6-.5.7.2 1.1.8 1 1.5-.1.8-.9 1.2-1.7 1.4l-.8.2c-.8.2-1.4.7-1.4 1.4 0 .9.9 1.6 2.1 1.6.8 0 1.6-.2 2.2-.7"/><path d="M12 9.2v1"/><path d="M12 15.7v1"/></symbol>
       <symbol id="icon-channel-etsy" viewBox="0 0 24 24"><path d="M7.2 6.5h10"/><path d="M7.2 12h7.2"/><path d="M7.2 17.5h10"/><path d="M9.6 6.5v11"/><path d="M16.8 6.7c-.8 1-1.6 1.8-3 2.2"/><path d="M16.8 17.3c-.8-1-1.6-1.8-3-2.2"/></symbol>
       <symbol id="icon-channel-bizum" viewBox="0 0 24 24"><path d="M7 8.5 11.2 12 7 15.5"/><path d="M13 8.5 17.2 12 13 15.5"/><path d="M10.8 12h2.4"/></symbol>
@@ -54,17 +57,16 @@
         </div>
       </div>
       <nav class="tabs tabs-main">
-        <button class="tab active" data-view="dashboard"><svg><use href="#icon-home"></use></svg><span>Dashboard</span></button>
-        <button class="tab" data-view="invoices"><svg><use href="#icon-file"></use></svg><span>Facturas</span></button>
-        <button class="tab" data-view="income"><svg><use href="#icon-chart"></use></svg><span>Ingresos</span></button>
-        <button class="tab" data-view="materials"><svg><use href="#icon-cube"></use></svg><span>Materiales</span></button>
-        <button class="tab" data-view="suppliers"><svg><use href="#icon-users"></use></svg><span>Proveedores</span></button>
-        <button class="tab" data-view="costs"><svg><use href="#icon-coin"></use></svg><span>Costes</span></button>
-        <button class="tab" data-view="kits"><svg><use href="#icon-kit"></use></svg><span>Kits</span></button>
+        <button class="tab active" data-view="dashboard" aria-label="Dashboard"><svg><use href="#icon-home"></use></svg><span>Dashboard</span></button>
+        <button class="tab" data-view="invoices" aria-label="Facturas"><svg><use href="#icon-file"></use></svg><span>Facturas</span></button>
+        <button class="tab" data-view="income" aria-label="Ingresos"><svg><use href="#icon-chart"></use></svg><span>Ingresos</span></button>
+        <button class="tab" data-view="materials" aria-label="Materiales"><svg><use href="#icon-cube"></use></svg><span>Materiales</span></button>
+        <button class="tab" data-view="suppliers" aria-label="Proveedores"><svg><use href="#icon-users"></use></svg><span>Proveedores</span></button>
+        <button class="tab" data-view="kits" aria-label="Pedidos"><svg><use href="#icon-kit"></use></svg><span>Pedidos</span></button>
       </nav>
       <nav class="tabs tabs-meta">
-        <button class="tab" data-view="audit"><svg><use href="#icon-activity"></use></svg><span>Actividad</span></button>
-        <button class="tab" data-view="settings"><svg><use href="#icon-settings"></use></svg><span>Configuración</span></button>
+        <button class="tab" data-view="audit" aria-label="Actividad"><svg><use href="#icon-activity"></use></svg><span>Actividad</span></button>
+        <button class="tab" data-view="settings" aria-label="Configuración"><svg><use href="#icon-settings"></use></svg><span>Configuración</span></button>
         <button type="button" class="nav-icon-button" aria-label="Notificaciones"><svg><use href="#icon-bell"></use></svg><span>3</span></button>
         <div class="nav-avatar" aria-label="Usuario local">AD</div>
       </nav>
@@ -751,7 +753,11 @@
                     <option value="stock_desc">Mayor stock</option>
                   </select>
                 </label>
-                <label class="check"><input id="materialsDeleted" type="checkbox"> Archivados</label>
+                <label class="toggle-switch">
+                  <input id="materialsDeleted" type="checkbox">
+                  <span class="toggle-slider" aria-hidden="true"></span>
+                  <span>Archivados</span>
+                </label>
               </div>
             </section>
 
@@ -774,8 +780,7 @@
                     <span>Reposición</span>
                     <span>Objetivo</span>
                     <span>Coste ud.</span>
-                    <span>Imagen</span>
-                    <span>En kits</span>
+                    <span>Prioridad</span>
                     <span>Acciones</span>
                   </div>
                   <div id="materialList" class="materials-table-list"></div>
@@ -864,7 +869,7 @@
                         <div class="form-grid three">
                           <label><span class="field-label"><svg><use href="#icon-cube"></use></svg><span>Material base</span></span><input name="base_material" placeholder="acero, plata..."></label>
                           <label><span class="field-label"><svg><use href="#icon-tag"></use></svg><span>Acabado / color</span></span><input name="finish" placeholder="dorado, plateado, bañado en oro..."></label>
-                          <label><span class="field-label"><svg><use href="#icon-image"></use></svg><span>URL personalizada de imagen</span></span><input name="image_url_override" placeholder="Opcional: si la dejas vacía se usa Shopify"></label>
+                          <label><span class="field-label"><svg><use href="#icon-image"></use></svg><span>URL personalizada de imagen</span></span><input name="image_url_override" placeholder="Opcional"></label>
                         </div>
 
                         <div class="form-grid three">
@@ -882,9 +887,6 @@
                             <h2>2. Coste y proveedor</h2>
                             <p>Resumen económico del material y lectura rápida del coste.</p>
                           </div>
-                          <button type="button" id="materialOpenCostButton" class="ghost button-with-icon">
-                            <svg><use href="#icon-coin"></use></svg><span>Abrir coste completo</span>
-                          </button>
                         </div>
 
                         <div id="materialCostSummary" class="material-cost-summary-grid"></div>
@@ -939,145 +941,415 @@
         </section>
 
         <section id="suppliers" class="view">
-          <div class="entity-page">
-            <section class="panel entity-list-panel">
-              <div class="panel-head invoice-head">
-                <div>
-                  <h2>Proveedores</h2>
-                  <p id="supplierResultText">Contactos y origen de costes.</p>
-                </div>
-                <div class="row-actions">
-                  <button type="button" data-new-supplier>Nuevo proveedor</button>
-                </div>
+          <div class="entity-page suppliers-page">
+            <div class="suppliers-overview-head income-overview-head">
+              <div>
+                <p class="eyebrow">OPERACIONES</p>
+                <h1>Proveedores</h1>
+                <p id="supplierResultText">Contactos, compras y seguimiento de abastecimiento.</p>
               </div>
-              <div class="filter-grid">
-                <label>Buscar<input id="supplierSearch" type="search" placeholder="Proveedor, web, notas"></label>
-                <label>Categoria<input id="supplierCategoryFilter" placeholder="Categoria"></label>
+              <div class="income-head-actions">
+                <span id="supplierUpdatedMeta"></span>
+                <button type="button" class="button-with-icon" data-new-supplier>
+                  <svg><use href="#icon-plus"></use></svg>
+                  <span>Nuevo proveedor</span>
+                </button>
+              </div>
+            </div>
+
+            <div id="supplierSummaryCards" class="suppliers-summary-grid"></div>
+
+            <div class="suppliers-critical-grid">
+              <section class="panel suppliers-critical-panel">
+                <div class="panel-head compact">
+                  <div>
+                    <h2>Proveedores críticos</h2>
+                    <p>Proveedores con materiales tensionados o más sensibles para reposición.</p>
+                  </div>
+                  <button type="button" class="ghost button-with-icon" data-open-supplier-critical>
+                    <svg><use href="#icon-arrow-right"></use></svg>
+                    <span>Ver todos</span>
+                  </button>
+                </div>
+                <div id="supplierCriticalCards" class="suppliers-critical-cards"></div>
+              </section>
+              <aside class="panel suppliers-review-panel">
+                <div class="panel-head compact">
+                  <div>
+                    <h2>Cola de revisión</h2>
+                    <p>Alertas rápidas para limpiar y completar proveedores.</p>
+                  </div>
+                  <span class="panel-head-icon" aria-hidden="true"><svg><use href="#icon-settings"></use></svg></span>
+                </div>
+                <div id="supplierReviewQueue" class="invoice-review-list"></div>
+              </aside>
+            </div>
+
+            <section class="panel suppliers-filter-panel">
+              <div class="filter-grid suppliers-filters">
+                <label>Buscar<input id="supplierSearch" type="search" placeholder="Proveedor, contacto, nota..."></label>
+                <label>Categoría<select id="supplierCategoryFilter"></select></label>
+                <label>Plazo<select id="supplierLeadFilter">
+                  <option value="">Todos</option>
+                  <option value="short">Hasta 7 días</option>
+                  <option value="medium">8-14 días</option>
+                  <option value="long">15 días o más</option>
+                </select></label>
+                <label>Web<select id="supplierWebFilter">
+                  <option value="">Todas</option>
+                  <option value="with">Con web</option>
+                  <option value="without">Sin web</option>
+                </select></label>
                 <label>Orden
                   <select id="supplierSort">
                     <option value="name_asc">Nombre A-Z</option>
-                    <option value="category_asc">Categoria</option>
+                    <option value="category_asc">Categoría</option>
                     <option value="lead_asc">Menor plazo</option>
+                    <option value="spend_desc">Mayor gasto</option>
+                    <option value="materials_desc">Más materiales</option>
                   </select>
                 </label>
-                <label class="check"><input id="suppliersDeleted" type="checkbox"> Archivados</label>
+                <label class="check supplier-filter-check">
+                  <input id="suppliersWithMaterials" type="checkbox">
+                  <span>Con materiales</span>
+                </label>
+                <label class="check supplier-filter-check">
+                  <input id="suppliersDeleted" type="checkbox">
+                  <span>Archivados</span>
+                </label>
               </div>
-              <div id="supplierList" class="list"></div>
-              <div id="supplierPagination" class="pagination-bar"></div>
             </section>
 
-            <form id="supplierForm" class="panel entity-module hidden">
-              <div class="panel-head">
-                <div>
-                  <h2 id="supplierFormTitle">Nuevo proveedor</h2>
-                  <p>Datos de compra y reposicion.</p>
+            <div class="suppliers-content-grid">
+              <section class="panel suppliers-list-panel">
+                <div class="panel-head compact">
+                  <div>
+                    <h2>Listado</h2>
+                    <p id="supplierListMetaText">Proveedores visibles.</p>
+                  </div>
+                  <div class="row-actions">
+                    <button type="button" class="ghost button-with-icon" data-new-supplier>
+                      <svg><use href="#icon-plus"></use></svg>
+                      <span>Nuevo proveedor</span>
+                    </button>
+                  </div>
                 </div>
-                <button type="button" class="ghost" data-close-supplier-panels>Cerrar</button>
-              </div>
+                <div id="supplierStatusTabs"></div>
+                <div id="supplierList" class="table-list supplier-table-list"></div>
+                <div id="supplierPagination" class="pagination-bar"></div>
+              </section>
+              <aside class="panel suppliers-side-panel">
+                <div class="panel-head compact">
+                  <div>
+                    <h2>Últimos añadidos</h2>
+                    <p>Lo más reciente para retomar rápido.</p>
+                  </div>
+                  <button type="button" class="ghost button-with-icon" data-open-supplier-recent>
+                    <svg><use href="#icon-arrow-right"></use></svg>
+                    <span>Ver todos</span>
+                  </button>
+                </div>
+                <div id="supplierRecentList" class="invoice-side-list"></div>
+              </aside>
+            </div>
+
+            <form id="supplierForm" class="entity-module supplier-form hidden">
               <input type="hidden" name="id">
-              <div class="form-grid four">
-                <label>Nombre<input name="name" required></label>
-                <label>Categoria<input name="category"></label>
-                <label>Plazo medio dias<input name="lead_time_days" inputmode="numeric"></label>
-                <label>Web<input name="website"></label>
+              <div class="invoice-workspace-hero">
+                <div class="invoice-hero-copy">
+                  <p class="eyebrow">OPERACIONES / PROVEEDORES</p>
+                  <h1 id="supplierFormTitle">Nuevo proveedor</h1>
+                  <div class="invoice-subtitle-row">
+                    <span id="supplierFormStatusBadge" class="status-pill warn">Ficha incompleta</span>
+                    <p id="supplierFormSubtitle">Crea un nuevo proveedor para compras, materiales y facturas.</p>
+                  </div>
+                </div>
+                <div class="invoice-hero-actions">
+                  <button type="button" class="ghost button-with-icon" data-close-supplier-panels>
+                    <svg><use href="#icon-x"></use></svg>
+                    <span>Cerrar</span>
+                  </button>
+                  <a id="supplierOpenWebsiteButton" class="ghost button-with-icon hidden" href="#" target="_blank" rel="noreferrer">
+                    <svg><use href="#icon-link"></use></svg>
+                    <span>Abrir web</span>
+                  </a>
+                  <button id="supplierArchiveButton" type="button" class="ghost danger-text hidden">
+                    Archivar
+                  </button>
+                  <button type="submit" class="button-with-icon">
+                    <svg><use href="#icon-save"></use></svg>
+                    <span>Guardar proveedor</span>
+                  </button>
+                </div>
               </div>
-              <label>Notas<textarea name="notes" rows="2"></textarea></label>
-              <div class="row-actions">
-                <button type="submit">Guardar proveedor</button>
-                <button type="button" class="ghost" data-reset-form="supplierForm">Limpiar</button>
+
+              <div id="supplierFormMetrics" class="supplier-workspace-kpis"></div>
+
+              <div class="invoice-workspace-grid">
+                <div class="invoice-workspace-main">
+                  <section class="panel invoice-editor-card">
+                    <div class="panel-head compact">
+                      <div>
+                        <h2>1. Datos del proveedor</h2>
+                        <p>Datos base para compras, materiales y facturas vinculadas.</p>
+                      </div>
+                    </div>
+                    <div class="form-grid two">
+                      <label class="required">
+                        <span class="field-label"><svg><use href="#icon-users"></use></svg><span>Nombre</span></span>
+                        <input name="name" required placeholder="Ej: AliExpress">
+                      </label>
+                      <label class="required">
+                        <span class="field-label"><svg><use href="#icon-tag"></use></svg><span>Categoría</span></span>
+                        <select name="category" id="supplierFormCategory"></select>
+                      </label>
+                    </div>
+                    <div id="supplierCategoryChips" class="supplier-category-chips"></div>
+                    <div class="form-grid two">
+                      <label>
+                        <span class="field-label"><svg><use href="#icon-link"></use></svg><span>Web</span></span>
+                        <input name="website" placeholder="https://ejemplo.com">
+                      </label>
+                      <label>
+                        <span class="field-label"><svg><use href="#icon-clock"></use></svg><span>Plazo medio (días)</span></span>
+                        <input name="lead_time_days" inputmode="numeric" placeholder="Ej: 10">
+                      </label>
+                    </div>
+                    <label>
+                      <span class="field-label"><svg><use href="#icon-note"></use></svg><span>Notas</span></span>
+                      <textarea name="notes" rows="4" placeholder="Añade notas internas sobre el proveedor, condiciones o contacto."></textarea>
+                    </label>
+                  </section>
+
+                  <section class="panel supplier-linked-panel">
+                    <div class="panel-head compact">
+                      <div>
+                        <h2>2. Materiales vinculados</h2>
+                        <p>Materiales que este proveedor suministra de forma preferente.</p>
+                      </div>
+                      <button type="button" class="ghost button-with-icon" id="supplierOpenMaterialsButton">
+                        <svg><use href="#icon-arrow-right"></use></svg>
+                        <span>Ver materiales</span>
+                      </button>
+                    </div>
+                    <div id="supplierLinkedMaterials"></div>
+                  </section>
+
+                  <section class="panel supplier-invoices-panel">
+                    <div class="panel-head compact">
+                      <div>
+                        <h2>3. Facturas recientes</h2>
+                        <p>Histórico reciente para compras y seguimiento económico.</p>
+                      </div>
+                    </div>
+                    <div id="supplierInvoiceHistory"></div>
+                  </section>
+                </div>
+
+                <aside class="invoice-workspace-side">
+                  <section class="panel invoice-check-card">
+                    <div class="panel-head compact">
+                      <div>
+                        <h2>Revisión</h2>
+                        <p>Comprueba si la ficha queda lista para trabajarla.</p>
+                      </div>
+                    </div>
+                    <div id="supplierFormReviewState" class="invoice-review-list"></div>
+                  </section>
+
+                  <section class="panel income-origin-card">
+                    <div class="panel-head compact">
+                      <div>
+                        <h2>Vista previa</h2>
+                        <p>Lectura rápida del proveedor tal y como quedará registrado.</p>
+                      </div>
+                    </div>
+                    <div id="supplierFormPreview" class="supplier-preview-card"></div>
+                  </section>
+
+                  <section class="panel income-origin-card">
+                    <div class="panel-head compact">
+                      <div>
+                        <h2>Actividad reciente</h2>
+                        <p>Último movimiento relacionado con este proveedor.</p>
+                      </div>
+                    </div>
+                    <div id="supplierActivityInfo" class="income-origin-list"></div>
+                  </section>
+                </aside>
               </div>
             </form>
-          </div>
-        </section>
-
-        <section id="costs" class="view">
-          <div class="entity-page">
-            <section id="costDetailPanel" class="panel entity-module hidden"></section>
-            <section class="panel entity-list-panel">
-              <div class="panel-head">
-                <div>
-                  <h2>Costes por material</h2>
-                  <p id="costResultText">Coste medio ponderado por compras activas.</p>
-                </div>
-              </div>
-              <div class="filter-grid">
-                <label>Buscar<input id="costSearch" type="search" placeholder="Material o proveedor"></label>
-                <label>Categoria<select id="costCategoryFilter"></select></label>
-                <label>Orden
-                  <select id="costSort">
-                    <option value="spend_desc">Mayor gasto</option>
-                    <option value="avg_desc">Mayor coste medio</option>
-                    <option value="name_asc">Nombre A-Z</option>
-                    <option value="lots_desc">Mas lotes</option>
-                  </select>
-                </label>
-                <label class="check"><input id="costOnlyWithPurchases" type="checkbox"> Solo con compras</label>
-              </div>
-              <div id="costTable" class="table"></div>
-              <div id="costPagination" class="pagination-bar"></div>
-            </section>
           </div>
         </section>
 
         <section id="kits" class="view">
-          <div class="entity-page">
-            <section class="panel entity-list-panel">
-              <div class="panel-head invoice-head">
-                <div>
-                  <h2>Composicion de kits</h2>
-                  <p id="kitResultText">Coste medio por version.</p>
-                </div>
-                <div class="row-actions">
-                  <button type="button" data-new-kit>Nuevo kit</button>
-                </div>
+          <div class="entity-page orders-page">
+            <div class="orders-overview-head income-overview-head">
+              <div>
+                <p class="eyebrow">OPERACIONES</p>
+                <h1>Pedidos</h1>
+                <p id="kitResultText">Rentabilidad real por pedido: Shopify, materiales y set fijo.</p>
               </div>
-              <div id="kitList" class="list"></div>
-              <div id="kitPagination" class="pagination-bar"></div>
+              <div class="income-head-actions">
+                <span id="ordersUpdatedMeta"></span>
+                <button type="button" class="button-with-icon" data-new-kit>
+                  <svg><use href="#icon-plus"></use></svg>
+                  <span>Nuevo set fijo</span>
+                </button>
+              </div>
+            </div>
+
+            <div id="ordersSummaryCards" class="orders-summary-grid"></div>
+
+            <div class="orders-tabs segmented-control">
+              <button type="button" class="ghost is-active" data-orders-section="orders">Pedidos</button>
+              <button type="button" class="ghost" data-orders-section="fixed">Sets creados</button>
+            </div>
+
+            <section class="orders-section" data-orders-panel="orders">
+              <div class="orders-content-grid">
+                <div class="orders-content-main">
+                  <section class="panel orders-filter-panel">
+                    <div class="filter-grid orders-filters">
+                      <label>Buscar<input id="orderSearch" type="search" placeholder="Pedido, producto, estado..."></label>
+                      <label>Canal<select id="orderChannelFilter"><option value="">Todos</option><option value="shopify">Shopify</option><option value="etsy">Etsy</option></select></label>
+                      <label>Estado<select id="orderStatusFilter"><option value="">Todos</option><option value="complete">Completo</option><option value="missing">Incompletos</option><option value="low_margin">Margen bajo</option></select></label>
+                      <label>Orden<select id="orderSort"><option value="date_desc">Fecha reciente</option><option value="margin_asc">Menor margen</option><option value="profit_desc">Mayor beneficio</option><option value="sale_desc">Mayor venta</option></select></label>
+                    </div>
+                  </section>
+
+                  <section class="panel orders-list-panel">
+                    <div class="panel-head compact">
+                      <div>
+                        <h2>Pedidos Shopify</h2>
+                        <p id="ordersListMetaText">Pedidos analizados.</p>
+                      </div>
+                    </div>
+                    <div id="kitList" class="orders-table"></div>
+                    <div id="kitPagination" class="pagination-bar"></div>
+                  </section>
+                </div>
+                <aside class="orders-content-side">
+                  <section class="panel orders-fixed-card">
+                    <div class="panel-head compact">
+                      <div>
+                        <h2>Set fijo por defecto</h2>
+                        <p id="ordersFixedSubtitle">Componentes por defecto.</p>
+                      </div>
+                      <button type="button" class="ghost button-with-icon" data-orders-section="fixed">
+                        <svg><use href="#icon-arrow-right"></use></svg>
+                        <span>Ver sets</span>
+                      </button>
+                    </div>
+                    <div id="ordersFixedPreview"></div>
+                  </section>
+
+                  <section class="panel orders-review-panel">
+                    <div class="panel-head compact">
+                      <div>
+                        <h2>KPIs de control</h2>
+                        <p>Riesgos y cobertura para decidir rápido.</p>
+                      </div>
+                      <span class="panel-head-icon" aria-hidden="true"><svg><use href="#icon-alert"></use></svg></span>
+                    </div>
+                    <div id="ordersReviewQueue" class="invoice-review-list"></div>
+                  </section>
+                </aside>
+              </div>
             </section>
 
-            <form id="kitForm" class="panel entity-module hidden">
-              <div class="panel-head">
-                <div>
-                  <h2 id="kitFormTitle">Nuevo kit</h2>
-                  <p>Define una version de kit.</p>
-                </div>
-                <button type="button" class="ghost" data-close-kit-panels>Cerrar</button>
+            <section class="orders-section hidden" data-orders-panel="fixed">
+              <div class="orders-fixed-grid">
+                <section class="panel orders-fixed-editor">
+                  <div class="panel-head compact">
+                    <div>
+                      <h2>Versiones de set fijo</h2>
+                      <p>Crea varias versiones y edita los componentes de la seleccionada.</p>
+                    </div>
+                    <button type="button" class="button-with-icon" data-new-kit>
+                      <svg><use href="#icon-plus"></use></svg>
+                      <span>Nuevo set</span>
+                    </button>
+                  </div>
+                  <div id="ordersFixedList" class="orders-fixed-list"></div>
+                </section>
+                <aside class="panel orders-fixed-summary">
+                  <div class="panel-head compact">
+                    <div>
+                      <h2>Resumen del set</h2>
+                      <p>Impacto directo en el margen.</p>
+                    </div>
+                  </div>
+                  <div id="ordersFixedSummary"></div>
+                </aside>
               </div>
+            </section>
+
+            <form id="kitForm" class="entity-module supplier-form hidden">
               <input type="hidden" name="id">
-              <div class="form-grid four">
-                <label>Nombre<input name="name" required placeholder="Kit base"></label>
-                <label>Version<input name="version" placeholder="Colgante, anillo..."></label>
-                <label>Notas<textarea name="notes" rows="1"></textarea></label>
+              <div class="invoice-workspace-hero">
+                <div class="invoice-hero-copy">
+                  <p class="eyebrow">OPERACIONES / SET FIJO</p>
+                  <h1 id="kitFormTitle">Nuevo set fijo</h1>
+                  <p>Define los componentes por defecto que se suman a cada pedido.</p>
+                </div>
+                <div class="invoice-hero-actions">
+                  <button type="button" class="ghost button-with-icon" data-close-kit-panels><svg><use href="#icon-x"></use></svg><span>Cerrar</span></button>
+                  <button type="submit" class="button-with-icon"><svg><use href="#icon-save"></use></svg><span>Guardar set</span></button>
+                </div>
               </div>
-              <div class="row-actions">
-                <button type="submit">Guardar kit</button>
-                <button type="button" class="ghost" data-reset-form="kitForm">Limpiar</button>
-              </div>
+              <section class="panel invoice-editor-card">
+                <div class="form-grid three">
+                  <label>Nombre<input name="name" required placeholder="Set base"></label>
+                  <label>Version<input name="version" placeholder="Base, premium, sin lampara..."></label>
+                  <label class="check"><input name="is_default" type="checkbox"> Usar como set por defecto</label>
+                  <label>Notas<textarea name="notes" rows="1"></textarea></label>
+                </div>
+              </section>
             </form>
 
-            <section id="kitDetailPanel" class="panel entity-module hidden"></section>
+            <section id="kitDetailPanel" class="orders-detail entity-module hidden"></section>
           </div>
         </section>
 
         <section id="settings" class="view">
-          <div class="entity-page">
-            <form id="settingsForm" class="panel entity-module">
-              <div class="panel-head">
+          <div class="settings-page">
+            <form id="settingsForm" class="settings-form">
+              <header class="settings-overview-head">
                 <div>
+                  <span class="domain-kicker">Sistema</span>
                   <h2>Configuración</h2>
-                  <p>Ajustes básicos que hoy están por defecto y más adelante podremos ampliar.</p>
+                  <p>Preferencias de negocio, integraciones y mantenimiento técnico.</p>
                 </div>
-              </div>
-              <div class="segmented-control settings-nav">
-                <button type="button" class="ghost is-active" data-settings-section="general">General</button>
-                <button type="button" class="ghost" data-settings-section="dashboard">Dashboard</button>
-                <button type="button" class="ghost" data-settings-section="cobros">Ingresos</button>
-                <button type="button" class="ghost" data-settings-section="shopify">Shopify</button>
-                <button type="button" class="ghost" data-settings-section="diagnostico">Diagnóstico</button>
-                <button type="button" class="ghost" data-settings-section="logs">Logs</button>
-              </div>
+                <div id="settingsStatusStrip" class="settings-status-strip"></div>
+              </header>
 
-              <section class="settings-section" data-settings-panel="general">
+              <nav class="settings-nav-shell" aria-label="Secciones de configuración">
+                <div>
+                  <span>Preferencias de negocio</span>
+                  <div class="settings-nav">
+                    <button type="button" class="ghost is-active" data-settings-section="general"><svg><use href="#icon-settings"></use></svg>General</button>
+                    <button type="button" class="ghost" data-settings-section="dashboard"><svg><use href="#icon-activity"></use></svg>Dashboard</button>
+                    <button type="button" class="ghost" data-settings-section="cobros"><svg><use href="#icon-wallet"></use></svg>Ingresos</button>
+                  </div>
+                </div>
+                <div>
+                  <span>Preferencias técnicas</span>
+                  <div class="settings-nav">
+                    <button type="button" class="ghost" data-settings-section="shopify"><svg><use href="#icon-channel-shopify"></use></svg>Shopify</button>
+                    <button type="button" class="ghost" data-settings-section="diagnostico"><svg><use href="#icon-check-circle"></use></svg>Diagnóstico</button>
+                    <button type="button" class="ghost" data-settings-section="logs"><svg><use href="#icon-note"></use></svg>Logs</button>
+                  </div>
+                </div>
+              </nav>
+
+              <div class="settings-layout">
+                <main class="settings-main">
+              <section class="settings-section settings-card" data-settings-panel="general">
+                <div class="settings-section-head">
+                  <div><h3>General</h3><p>Preferencias principales para nuevos registros.</p></div>
+                  <span class="settings-saved-state">Guardado</span>
+                </div>
                 <div class="form-grid four">
                   <label>Nombre de la app<input name="company_name"></label>
                   <label>Moneda<input name="currency"></label>
@@ -1102,7 +1374,11 @@
                 </div>
               </section>
 
-              <section class="settings-section hidden" data-settings-panel="dashboard">
+              <section class="settings-section settings-card hidden" data-settings-panel="dashboard">
+                <div class="settings-section-head">
+                  <div><h3>Dashboard</h3><p>Vistas iniciales, reposición y colores de análisis.</p></div>
+                  <span class="settings-saved-state">Guardado</span>
+                </div>
                 <div class="form-grid three">
                   <label>Vista mensual inicial de gastos
                     <select name="dashboard_monthly_view">
@@ -1144,13 +1420,18 @@
                   <label>Envíos<input name="dashboard_color_envios" type="color"></label>
                   <label>Ingresos<input name="dashboard_color_cobros" type="color"></label>
                   <label>Fees<input name="dashboard_color_fees" type="color"></label>
+                  <label>Balance<input name="dashboard_color_balance" type="color"></label>
                   <label>Shopify<input name="dashboard_color_shopify" type="color"></label>
                   <label>Etsy<input name="dashboard_color_etsy" type="color"></label>
                   <label>Bizum<input name="dashboard_color_bizum" type="color"></label>
                 </div>
               </section>
 
-              <section class="settings-section hidden" data-settings-panel="cobros">
+              <section class="settings-section settings-card hidden" data-settings-panel="cobros">
+                <div class="settings-section-head">
+                  <div><h3>Ingresos</h3><p>Valores por defecto para importación y registro de cobros.</p></div>
+                  <span class="settings-saved-state">Guardado</span>
+                </div>
                 <div class="form-grid two">
                   <label>Canal payout por defecto
                     <select name="default_payout_channel">
@@ -1165,74 +1446,121 @@
                 </div>
               </section>
 
-              <section class="settings-section hidden" data-settings-panel="shopify">
-              <section class="panel inset-panel">
+              <section class="settings-section settings-technical-section hidden" data-settings-panel="shopify">
+              <section class="settings-card settings-tech-card">
                 <div class="panel-head">
                   <div>
                     <h2>Shopify</h2>
                     <p>Conexión directa con Shopify Admin API para catálogo, inventario, pedidos y payouts sin depender de CSV.</p>
                   </div>
                 </div>
-                <div id="shopifyConnectionForm" class="stack-form">
-                  <div class="form-grid three">
-                    <label>Dominio Shopify<input name="store_domain" placeholder="tu-tienda.myshopify.com"></label>
-                    <label>Versión API<input name="api_version" placeholder="2026-01"></label>
-                    <label>Client ID<input name="client_id" placeholder="shpui_..."></label>
-                  </div>
-                  <div class="form-grid two">
-                    <label>Client secret<input name="client_secret" type="password" placeholder="shpss_..."></label>
-                    <div class="inline-note">Usaremos el flujo de Dev Dashboard: el backend pedirá el access token automáticamente cuando haga falta.</div>
-                  </div>
-                  <div class="form-grid three">
-                    <label class="check"><input name="sync_enabled" type="checkbox"> Auto refresco activo</label>
-                    <label>Frecuencia (minutos)<input name="sync_interval_minutes" inputmode="numeric" min="5"></label>
-                    <div class="inline-note">La sincronización automática solo corre mientras la app siga abierta y visible.</div>
-                  </div>
-                  <div class="form-grid four">
-                    <label class="check"><input name="pull_products" type="checkbox"> Catálogo</label>
-                    <label class="check"><input name="pull_inventory" type="checkbox"> Inventario</label>
-                    <label class="check"><input name="pull_orders" type="checkbox"> Pedidos</label>
-                    <label class="check"><input name="pull_payouts" type="checkbox"> Payouts</label>
-                  </div>
-                  <div class="row-actions">
-                    <button type="button" data-test-shopify-connection>Probar conexión</button>
-                    <button type="button" class="ghost" data-sync-shopify-now>Sincronizar ahora</button>
-                    <button type="button" class="ghost" data-save-shopify-connection>Guardar Shopify</button>
+                <div id="shopifyConnectionForm" class="settings-shopify-grid">
+                  <section class="settings-shopify-card settings-shopify-connection">
+                    <div class="settings-numbered-head"><span>1</span><div><h3>Conexión Shopify</h3><p>Credenciales activas de Shopify Admin API.</p></div></div>
+                    <div class="stack-form">
+                      <label>Dominio Shopify<input name="store_domain" placeholder="tu-tienda.myshopify.com"></label>
+                      <label>Versión API<input name="api_version" placeholder="2026-01"></label>
+                      <label>Client ID<input name="client_id" placeholder="shpui_..."></label>
+                      <label>Client secret<input name="client_secret" type="password" placeholder="shpss_..."></label>
+                    </div>
+                    <div class="settings-connection-valid"><svg><use href="#icon-check-circle"></use></svg><div><strong>Estado de la conexión</strong><small>Las credenciales se guardan cifradas y nunca se muestran completas.</small></div></div>
+                    <div class="row-actions">
+                      <button type="button" class="ghost" data-test-shopify-connection>Probar conexión</button>
+                      <button type="button" data-save-shopify-connection>Guardar Shopify</button>
+                    </div>
+                  </section>
+                  <div class="settings-shopify-main">
+                    <section class="settings-shopify-card">
+                      <div class="settings-numbered-head"><span>2</span><div><h3>Configuración de sincronización</h3><p>Frecuencia y recursos que se actualizarán.</p></div></div>
+                      <div class="settings-auto-sync">
+                        <label class="check"><input name="sync_enabled" type="checkbox"> Auto refresco activo</label>
+                        <label>Frecuencia (minutos)<input name="sync_interval_minutes" inputmode="numeric" min="5"></label>
+                      </div>
+                      <div class="settings-sync-scope">
+                        <label><input name="pull_products" type="checkbox"><span><svg><use href="#icon-tag"></use></svg><strong>Catálogo</strong><small>Productos y variantes</small></span></label>
+                        <label><input name="pull_inventory" type="checkbox"><span><svg><use href="#icon-cube"></use></svg><strong>Inventario</strong><small>Stock y ubicaciones</small></span></label>
+                        <label><input name="pull_orders" type="checkbox"><span><svg><use href="#icon-kit"></use></svg><strong>Pedidos</strong><small>Pedidos y clientes</small></span></label>
+                        <label><input name="pull_payouts" type="checkbox"><span><svg><use href="#icon-wallet"></use></svg><strong>Payouts</strong><small>Pagos y desembolsos</small></span></label>
+                      </div>
+                    </section>
+                    <section class="settings-shopify-card">
+                      <div class="settings-numbered-head"><span>3</span><div><h3>Estado de sincronización</h3><p>Resultado de la última ejecución por recurso.</p></div><button type="button" class="ghost" data-sync-shopify-now><svg><use href="#icon-refresh"></use></svg>Sincronizar ahora</button></div>
+                      <div id="shopifySyncStatus" class="list settings-sync-status"></div>
+                    </section>
                   </div>
                 </div>
-                <div id="shopifySyncStatus" class="list"></div>
               </section>
               </section>
 
-              <section class="settings-section hidden" data-settings-panel="diagnostico">
-                <section class="panel inset-panel">
-                  <div class="panel-head">
-                    <div>
-                      <h2>Diagnóstico técnico</h2>
-                      <p>Estado interno de base de datos, backups, migraciones y conexión Shopify.</p>
+              <section class="settings-section settings-technical-section hidden" data-settings-panel="diagnostico">
+                <section class="settings-card settings-tech-card settings-diagnostics-shell">
+                  <div class="settings-diagnostics-grid">
+                    <div class="settings-diagnostics-main">
+                      <section class="settings-shopify-card">
+                        <div class="settings-numbered-head">
+                          <span>1</span>
+                          <div>
+                            <h3>Estado del sistema</h3>
+                            <p>Lectura rápida de integridad, estructura y disponibilidad.</p>
+                          </div>
+                          <button type="button" class="ghost" data-refresh-diagnostics>Actualizar</button>
+                        </div>
+                        <div id="systemHealthSummary" class="settings-diagnostics-summary">Cargando diagnóstico...</div>
+                        <div id="systemHealthCards" class="settings-diagnostics-status-grid"></div>
+                      </section>
+                      <section class="settings-shopify-card">
+                        <div class="settings-numbered-head">
+                          <span>2</span>
+                          <div>
+                            <h3>Recuperación y backups</h3>
+                            <p>Lo importante si hubiera que restaurar o validar una copia.</p>
+                          </div>
+                          <button type="button" data-create-backup>Crear backup</button>
+                        </div>
+                        <div id="systemHealthBackups" class="list"></div>
+                      </section>
+                      <section class="settings-shopify-card">
+                        <div class="settings-numbered-head">
+                          <span>3</span>
+                          <div>
+                            <h3>Sincronización y alertas</h3>
+                            <p>Qué está ocurriendo ahora y qué merece revisión.</p>
+                          </div>
+                        </div>
+                        <div class="settings-diagnostics-split">
+                          <div id="systemHealthIncidents" class="list"></div>
+                          <div id="systemHealthShopify" class="list"></div>
+                        </div>
+                      </section>
                     </div>
-                    <div class="row-actions">
-                      <button type="button" class="ghost" data-refresh-diagnostics>Actualizar</button>
-                      <button type="button" data-create-backup>Crear backup</button>
-                    </div>
-                  </div>
-                  <div id="systemHealthCards" class="dashboard-kpis diagnostics-kpis"></div>
-                  <div class="diagnostics-grid">
-                    <div class="stack-form">
-                      <div class="inline-note" id="systemHealthSummary">Cargando diagnóstico...</div>
-                      <div id="systemHealthBackups" class="list"></div>
-                    </div>
-                    <div class="stack-form">
-                      <div id="systemHealthIncidents" class="list"></div>
-                      <div id="systemHealthSchema" class="list"></div>
-                      <div id="systemHealthShopify" class="list"></div>
-                    </div>
+                    <aside class="settings-diagnostics-side">
+                      <section class="settings-context-card settings-diagnostics-aside-card">
+                        <div class="settings-context-head">
+                          <div>
+                            <h3>Componentes críticos</h3>
+                            <p>Chequeos que sostienen la operación diaria.</p>
+                          </div>
+                          <svg><use href="#icon-check-circle"></use></svg>
+                        </div>
+                        <div id="systemHealthSchema" class="list"></div>
+                      </section>
+                      <section class="settings-context-card settings-diagnostics-aside-card">
+                        <div class="settings-context-head">
+                          <div>
+                            <h3>Salud de código</h3>
+                            <p>Última verificación automática de la aplicación.</p>
+                          </div>
+                          <svg><use href="#icon-note"></use></svg>
+                        </div>
+                        <div id="systemHealthQa" class="list"></div>
+                      </section>
+                    </aside>
                   </div>
                 </section>
               </section>
 
-              <section class="settings-section hidden" data-settings-panel="logs">
-                <section class="panel inset-panel">
+              <section class="settings-section settings-technical-section hidden" data-settings-panel="logs">
+                <section class="settings-card settings-tech-card">
                   <div class="panel-head">
                     <div>
                       <h2>Logs técnicos</h2>
@@ -1272,76 +1600,140 @@
                   <div id="technicalLogPagination" class="pagination-bar"></div>
                 </section>
               </section>
-              <div class="row-actions" id="settingsSubmitRow">
-                <button type="submit">Guardar configuración</button>
+                </main>
+                <aside id="settingsContextAside" class="settings-context-aside"></aside>
+              </div>
+              <div class="settings-savebar" id="settingsSubmitRow">
+                <button type="button" class="ghost" data-discard-settings>Descartar cambios</button>
+                <span>Los cambios afectan a nuevos registros y futuras actualizaciones.</span>
+                <button type="submit"><svg><use href="#icon-save"></use></svg>Guardar configuración</button>
               </div>
             </form>
           </div>
         </section>
 
         <section id="audit" class="view">
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Actividad</h2>
-                <p>Seguimiento de cambios recientes para retomar trabajo, revisar ediciones y detectar incidencias.</p>
+          <div class="audit-page">
+            <section id="auditOverview">
+              <header class="audit-page-head">
+                <div>
+                  <span class="domain-kicker">Sistema</span>
+                  <h2>Actividad</h2>
+                  <p>Registro de cambios y eventos recientes del sistema.</p>
+                </div>
+                <div id="auditKpis" class="audit-kpi-grid"></div>
+              </header>
+
+              <nav class="audit-lane-tabs" id="auditLaneTabs" aria-label="Dominios de actividad">
+                <button type="button" data-audit-lane="all" class="is-active"><svg><use href="#icon-activity"></use></svg><span>Todo</span><b data-audit-count="all">0</b></button>
+                <button type="button" data-audit-lane="invoices"><svg><use href="#icon-file"></use></svg><span>Facturas</span><b data-audit-count="invoices">0</b></button>
+                <button type="button" data-audit-lane="income"><svg><use href="#icon-chart"></use></svg><span>Ingresos</span><b data-audit-count="income">0</b></button>
+                <button type="button" data-audit-lane="materials"><svg><use href="#icon-cube"></use></svg><span>Materiales</span><b data-audit-count="materials">0</b></button>
+                <button type="button" data-audit-lane="suppliers"><svg><use href="#icon-users"></use></svg><span>Proveedores</span><b data-audit-count="suppliers">0</b></button>
+              </nav>
+
+              <div class="audit-layout">
+                <main class="audit-main">
+                  <section class="audit-filter-panel">
+                    <div class="filter-grid audit-filter-grid">
+                      <label>Buscar<input id="auditQuery" placeholder="Entidad, acción, ID, usuario..."></label>
+                      <label>Entidad
+                        <select id="auditEntity">
+                          <option value="">Todas</option>
+                          <option value="material">Materiales</option>
+                          <option value="supplier">Proveedores</option>
+                          <option value="invoice">Facturas</option>
+                          <option value="invoice_line">Líneas de factura</option>
+                          <option value="channel_payout">Ingresos</option>
+                          <option value="kit_recipe">Kits</option>
+                          <option value="kit_recipe_item">Materiales de kit</option>
+                          <option value="sales_order">Pedidos</option>
+                          <option value="document">Documentos</option>
+                          <option value="app_settings">Configuración</option>
+                          <option value="system">Sistema</option>
+                          <option value="shopify_product">Shopify</option>
+                          <option value="client">Cliente</option>
+                        </select>
+                      </label>
+                      <label>Acción
+                        <select id="auditAction">
+                          <option value="">Todas</option>
+                          <option value="create">Creación</option>
+                          <option value="update">Edición</option>
+                          <option value="archive">Archivado</option>
+                          <option value="restore">Restauración</option>
+                          <option value="duplicate">Duplicado</option>
+                          <option value="backup_create">Backup</option>
+                          <option value="import_create">Importación</option>
+                          <option value="import_update">Actualización importada</option>
+                          <option value="shopify_sync_create">Sync Shopify alta</option>
+                          <option value="shopify_sync_update">Sync Shopify actualización</option>
+                        </select>
+                      </label>
+                      <label>ID<input id="auditId" inputmode="numeric" placeholder="ID o referencia"></label>
+                      <label>Desde<input id="auditFrom" type="date"></label>
+                      <label>Hasta<input id="auditTo" type="date"></label>
+                      <div class="audit-filter-actions">
+                        <button id="auditReset" type="button" class="ghost"><svg><use href="#icon-refresh"></use></svg>Limpiar</button>
+                      </div>
+                    </div>
+                    <div class="audit-quick-filters">
+                      <button type="button" data-audit-quick="today">Hoy</button>
+                      <button type="button" data-audit-quick="week" class="is-active">Últimos 7 días</button>
+                      <button type="button" data-audit-quick="critical">Cambios críticos</button>
+                      <button type="button" data-audit-quick="archive">Archivados</button>
+                      <button type="button" data-audit-quick="imports">Importaciones</button>
+                    </div>
+                  </section>
+
+                  <section class="audit-register">
+                    <div class="audit-register-head">
+                      <div>
+                        <h3>Registro de actividad</h3>
+                        <p id="auditSummary"></p>
+                      </div>
+                      <span id="auditUpdatedAt" class="audit-updated"></span>
+                    </div>
+                    <div class="audit-table-head">
+                      <span>Fecha y hora</span>
+                      <span>Entidad</span>
+                      <span>Acción</span>
+                      <span>Actor</span>
+                      <span>Cambios / detalle</span>
+                      <span>ID</span>
+                      <span>Acciones</span>
+                    </div>
+                    <div id="auditList" class="audit-list"></div>
+                    <div id="auditPagination" class="pagination-bar"></div>
+                  </section>
+                </main>
+
+                <aside class="audit-sidebar">
+                  <section class="audit-side-panel">
+                    <div class="audit-side-head">
+                      <div>
+                        <h3>Cambios a revisar</h3>
+                        <p>Eventos que necesitan atención.</p>
+                      </div>
+                      <svg><use href="#icon-sliders"></use></svg>
+                    </div>
+                    <div id="auditReviewList" class="audit-review-list"></div>
+                  </section>
+                  <section class="audit-side-panel">
+                    <div class="audit-side-head">
+                      <div>
+                        <h3>Actividad reciente</h3>
+                        <p>Últimos eventos relevantes.</p>
+                      </div>
+                    </div>
+                    <div id="auditRecentList" class="audit-recent-list"></div>
+                  </section>
+                </aside>
               </div>
-            </div>
-            <div class="audit-head">
-              <div class="segmented-control" id="auditLaneTabs">
-                <button type="button" data-audit-lane="all" class="is-active">Todo</button>
-                <button type="button" data-audit-lane="invoices">Facturas</button>
-                <button type="button" data-audit-lane="income">Ingresos</button>
-                <button type="button" data-audit-lane="materials">Materiales</button>
-                <button type="button" data-audit-lane="suppliers">Proveedores</button>
-              </div>
-              <div class="audit-summary" id="auditSummary"></div>
-            </div>
-            <div class="filter-grid audit-filter-grid">
-              <label>Buscar<input id="auditQuery" placeholder="Nombre, número, proveedor, acción..."></label>
-              <label>Entidad
-                <select id="auditEntity">
-                  <option value="">Todas</option>
-                  <option value="material">Materiales</option>
-                  <option value="supplier">Proveedores</option>
-                  <option value="invoice">Facturas</option>
-                  <option value="invoice_line">Líneas de factura</option>
-                  <option value="channel_payout">Ingresos</option>
-                  <option value="kit_recipe">Kits</option>
-                  <option value="kit_recipe_item">Materiales de kit</option>
-                  <option value="sales_order">Pedidos</option>
-                  <option value="document">Documentos</option>
-                  <option value="app_settings">Configuración</option>
-                  <option value="system">Sistema</option>
-                  <option value="shopify_product">Shopify</option>
-                  <option value="client">Cliente</option>
-                </select>
-              </label>
-              <label>Acción
-                <select id="auditAction">
-                  <option value="">Todas</option>
-                  <option value="create">Creación</option>
-                  <option value="update">Edición</option>
-                  <option value="archive">Archivado</option>
-                  <option value="restore">Restauración</option>
-                  <option value="duplicate">Duplicado</option>
-                  <option value="backup_create">Backup</option>
-                  <option value="import_create">Importación</option>
-                  <option value="import_update">Actualización importada</option>
-                  <option value="shopify_sync_create">Sync Shopify alta</option>
-                  <option value="shopify_sync_update">Sync Shopify actualización</option>
-                </select>
-              </label>
-              <label>ID<input id="auditId" inputmode="numeric" placeholder="ID"></label>
-              <label>Desde<input id="auditFrom" type="date"></label>
-              <label>Hasta<input id="auditTo" type="date"></label>
-              <div class="audit-filter-actions">
-                <button id="auditReset" type="button" class="ghost">Limpiar</button>
-              </div>
-            </div>
-            <div id="auditList" class="list"></div>
-            <div id="auditPagination" class="pagination-bar"></div>
-          </section>
+            </section>
+
+            <section id="auditDetailPanel" class="audit-detail hidden"></section>
+          </div>
         </section>
       </main>
     </div>

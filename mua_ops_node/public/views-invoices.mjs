@@ -11,6 +11,7 @@ export function createInvoiceViews(ctx) {
     statusLabel,
     docLink,
     img,
+    entityIconMarkup,
     hierarchySummary,
     materialPickerMarkup,
     syncMaterialPicker,
@@ -141,7 +142,10 @@ export function createInvoiceViews(ctx) {
         <article class="invoice-table-row ${active} ${invoice.is_deleted ? "deleted" : ""}">
           <span class="invoice-cell-date">${text(invoice.invoice_date)}</span>
           <span class="invoice-cell-number" title="${text(invoice.invoice_number, "Sin referencia")}">${text(invoice.invoice_number, "Sin referencia")}</span>
-          <span class="invoice-cell-supplier" title="${text(invoice.supplier_name, "Sin proveedor")}">${text(invoice.supplier_name, "Sin proveedor")}</span>
+          <span class="invoice-cell-supplier" title="${text(invoice.supplier_name, "Sin proveedor")}">
+            ${entityIconMarkup(invoice.supplier_name, { type: "supplier", className: "invoice-supplier-avatar" })}
+            <span class="invoice-cell-supplier-name">${text(invoice.supplier_name, "Sin proveedor")}</span>
+          </span>
           <span>${badge(invoice.category)}</span>
           <span>${badge(statusLabel(invoice.status), invoice.status === "draft" ? "warn" : "ok")}</span>
           <span>${badge(`${invoice.line_count || 0}`, lineTone)}</span>

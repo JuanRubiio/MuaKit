@@ -1,0 +1,27 @@
+{
+  "suppliers": {
+    "AliExpress": "/assets/entity-icons/aliexpress.svg",
+    "SHEIN": "/assets/entity-icons/shein.svg",
+    "Etsy": "/assets/entity-icons/etsy.svg",
+    "MalagaPack": "/assets/entity-icons/malagapack.svg",
+    "Correos": "/assets/entity-icons/correos.svg",
+    "Meta": "/assets/entity-icons/meta.svg",
+    "Shopify": "/assets/entity-icons/shopify.svg",
+    "LikinAgency": "/assets/entity-icons/likinagency.svg",
+    "Canva": "/assets/entity-icons/canva.svg",
+    "CapCut": "/assets/entity-icons/capcut.svg",
+    "Vodafone": "/assets/entity-icons/vodafone.svg",
+    "Otro": "/assets/entity-icons/otro.svg"
+  },
+  "payers": {
+    "Shopify Payments": "/assets/entity-icons/shopify-payments.svg",
+    "Etsy": "/assets/entity-icons/etsy.svg",
+    "Bizum": "/assets/entity-icons/bizum.svg",
+    "Klarna": "/assets/entity-icons/klarna.svg",
+    "Visa": "/assets/entity-icons/visa.svg",
+    "Master": "/assets/entity-icons/mastercard.svg",
+    "Mastercard": "/assets/entity-icons/mastercard.svg",
+    "Manual": "/assets/entity-icons/manual.svg",
+    "Card": "/assets/entity-icons/card.svg"
+  }
+}

@@ -608,6 +608,60 @@ const SCHEMA_MIGRATIONS = [
       ensureColumn("shopify_connection", "client_id", "TEXT DEFAULT ''");
       ensureColumn("shopify_connection", "client_secret", "TEXT DEFAULT ''");
     }
+  },
+  {
+    id: "003_material_priority_restock_fix",
+    name: "Ensure material priority restock column exists",
+    up: ({ ensureColumn }) => {
+      ensureColumn("materials", "is_priority_restock", "INTEGER NOT NULL DEFAULT 0");
+    }
+  },
+  {
+    id: "004_sales_order_lines",
+    name: "Ensure sales order lines exist",
+    up: ({ exec }) => {
+      exec(`
+        CREATE TABLE IF NOT EXISTS sales_order_lines (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          order_id INTEGER NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
+          external_id TEXT NOT NULL,
+          title TEXT NOT NULL DEFAULT '',
+          sku TEXT DEFAULT '',
+          quantity REAL NOT NULL DEFAULT 1,
+          gross_amount REAL NOT NULL DEFAULT 0,
+          discount_amount REAL NOT NULL DEFAULT 0,
+          net_amount REAL NOT NULL DEFAULT 0,
+          material_id INTEGER REFERENCES materials(id),
+          raw_source TEXT DEFAULT '',
+          is_deleted INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(order_id, external_id)
+        );
+      `);
+    }
+  },
+  {
+    id: "005_order_fixed_set_versions",
+    name: "Ensure order fixed set version fields exist",
+    up: ({ ensureColumn }) => {
+      ensureColumn("sales_orders", "kit_recipe_id", "INTEGER REFERENCES kit_recipes(id)");
+      ensureColumn("kit_recipes", "is_default", "INTEGER NOT NULL DEFAULT 0");
+    }
+  },
+  {
+    id: "006_order_line_cost_inclusion",
+    name: "Ensure order lines can be excluded from cost",
+    up: ({ ensureColumn }) => {
+      ensureColumn("sales_order_lines", "include_in_cost", "INTEGER NOT NULL DEFAULT 1");
+    }
+  },
+  {
+    id: "007_kit_item_cost_inclusion",
+    name: "Ensure kit items can be excluded from cost",
+    up: ({ ensureColumn }) => {
+      ensureColumn("kit_recipe_items", "include_in_cost", "INTEGER NOT NULL DEFAULT 1");
+    }
   }
 ];
 
@@ -1020,6 +1074,65 @@ function upsertSalesOrder(payload, source = "shopify_sync") {
   return { created: false, updated: true, row: after };
 }
 
+function materialIdForOrderLine(line = {}) {
+  const sku = String(line.sku || "").trim();
+  const title = String(line.title || "").trim();
+  if (sku) {
+    const bySku = one("SELECT material_id FROM shopify_products WHERE material_id IS NOT NULL AND sku=$sku LIMIT 1", { sku });
+    if (bySku?.material_id) return bySku.material_id;
+  }
+  if (title) {
+    const byTitle = one("SELECT material_id FROM shopify_products WHERE material_id IS NOT NULL AND LOWER(title)=LOWER($title) LIMIT 1", { title });
+    if (byTitle?.material_id) return byTitle.material_id;
+    const material = one("SELECT id FROM materials WHERE is_deleted=0 AND LOWER(name)=LOWER($title) LIMIT 1", { title });
+    if (material?.id) return material.id;
+  }
+  return null;
+}
+
+function replaceSalesOrderLines(orderId, lines = []) {
+  exec("UPDATE sales_order_lines SET is_deleted=1, updated_at=CURRENT_TIMESTAMP WHERE order_id=$orderId", { orderId });
+  const costMap = new Map(materialCosts().map((row) => [Number(row.material_id), row]));
+  for (const line of lines) {
+    const payload = {
+      orderId,
+      externalId: String(line.external_id || line.id || `${line.title || "line"}-${line.sku || ""}`).trim(),
+      title: String(line.title || "").trim(),
+      sku: String(line.sku || "").trim(),
+      quantity: n(line.quantity, 1),
+      gross: n(line.gross_amount),
+      discount: n(line.discount_amount),
+      net: n(line.net_amount),
+      material: optionalN(line.material_id) || materialIdForOrderLine(line),
+      raw: String(line.raw_source || "shopify_api").trim()
+    };
+    const materialCost = payload.material ? costMap.get(Number(payload.material)) : null;
+    const hasKnownCost = !payload.material || materialCost?.weighted_avg_unit_cost_inc_vat != null;
+    const existing = one("SELECT * FROM sales_order_lines WHERE order_id=$orderId AND external_id=$externalId", payload);
+    const includeInCost = hasKnownCost
+      ? Number(existing?.include_in_cost ?? 1)
+      : 0;
+    if (!existing) {
+      insert(
+        `INSERT INTO sales_order_lines (
+          order_id, external_id, title, sku, quantity, gross_amount, discount_amount, net_amount, material_id, raw_source, include_in_cost
+        ) VALUES (
+          $orderId, $externalId, $title, $sku, $quantity, $gross, $discount, $net, $material, $raw, $include
+        )`,
+        { ...payload, include: includeInCost ? 1 : 0 }
+      );
+    } else {
+      exec(
+        `UPDATE sales_order_lines
+         SET title=$title, sku=$sku, quantity=$quantity, gross_amount=$gross, discount_amount=$discount,
+             net_amount=$net, material_id=$material, raw_source=$raw, include_in_cost=$include, is_deleted=0, updated_at=CURRENT_TIMESTAMP
+         WHERE id=$id`,
+        { ...payload, id: existing.id, include: includeInCost ? 1 : 0 }
+      );
+    }
+  }
+}
+
 async function testShopifyConnection(configInput = null) {
   const config = configInput || shopifyConnectionForUse();
   validateShopifyConnectionConfig(config);
@@ -1130,9 +1243,9 @@ function moneyAmount(node) {
   return n(node?.shopMoney?.amount ?? node?.presentmentMoney?.amount ?? node?.amount ?? 0);
 }
 
-async function syncShopifyOrders(configInput = null) {
+async function syncShopifyOrders(configInput = null, options = {}) {
   const config = configInput || shopifyConnectionForUse();
-  const updatedAfter = timestampWithOverlap(config.last_orders_sync_at, 6, 365);
+  const updatedAfter = options.full ? timestampWithOverlap("", 0, 365) : timestampWithOverlap(config.last_orders_sync_at, 6, 365);
   let cursor = null;
   let rows = 0;
   let created = 0;
@@ -1155,6 +1268,17 @@ async function syncShopifyOrders(configInput = null) {
               currentTotalDiscountsSet { shopMoney { amount currencyCode } }
               totalShippingPriceSet { shopMoney { amount currencyCode } }
               totalTaxSet { shopMoney { amount currencyCode } }
+              lineItems(first: 50) {
+                nodes {
+                  id
+                  title
+                  quantity
+                  sku
+                  originalTotalSet { shopMoney { amount currencyCode } }
+                  discountedTotalSet { shopMoney { amount currencyCode } }
+                  totalDiscountSet { shopMoney { amount currencyCode } }
+                }
+              }
             }
           }
           pageInfo { hasNextPage endCursor }
@@ -1186,6 +1310,15 @@ async function syncShopifyOrders(configInput = null) {
         notes: ""
       };
       const result = upsertSalesOrder(payload);
+      replaceSalesOrderLines(result.row.id, (order.lineItems?.nodes || []).map((line) => ({
+        external_id: line.id,
+        title: line.title || "",
+        sku: line.sku || "",
+        quantity: line.quantity || 1,
+        gross_amount: moneyAmount(line.originalTotalSet),
+        discount_amount: moneyAmount(line.totalDiscountSet),
+        net_amount: moneyAmount(line.discountedTotalSet)
+      })));
       rows += 1;
       if (result.created) created += 1;
       else if (result.updated) updated += 1;
@@ -1277,7 +1410,7 @@ async function runShopifySyncStep(summary, name, fn) {
   }
 }
 
-async function runShopifySync(mode = "all") {
+async function runShopifySync(mode = "all", options = {}) {
   if (shopifySyncState.running) throw new Error("Ya hay una sincronización Shopify en curso");
   const row = shopifyConnectionRow();
   const config = shopifyConnectionForUse(row);
@@ -1303,7 +1436,7 @@ async function runShopifySync(mode = "all") {
   try {
     if (tasks.products) await runShopifySyncStep(summary, "products", () => syncShopifyProducts(config));
     if (tasks.inventory) await runShopifySyncStep(summary, "inventory", () => syncShopifyInventory(config));
-    if (tasks.orders) await runShopifySyncStep(summary, "orders", () => syncShopifyOrders(config));
+    if (tasks.orders) await runShopifySyncStep(summary, "orders", () => syncShopifyOrders(config, options));
     if (tasks.payouts) await runShopifySyncStep(summary, "payouts", () => syncShopifyPayouts(config));
   } catch (error) {
     summary.status = "error";
@@ -1847,20 +1980,25 @@ function kitRecipes() {
        ORDER BY kri.id`,
       { id: recipe.id }
     ).map((item) => {
+      const included = Number(item.include_in_cost ?? 1) !== 0;
       const cost = costs.get(item.material_id);
       const unitCost = cost?.weighted_avg_unit_cost_inc_vat ?? null;
       return {
         ...item,
+        include_in_cost: included ? 1 : 0,
         unit_cost: unitCost,
-        total_cost: unitCost == null ? null : unitCost * n(item.quantity)
+        total_cost: !included ? 0 : (unitCost == null ? null : unitCost * n(item.quantity))
       };
     });
-    const knownCost = items.reduce((sum, item) => sum + (item.total_cost ?? 0), 0);
-    const missing_cost_items = items.filter((item) => item.unit_cost == null).length;
+    const includedItems = items.filter((item) => Number(item.include_in_cost ?? 1) !== 0);
+    const knownCost = includedItems.reduce((sum, item) => sum + (item.total_cost ?? 0), 0);
+    const missing_cost_items = includedItems.filter((item) => item.unit_cost == null).length;
     return {
       ...recipe,
       items,
       item_count: items.length,
+      included_item_count: includedItems.length,
+      excluded_item_count: items.length - includedItems.length,
       known_cost: knownCost,
       missing_cost_items
     };
@@ -2628,6 +2766,8 @@ function createApp() {
   });
 
   registerKitRoutes(app, {
+    query,
+    exec,
     one,
     n,
     optionalN,
@@ -2638,7 +2778,8 @@ function createApp() {
     updateEntity,
     softDelete,
     restore,
-    kitRecipes
+    kitRecipes,
+    materialCosts
   });
 
   registerAnalyticsRoutes(app, {
@@ -2759,3 +2900,5 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+
+module.exports = { createApp, openDb, closeDb: () => db?.close?.() };

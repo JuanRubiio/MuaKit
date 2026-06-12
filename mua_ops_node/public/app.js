@@ -6,10 +6,13 @@
   incomeSummary: null,
   costs: [],
   kits: [],
+  ordersProfitability: { active_set: null, fixed_sets: [], orders: [] },
+  selectedFixedSetId: null,
   settings: null,
   shopifyConnection: null,
   shopifySyncStatus: null,
   systemHealth: null,
+  systemTestHealth: null,
   dashboardFinance: null,
   dashboardSpendView: "suppliers",
   dashboardExpenseTrendView: "total",
@@ -19,12 +22,13 @@
   dashboardWindowTo: "",
   dashboardGranularity: "auto",
   auditLane: "all",
+  auditQuick: "week",
+  selectedAuditId: null,
   settingsSection: "general",
   dashboardCharts: {},
   selectedInvoiceId: null,
   selectedPayoutId: null,
   incomeReviewFilter: "",
-  selectedCostMaterialId: null,
   invoiceReviewFilter: "",
   invoiceLineFormOpen: false,
   invoiceOpenLineAfterSave: false,
@@ -37,8 +41,7 @@
     payouts: { page: 1, pageSize: 20 },
     materials: { page: 1, pageSize: 24 },
     suppliers: { page: 1, pageSize: 20 },
-    costs: { page: 1, pageSize: 20 },
-    kits: { page: 1, pageSize: 12 },
+    kits: { page: 1, pageSize: 20 },
     audit: { page: 1, pageSize: 20 },
     technicalLogs: { page: 1, pageSize: 20 }
   }
@@ -118,6 +121,7 @@ const DASHBOARD_TREND_COLORS = {
   envios: "#4f6d93",
   cobros: "#166b5e",
   fees: "#b85d72",
+  balance: "#c18a3a",
   channel_shopify: "#166b5e",
   channel_etsy: "#9f7234",
   channel_bizum: "#c18a3a"
@@ -139,6 +143,7 @@ const AUDIT_ENTITY_LABELS = {
   kit_recipe: "Kit",
   kit_recipe_item: "Material de kit",
   sales_order: "Pedido",
+  sales_order_line: "Línea de pedido",
   document: "Documento",
   app_settings: "Configuración",
   system: "Sistema",
@@ -160,7 +165,10 @@ const AUDIT_ACTION_LABELS = {
   shopify_api_update: "Actualización Shopify",
   shopify_api_inventory: "Stock Shopify",
   shopify_sync_create: "Alta sincronizada",
-  shopify_sync_update: "Actualización sincronizada"
+  shopify_sync_update: "Actualización sincronizada",
+  fixed_set_update: "Cambio de set fijo",
+  include_in_cost: "Incluido en coste",
+  exclude_from_cost: "Excluido del coste"
 };
 const AUDIT_FIELD_LABELS = {
   name: "nombre",
@@ -186,7 +194,15 @@ const AUDIT_FIELD_LABELS = {
   price_per_package: "precio por paquete",
   units_per_package: "ud/paquete",
   package_count: "paquetes",
-  is_complete: "completo"
+  is_complete: "completo",
+  include_in_cost: "incluido en coste",
+  preferred_supplier_id: "proveedor preferente",
+  is_outlet: "outlet",
+  is_priority_restock: "reposición prioritaria",
+  is_deleted: "archivado",
+  document_id: "documento",
+  original_name: "nombre original",
+  stored_name: "archivo guardado"
 };
 const AUDIT_LANE_ENTITIES = {
   all: [],
@@ -255,6 +271,8 @@ function createViewContext() {
     auditSummary,
     auditJump,
     parseAuditJson,
+    normalizeAuditField,
+    auditDiffFields,
     AUDIT_LANE_ENTITIES,
     formatAuditTimestamp,
     technicalLogLevel,
@@ -296,6 +314,7 @@ function chartColors() {
     envios: settings.dashboard_color_envios || DASHBOARD_TREND_COLORS.envios,
     cobros: settings.dashboard_color_cobros || DASHBOARD_TREND_COLORS.cobros,
     fees: settings.dashboard_color_fees || DASHBOARD_TREND_COLORS.fees,
+    balance: settings.dashboard_color_balance || DASHBOARD_TREND_COLORS.balance,
     shopify: settings.dashboard_color_shopify || "#166b5e",
     etsy: settings.dashboard_color_etsy || "#9f7234",
     bizum: settings.dashboard_color_bizum || "#c18a3a",
@@ -303,6 +322,14 @@ function chartColors() {
     channel_etsy: settings.dashboard_color_etsy || "#9f7234",
     channel_bizum: settings.dashboard_color_bizum || "#c18a3a"
   };
+}
+
+function applyConfiguredColorVars() {
+  const colors = chartColors();
+  const root = document.documentElement;
+  root.style.setProperty("--channel-shopify", colors.channel_shopify);
+  root.style.setProperty("--channel-etsy", colors.channel_etsy);
+  root.style.setProperty("--channel-bizum", colors.channel_bizum);
 }
 
 function ensurePaginationState(key) {
@@ -383,7 +410,6 @@ function rerenderPaginatedSection(key) {
     payouts: renderPayouts,
     materials: renderMaterials,
     suppliers: renderSuppliers,
-    costs: renderCosts,
     kits: renderKits,
     audit: () => loadAudit().catch((error) => toast(error.message)),
     technicalLogs: renderTechnicalLogs
@@ -688,24 +714,30 @@ function showMaterialEditor(material = null) {
 
 function closeSupplierPanels() {
   $("#supplierForm")?.classList.add("hidden");
+  $("#suppliers .suppliers-page")?.classList.remove("suppliers-focus-mode");
+  document.body.classList.remove("suppliers-focus-active");
 }
 
 function showSupplierEditor(supplier = null) {
   const form = $("#supplierForm");
   form.classList.remove("hidden");
+  $("#suppliers .suppliers-page")?.classList.add("suppliers-focus-mode");
+  document.body.classList.add("suppliers-focus-active");
   resetForm("supplierForm");
   if (supplier) {
     setForm(form, supplier);
-    $("#supplierFormTitle").textContent = `Editar proveedor #${supplier.id}`;
+    $("#supplierFormTitle").textContent = supplier.name || `Editar proveedor #${supplier.id}`;
   } else {
     $("#supplierFormTitle").textContent = "Nuevo proveedor";
   }
+  viewModules.operations?.renderSupplierWorkspace?.(supplier);
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function closeKitPanels() {
   $("#kitForm")?.classList.add("hidden");
   $("#kitDetailPanel")?.classList.add("hidden");
+  $("#kits .orders-page")?.classList.remove("orders-focus-mode");
 }
 
 function closePayoutPanels() {
@@ -720,13 +752,14 @@ function closePayoutPanels() {
 function showKitEditor(kit = null, keepDetail = false) {
   const form = $("#kitForm");
   if (!keepDetail) $("#kitDetailPanel")?.classList.add("hidden");
+  $("#kits .orders-page")?.classList.add("orders-focus-mode");
   form.classList.remove("hidden");
   resetForm("kitForm");
   if (kit) {
     setForm(form, kit);
-    $("#kitFormTitle").textContent = `Editar kit #${kit.id}`;
+    $("#kitFormTitle").textContent = kit.name || `Editar set #${kit.id}`;
   } else {
-    $("#kitFormTitle").textContent = "Nuevo kit";
+    $("#kitFormTitle").textContent = "Nuevo set fijo";
   }
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -928,6 +961,7 @@ function auditEntityTitle(row, before, after) {
   if (row.entity_type === "kit_recipe") return source.name || `Kit #${row.entity_id}`;
   if (row.entity_type === "kit_recipe_item") return source.material_name || `Material de kit #${row.entity_id}`;
   if (row.entity_type === "sales_order") return source.order_number || source.external_id || `Pedido #${row.entity_id}`;
+  if (row.entity_type === "sales_order_line") return source.title || source.sku || `Línea de pedido #${row.entity_id}`;
   if (row.entity_type === "document") return source.original_name || source.stored_name || `Documento #${row.entity_id}`;
   if (row.entity_type === "shopify_product") return source.title || source.handle || `Producto Shopify #${row.entity_id}`;
   if (row.entity_type === "app_settings") return "Configuración general";
@@ -993,6 +1027,35 @@ function buildTechnicalLogClipboardText(row) {
     `Actor: ${row.actor || ""}`,
     `Mensaje: ${technicalLogMessage(row)}`,
     `Contexto: ${JSON.stringify(context, null, 2)}`
+  ].join("\n");
+}
+
+function buildSystemTestClipboardText(testHealth) {
+  const payload = testHealth || {};
+  const suites = Array.isArray(payload.suites) ? payload.suites : [];
+  const history = Array.isArray(payload.history) ? payload.history : [];
+  const coverage = payload.coverage || null;
+  return [
+    `Estado: ${payload.status || "unknown"}`,
+    `Resumen: ${payload.summary || "Sin ejecuciones registradas"}`,
+    `Ultima ejecucion: ${payload.last_run_at || "Nunca"}`,
+    `Duracion total: ${payload.duration_ms ? `${Math.round(payload.duration_ms / 1000)} s` : "-"}`,
+    ...(coverage ? [
+      `Cobertura backend (lineas): ${coverage.lines?.pct?.toFixed(1) || "0.0"}%`,
+      `Cobertura backend (branches): ${coverage.branches?.pct?.toFixed(1) || "0.0"}%`,
+      `Cobertura backend (funciones): ${coverage.functions?.pct?.toFixed(1) || "0.0"}%`,
+      `Cobertura backend (statements): ${coverage.statements?.pct?.toFixed(1) || "0.0"}%`
+    ] : []),
+    "",
+    "Suites:",
+    ...(suites.length ? suites.map((suite) => [
+      `- ${suite.label}: ${suite.status || "unknown"}`,
+      `  Duracion: ${suite.duration_ms ? `${Math.round(suite.duration_ms / 1000)} s` : "-"}`,
+      `  Salida: ${(suite.output || "").trim() || "Sin salida"}`
+    ].join("\n")) : ["- Sin suites ejecutadas"]),
+    "",
+    "Historial reciente:",
+    ...(history.length ? history.slice(0, 5).map((run) => `- ${run.last_run_at || "-"} · ${run.status || "unknown"} · ${run.duration_ms ? `${Math.round(run.duration_ms / 1000)} s` : "-"}`) : ["- Sin historial"])
   ].join("\n");
 }
 
@@ -1163,6 +1226,7 @@ async function loadSettings() {
   state.dashboardExpenseTrendView = state.settings.dashboard_monthly_view || "total";
   state.dashboardIncomeTrendView = state.settings.dashboard_income_monthly_view || "cobros";
   state.dashboardWindowPreset = state.settings.dashboard_window_preset || "all";
+  applyConfiguredColorVars();
   renderSettings();
 }
 
@@ -1178,12 +1242,14 @@ async function loadShopifyConnection() {
 }
 
 async function loadSystemHealth() {
-  const [health, technicalAudit] = await Promise.all([
+  const [health, technicalAudit, testHealth] = await Promise.all([
     api("/api/system/health"),
-    api("/api/audit-log?scope=technical&limit=50")
+    api("/api/audit-log?scope=technical&limit=50"),
+    api("/api/system/test-health")
   ]);
   state.systemHealth = health;
   state.technicalAudit = technicalAudit;
+  state.systemTestHealth = testHealth;
   renderSystemHealth();
   renderTechnicalLogs();
 }
@@ -1281,7 +1347,9 @@ function technicalLogFilterValues() {
 }
 
 async function loadMaterials() {
-  return viewModules.materials?.loadMaterials();
+  const result = await viewModules.materials?.loadMaterials();
+  if ($("#dashboard")?.classList.contains("active") && state.dashboardFinance) renderDashboard();
+  return result;
 }
 
 function refreshMaterialSelects() {
@@ -1329,21 +1397,21 @@ function renderSuppliers() {
 }
 
 async function loadCosts() {
-  const result = await viewModules.operations?.loadCosts();
+  state.costs = await api("/api/costs/materials");
   if ($("#materials")?.classList.contains("active")) renderMaterials();
-  return result;
-}
-
-function renderCosts() {
-  return viewModules.operations?.renderCosts();
 }
 
 async function openCostDetail(materialId) {
-  return viewModules.operations?.openCostDetail(materialId);
-}
-
-function renderCostHistoryChart(lots) {
-  return viewModules.operations?.renderCostHistoryChart(lots);
+  const item = state.materials.find((material) => String(material.id) === String(materialId));
+  setActiveView("materials");
+  if (!item) {
+    toast("No se encontro el material asociado al coste");
+    return;
+  }
+  showMaterialEditor(item);
+  requestAnimationFrame(() => {
+    document.querySelector("#materialForm")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 async function loadKits() {
@@ -1366,6 +1434,10 @@ async function openKitWorkspace(id) {
 
 function bindKitItemForm() {
   return viewModules.operations?.bindKitItemForm();
+}
+
+function openOrderDetail(id) {
+  return viewModules.operations?.openOrderDetail(id);
 }
 
 async function loadAudit() {
@@ -1409,23 +1481,34 @@ function refreshSupplierSelects() {
 async function saveMaterial(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  const data = formObject(form);
-  data.is_outlet = Boolean(form.elements.is_outlet?.checked);
-  data.is_priority_restock = Boolean(form.elements.is_priority_restock?.checked);
-  const id = data.id;
-  delete data.id;
-  const saved = await api(id ? `/api/materials/${id}` : "/api/materials", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
-  await Promise.all([loadMaterials(), loadSummary(), loadDashboardFinance(), loadCosts(), loadKits()]);
-  const current = state.materials.find((item) => item.id == saved.id) || saved;
-  current.is_outlet = Boolean(current.is_outlet ?? data.is_outlet);
-  current.is_priority_restock = Boolean(current.is_priority_restock ?? data.is_priority_restock);
-  showMaterialEditor(current);
-  if (form.dataset.submitMode === "save_and_cost") {
-    setActiveView("costs");
-    await openCostDetail(current.id);
+  try {
+    const data = formObject(form);
+    data.is_outlet = Boolean(form.elements.is_outlet?.checked);
+    data.is_priority_restock = Boolean(form.elements.is_priority_restock?.checked);
+    const id = data.id;
+    delete data.id;
+    const saved = await api(id ? `/api/materials/${id}` : "/api/materials", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
+    await Promise.all([loadMaterials(), loadSummary(), loadDashboardFinance(), loadCosts(), loadKits()]);
+    const current = state.materials.find((item) => item.id == saved.id) || saved;
+    current.is_outlet = Boolean(current.is_outlet ?? data.is_outlet);
+    current.is_priority_restock = Boolean(current.is_priority_restock ?? data.is_priority_restock);
+    toast("Material guardado");
+    try {
+      showMaterialEditor(current);
+    } catch (renderError) {
+      clientLog("material_editor_refresh_error", { message: renderError.message, id: current.id }, "warn");
+      renderMaterials();
+    }
+    if (form.dataset.submitMode === "save_and_cost") {
+      setActiveView("materials");
+      await openCostDetail(current.id);
+    }
+    form.dataset.submitMode = "save";
+  } catch (error) {
+    form.dataset.submitMode = "save";
+    clientLog("material_save_error", { message: error.message }, "error");
+    toast(error.message || "No se pudo guardar el material");
   }
-  form.dataset.submitMode = "save";
-  toast("Material guardado");
 }
 
 async function saveSupplier(event) {
@@ -1445,14 +1528,16 @@ async function saveKit(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = formObject(form);
+  data.is_default = Boolean(form.elements.is_default?.checked);
   const id = data.id;
   delete data.id;
   const saved = await api(id ? `/api/kit-recipes/${id}` : "/api/kit-recipes", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
   await Promise.all([loadKits(), loadDashboardFinance()]);
   const current = state.kits.find((item) => item.id == saved.id) || saved;
+  state.selectedFixedSetId = current.id;
   showKitEditor(current);
   await openKit(saved.id);
-  toast("Kit guardado");
+  toast("Set fijo guardado");
 }
 
 async function saveKitItem(event) {
@@ -1465,8 +1550,7 @@ async function saveKitItem(event) {
   delete data.recipe_id;
   await api(`/api/kit-recipes/${recipeId}/items`, { method: "POST", body: JSON.stringify(data) });
   await Promise.all([loadKits(), loadDashboardFinance()]);
-  await openKit(recipeId);
-  toast("Material añadido al kit");
+  toast("Componente añadido al set fijo");
 }
 
 function sanitizePayoutData(data = {}) {
@@ -1526,6 +1610,7 @@ async function saveSettings(event) {
   state.dashboardExpenseTrendView = state.settings.dashboard_monthly_view || "total";
   state.dashboardIncomeTrendView = state.settings.dashboard_income_monthly_view || "cobros";
   state.dashboardWindowPreset = state.settings.dashboard_window_preset || "all";
+  applyConfiguredColorVars();
   renderSettings();
   if (state.dashboardFinance) renderDashboard();
   toast("Configuración guardada");
@@ -1581,6 +1666,12 @@ async function createSystemBackup() {
   const backup = await api("/api/system/backup", { method: "POST", body: JSON.stringify({ reason: "ui-manual" }) });
   await loadSystemHealth();
   toast(`Backup creado · ${backup.reason}`);
+}
+
+async function runSystemTests() {
+  await api("/api/system/test-health/run", { method: "POST", body: "{}" });
+  await loadSystemHealth();
+  toast("Tests de salud actualizados");
 }
 
 async function uploadDocumentIfNeeded() {
@@ -1657,7 +1748,7 @@ function populateStaticFilters() {
       <option value="archived" ${selected === "archived" ? "selected" : ""}>Archivada</option>`;
   });
   $("#materialCategoryFilter").innerHTML = optionList(CATEGORIES, "", "Todas");
-  $("#costCategoryFilter").innerHTML = optionList(CATEGORIES, "", "Todas");
+
   $("#invoiceCategoryFilter").innerHTML = optionList(INVOICE_CATEGORIES, "", "Todas");
   $("#invoiceStatusFilter").innerHTML = `<option value="">Todos</option>
     <option value="draft">Borrador</option>
@@ -1683,24 +1774,31 @@ async function refreshAll() {
   await loadSettings();
   await loadShopifyConnection();
   await loadSystemHealth();
+  await loadMaterials();
   await loadDashboardFinance();
   await loadIncome();
   await loadSuppliers();
-  await loadMaterials();
   await loadInvoices();
   await loadCosts();
   await loadKits();
+  renderSuppliers();
 }
 
 function setActiveView(view) {
   if (view !== "invoices") document.body.classList.remove("invoice-focus-active");
   if (view !== "income") document.body.classList.remove("income-focus-active");
   if (view !== "materials") document.body.classList.remove("materials-focus-active");
+  if (view !== "suppliers") document.body.classList.remove("suppliers-focus-active");
   if (view !== "invoices") $("#invoices .invoice-page")?.classList.remove("invoice-focus-mode");
   if (view !== "income") $("#income .income-page")?.classList.remove("income-focus-mode");
   if (view !== "materials") $("#materials .materials-page")?.classList.remove("materials-focus-mode");
+  if (view !== "suppliers") $("#suppliers .suppliers-page")?.classList.remove("suppliers-focus-mode");
   document.body.classList.toggle("income-view-active", view === "income");
   document.body.classList.toggle("materials-view-active", view === "materials");
+  document.body.classList.toggle("suppliers-view-active", view === "suppliers");
+  document.body.classList.toggle("kits-view-active", view === "kits");
+  document.body.classList.toggle("audit-view-active", view === "audit");
+  document.body.classList.toggle("settings-view-active", view === "settings");
   $$(".tab,.view").forEach((el) => el.classList.remove("active"));
   $(`.tab[data-view="${view}"]`)?.classList.add("active");
   $(`#${view}`)?.classList.add("active");
@@ -1709,6 +1807,7 @@ function setActiveView(view) {
   if (view === "audit") loadAudit().catch((error) => toast(error.message));
   if (view === "dashboard") requestAnimationFrame(() => renderDashboardCharts());
   if (view === "income") requestAnimationFrame(() => renderPayouts());
+  if (view === "kits") requestAnimationFrame(() => renderKits());
 }
 
 function bindEvents() {
@@ -1776,12 +1875,31 @@ function bindEvents() {
       if (t.dataset.settingsSection) {
         state.settingsSection = t.dataset.settingsSection;
         renderSettings();
+        if (["general", "dashboard", "cobros"].includes(state.settingsSection)) {
+          requestAnimationFrame(() => {
+            document.querySelector(`[data-settings-panel="${state.settingsSection}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+        }
+      }
+      if (t.dataset.discardSettings !== undefined) {
+        renderSettings();
+        renderShopifyConnection();
+        toast("Cambios descartados");
       }
       if (t.dataset.auditLane) {
         state.auditLane = t.dataset.auditLane;
         resetPagination("audit");
         $$("#auditLaneTabs button").forEach((button) => button.classList.toggle("is-active", button.dataset.auditLane === state.auditLane));
         await loadAudit();
+      }
+      if (t.dataset.auditQuick) {
+        await viewModules.audit?.setAuditQuick?.(t.dataset.auditQuick);
+      }
+      if (t.dataset.openAuditDetail) {
+        viewModules.audit?.openAuditDetail?.(t.dataset.openAuditDetail);
+      }
+      if (t.dataset.closeAuditDetail !== undefined) {
+        viewModules.audit?.closeAuditDetail?.();
       }
       if (t.dataset.pageTarget && t.dataset.pageAction) {
         const pagination = ensurePaginationState(t.dataset.pageTarget);
@@ -1805,6 +1923,7 @@ function bindEvents() {
       if (t.dataset.saveShopifyConnection !== undefined) await saveShopifyConnection($("#shopifyConnectionForm"));
       if (t.dataset.refreshDiagnostics !== undefined) await loadSystemHealth();
       if (t.dataset.createBackup !== undefined) await createSystemBackup();
+      if (t.dataset.runSystemTests !== undefined) await runSystemTests();
       if (t.dataset.newMaterial !== undefined) showMaterialEditor();
       if (t.dataset.materialLane) {
         state.materialLane = t.dataset.materialLane;
@@ -1816,8 +1935,49 @@ function bindEvents() {
       if (t.dataset.saveMaterialCost !== undefined) $("#materialForm").dataset.submitMode = "save_and_cost";
       if (t.dataset.newSupplier !== undefined) showSupplierEditor();
       if (t.dataset.closeSupplierPanels !== undefined) closeSupplierPanels();
+      if (t.dataset.supplierLane !== undefined) {
+        const lane = t.dataset.supplierLane === "all" ? "" : t.dataset.supplierLane;
+        $("#supplierStatusTabs").dataset.activeLane = lane;
+        resetPagination("suppliers");
+        renderSuppliers();
+      }
+      if (t.dataset.openSupplierCritical !== undefined) {
+        $("#supplierStatusTabs").dataset.activeLane = "critical";
+        resetPagination("suppliers");
+        renderSuppliers();
+      }
+      if (t.dataset.openSupplierRecent !== undefined) {
+        $("#supplierSort").value = "name_asc";
+        $("#supplierSearch").value = "";
+        resetPagination("suppliers");
+        renderSuppliers();
+      }
+      if (t.dataset.supplierCategoryChip) {
+        viewModules.operations?.applySupplierCategoryChip?.(t.dataset.supplierCategoryChip);
+      }
+      if (t.id === "supplierOpenMaterialsButton") {
+        const supplierId = $("#supplierForm")?.elements.id?.value;
+        setActiveView("materials");
+        if (supplierId && $("#materialSupplierFilter")) $("#materialSupplierFilter").value = supplierId;
+        resetPagination("materials");
+        renderMaterials();
+      }
       if (t.dataset.newKit !== undefined) showKitEditor();
       if (t.dataset.closeKitPanels !== undefined) closeKitPanels();
+      if (t.dataset.ordersSection) {
+        const section = t.dataset.ordersSection;
+        $("#kits .orders-page")?.classList.remove("orders-focus-mode");
+        $("#kitForm")?.classList.add("hidden");
+        $("#kitDetailPanel")?.classList.add("hidden");
+        $$(".orders-tabs [data-orders-section]").forEach((button) => button.classList.toggle("is-active", button.dataset.ordersSection === section));
+        $$("[data-orders-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.ordersPanel !== section));
+      }
+      if (t.dataset.orderStatusFilter) {
+        const value = t.dataset.orderStatusFilter === "low_margin" ? "low_margin" : (t.dataset.orderStatusFilter === "complete" ? "complete" : "missing");
+        if ($("#orderStatusFilter")) $("#orderStatusFilter").value = value;
+        resetPagination("kits");
+        renderKits();
+      }
       if (t.dataset.resetForm) resetForm(t.dataset.resetForm);
       if (t.dataset.viewSupplier) {
         const item = state.suppliers.find((s) => s.id == t.dataset.viewSupplier);
@@ -1843,17 +2003,16 @@ function bindEvents() {
         await copyToClipboard(buildTechnicalLogClipboardText(row));
         toast("Detalle técnico copiado");
       }
+      if (t.dataset.copySystemTests !== undefined) {
+        await copyToClipboard(buildSystemTestClipboardText(state.systemTestHealth));
+        toast("Detalle de verificación copiado");
+      }
       if (t.dataset.openCost) {
-        setActiveView("costs");
         await openCostDetail(t.dataset.openCost);
       }
       if (t.dataset.viewInvoice) {
         setActiveView("invoices");
         await openInvoiceWorkspace(t.dataset.viewInvoice);
-      }
-      if (t.dataset.closeCostDetail !== undefined) {
-        $("#costDetailPanel")?.classList.add("hidden");
-        state.selectedCostMaterialId = null;
       }
       if (t.dataset.openPayout) {
         setActiveView("income");
@@ -1887,7 +2046,30 @@ function bindEvents() {
       if (t.dataset.deletePayout) await archiveOrRestore(`/api/channel-payouts/${t.dataset.deletePayout}`, "Ingreso archivado");
       if (t.dataset.restorePayout) await archiveOrRestore(`/api/channel-payouts/${t.dataset.restorePayout}/restore`, "Ingreso restaurado");
       if (t.dataset.openKit) await openKitWorkspace(t.dataset.openKit);
-      if (t.dataset.closeKitDetail !== undefined) $("#kitDetailPanel")?.classList.add("hidden");
+      if (t.dataset.selectFixedSet) {
+        state.selectedFixedSetId = Number(t.dataset.selectFixedSet);
+        renderKits();
+      }
+      if (t.dataset.editKit) {
+        const kit = state.kits.find((item) => String(item.id) === String(t.dataset.editKit)) || (await api("/api/kit-recipes")).find((item) => String(item.id) === String(t.dataset.editKit));
+        if (kit) showKitEditor(kit);
+      }
+      if (t.dataset.defaultKit) {
+        await api(`/api/kit-recipes/${t.dataset.defaultKit}`, { method: "PATCH", body: JSON.stringify({ is_default: true }) });
+        await Promise.all([loadKits(), loadDashboardFinance()]);
+        toast("Set por defecto actualizado");
+      }
+      if (t.dataset.syncOrderLines !== undefined) {
+        t.disabled = true;
+        await api("/api/shopify/sync/orders", { method: "POST", body: JSON.stringify({ full: true }) });
+        await Promise.all([loadKits(), loadDashboardFinance(), loadShopifyConnection()]);
+        toast("Desglose de pedidos actualizado");
+      }
+      if (t.dataset.openOrder) openOrderDetail(t.dataset.openOrder);
+      if (t.dataset.closeKitDetail !== undefined) {
+        $("#kitDetailPanel")?.classList.add("hidden");
+        $("#kits .orders-page")?.classList.remove("orders-focus-mode");
+      }
       if (t.dataset.toggleKitComplete) {
         const current = Number(t.dataset.kitComplete || 0);
         await api(`/api/kit-recipes/${t.dataset.toggleKitComplete}`, { method: "PATCH", body: JSON.stringify({ is_complete: current ? 0 : 1 }) });
@@ -1971,6 +2153,7 @@ function bindEvents() {
       renderPayoutFormReview();
     }
     if (event.target.closest("#materialForm")) renderMaterialWorkspace();
+    if (event.target.closest("#supplierForm")) viewModules.operations?.renderSupplierWorkspace?.();
     if (event.target.closest("#lineForm")) updateLinePreview();
   });
 
@@ -1982,11 +2165,41 @@ function bindEvents() {
       renderPayoutFormReview();
     }
     if (event.target.closest("#materialForm")) renderMaterialWorkspace();
+    if (event.target.closest("#supplierForm")) viewModules.operations?.renderSupplierWorkspace?.();
     if (event.target.closest("#lineForm")) updateLinePreview();
     if (event.target.closest("#lineForm") && event.target.name?.startsWith("line_")) syncMaterialPicker($("#lineForm"), "line", { required: true });
     if (event.target.closest("#lineForm") && event.target.name === "material_id") syncMaterialPicker($("#lineForm"), "line", { required: true });
     if (event.target.closest("#kitItemForm") && event.target.name?.startsWith("kit_")) syncMaterialPicker($("#kitItemForm"), "kit", { required: true });
     if (event.target.closest("#kitItemForm") && event.target.name === "material_id") syncMaterialPicker($("#kitItemForm"), "kit", { required: true });
+    if (event.target.matches("[data-order-fixed-set-select]")) {
+      const select = event.target;
+      api(`/api/orders/${select.dataset.orderFixedSetSelect}/fixed-set`, {
+        method: "PATCH",
+        body: JSON.stringify({ kit_recipe_id: select.value || null })
+      }).then(() => loadKits())
+        .then(() => openOrderDetail(select.dataset.orderFixedSetSelect))
+        .then(() => toast("Set aplicado al pedido"))
+        .catch((error) => toast(error.message));
+    }
+    if (event.target.matches("[data-order-line-include]")) {
+      const input = event.target;
+      api(`/api/order-lines/${input.dataset.orderLineInclude}/include`, {
+        method: "PATCH",
+        body: JSON.stringify({ include_in_cost: input.checked })
+      }).then(() => loadKits())
+        .then(() => openOrderDetail(input.dataset.orderId))
+        .then(() => toast(input.checked ? "Material incluido en coste" : "Material excluido del coste"))
+        .catch((error) => toast(error.message));
+    }
+    if (event.target.matches("[data-kit-item-include]")) {
+      const input = event.target;
+      api(`/api/kit-recipes/${input.dataset.kitId}/items/${input.dataset.kitItemInclude}/include`, {
+        method: "PATCH",
+        body: JSON.stringify({ include_in_cost: input.checked })
+      }).then(() => loadKits())
+        .then(() => toast(input.checked ? "Componente incluido en el set" : "Componente desactivado del set"))
+        .catch((error) => toast(error.message));
+    }
     if (event.target.matches("[data-page-size-target]")) {
       const key = event.target.dataset.pageSizeTarget;
       const pagination = ensurePaginationState(key);
@@ -2010,7 +2223,10 @@ function bindEvents() {
     ["#materialSort", renderMaterials, "materials"],
     ["#supplierSearch", renderSuppliers, "suppliers"],
     ["#supplierCategoryFilter", renderSuppliers, "suppliers"],
+    ["#supplierLeadFilter", renderSuppliers, "suppliers"],
+    ["#supplierWebFilter", renderSuppliers, "suppliers"],
     ["#supplierSort", renderSuppliers, "suppliers"],
+    ["#suppliersWithMaterials", renderSuppliers, "suppliers"],
     ["#invoiceSearch", renderInvoices, "invoices"],
     ["#invoiceSupplierFilter", renderInvoices, "invoices"],
     ["#invoiceCategoryFilter", renderInvoices, "invoices"],
@@ -2025,10 +2241,11 @@ function bindEvents() {
     ["#payoutFromFilter", renderPayouts, "payouts"],
     ["#payoutToFilter", renderPayouts, "payouts"],
     ["#payoutSort", renderPayouts, "payouts"],
-    ["#costSearch", renderCosts, "costs"],
-    ["#costCategoryFilter", renderCosts, "costs"],
-    ["#costSort", renderCosts, "costs"],
-    ["#costOnlyWithPurchases", renderCosts, "costs"],
+
+    ["#orderSearch", renderKits, "kits"],
+    ["#orderChannelFilter", renderKits, "kits"],
+    ["#orderStatusFilter", renderKits, "kits"],
+    ["#orderSort", renderKits, "kits"],
   ].forEach(([selector, handler, pageKey]) => {
     const node = $(selector);
     if (!node) return;
@@ -2146,4 +2363,11 @@ init().catch((error) => {
   clientLog("app_init_error", { message: error.message }, "error");
   toast(error.message);
 });
+
+
+
+
+
+
+
 

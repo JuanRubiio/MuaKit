@@ -7,8 +7,8 @@ const initSqlJs = require("sql.js");
 const ROOT = path.resolve(__dirname, "..");
 const SERVER = path.join(__dirname, "server.js");
 const TEST_DIR = path.join(ROOT, "data", `mua_ops_test_${process.pid}_${Date.now()}`);
-const PORT = 5065;
-const SHOPIFY_MOCK_PORT = 5066;
+const PORT = Number(process.env.MUA_OPS_TEST_PORT || 5065);
+const SHOPIFY_MOCK_PORT = Number(process.env.MUA_OPS_TEST_SHOPIFY_PORT || 5066);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 function assert(condition, message) {
@@ -175,7 +175,29 @@ function createMockShopifyServer() {
                 currentSubtotalPriceSet: { shopMoney: { amount: "79.90", currencyCode: "EUR" } },
                 currentTotalDiscountsSet: { shopMoney: { amount: "5.00", currencyCode: "EUR" } },
                 totalShippingPriceSet: { shopMoney: { amount: "5.00", currencyCode: "EUR" } },
-                totalTaxSet: { shopMoney: { amount: "10.00", currencyCode: "EUR" } }
+                totalTaxSet: { shopMoney: { amount: "10.00", currencyCode: "EUR" } },
+                lineItems: {
+                  nodes: [
+                    {
+                      id: "gid://shopify/LineItem/1001-1",
+                      title: "Cadena incluida dorada (acero)",
+                      quantity: 1,
+                      sku: "CAD-DOR-001",
+                      originalTotalSet: { shopMoney: { amount: "24.95", currencyCode: "EUR" } },
+                      discountedTotalSet: { shopMoney: { amount: "24.95", currencyCode: "EUR" } },
+                      totalDiscountSet: { shopMoney: { amount: "0.00", currencyCode: "EUR" } }
+                    },
+                    {
+                      id: "gid://shopify/LineItem/1001-2",
+                      title: "Anillo Corazón plateado (acero)",
+                      quantity: 2,
+                      sku: "ANI-PLA-001",
+                      originalTotalSet: { shopMoney: { amount: "54.95", currencyCode: "EUR" } },
+                      discountedTotalSet: { shopMoney: { amount: "49.95", currencyCode: "EUR" } },
+                      totalDiscountSet: { shopMoney: { amount: "5.00", currencyCode: "EUR" } }
+                    }
+                  ]
+                }
               }
             }
           ],
@@ -246,7 +268,8 @@ async function run() {
         ...process.env,
         MUA_OPS_DATA_DIR: TEST_DIR,
         MUA_OPS_DB_FILE: path.join(TEST_DIR, "mua_ops_test.sqlite"),
-        MUA_OPS_LEGACY_JSON: path.join(TEST_DIR, "empty.json")
+        MUA_OPS_LEGACY_JSON: path.join(TEST_DIR, "empty.json"),
+        MUA_OPS_AUTO_TEST_HEALTH_AFTER_SYNC: "0"
       },
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -327,6 +350,17 @@ async function run() {
     assert(connectionStatus.client_id_masked.endsWith("ient"), "Shopify connection should only expose a masked client id");
     assert(connectionStatus.client_secret_masked.endsWith("cret"), "Shopify connection should only expose a masked client secret");
     assert(connectionStatus.auth_mode === "client_credentials", "Shopify connection should detect client credentials auth");
+    const scopedConnection = await request("PATCH", "/api/shopify/connection", {
+      pull_products: false,
+      pull_inventory: true,
+      pull_orders: false,
+      pull_payouts: true
+    });
+    assert(scopedConnection.store_domain === `http://127.0.0.1:${SHOPIFY_MOCK_PORT}`, "Partial Shopify updates must preserve the domain");
+    assert(scopedConnection.pull_products === false && scopedConnection.pull_orders === false, "Shopify sync scope should persist disabled resources");
+    const scopedConnectionReloaded = await request("GET", "/api/shopify/connection");
+    assert(scopedConnectionReloaded.pull_products === false && scopedConnectionReloaded.pull_orders === false, "Shopify sync scope should survive reload");
+    await request("PATCH", "/api/shopify/connection", { pull_products: true, pull_orders: true });
     const healthWithShopify = await request("GET", "/api/system/health");
     const healthText = JSON.stringify(healthWithShopify);
     assert(!healthText.includes("shpss_test_secret"), "System health must not expose Shopify client secret");
@@ -340,6 +374,7 @@ async function run() {
     assert(firstShopifySync.inventory?.rows > 0, "Shopify sync should import inventory");
     assert(firstShopifySync.orders?.rows > 0, "Shopify sync should import orders");
     assert(firstShopifySync.payouts?.rows > 0, "Shopify sync should import payouts");
+    assert(firstShopifySync.verification_scheduled === false, "Automatic verification should stay disabled in API tests");
 
     const secondShopifySync = await request("POST", "/api/shopify/sync", {});
     assert(secondShopifySync.products?.created === 0, "Shopify product sync should be idempotent on second run");
@@ -347,6 +382,31 @@ async function run() {
     const shopifySyncStatus = await request("GET", "/api/shopify/sync-status");
     assert(shopifySyncStatus.last_sync_status === "ok", "Shopify sync status should record successful syncs");
     assert(shopifySyncStatus.last_products_sync_at, "Shopify sync status should retain per-block timestamps");
+    assert(shopifySyncStatus.pull_products === true && shopifySyncStatus.pull_orders === true, "Shopify sync status should expose active sync scopes");
+
+    const previousOrdersSyncAt = shopifySyncStatus.last_orders_sync_at;
+    const previousProductsSyncAt = shopifySyncStatus.last_products_sync_at;
+    await request("PATCH", "/api/shopify/connection", {
+      pull_products: false,
+      pull_inventory: false,
+      pull_orders: true,
+      pull_payouts: false
+    });
+    const scopedSync = await request("POST", "/api/shopify/sync", {});
+    assert(scopedSync.products === null, "Shopify sync should skip disabled product scope");
+    assert(scopedSync.inventory === null, "Shopify sync should skip disabled inventory scope");
+    assert(scopedSync.payouts === null, "Shopify sync should skip disabled payouts scope");
+    assert(scopedSync.orders?.status === "ok", "Shopify sync should still execute enabled order scope");
+    assert(scopedSync.verification_scheduled === false, "Scoped sync should also report auto verification as disabled in test mode");
+    const scopedStatusAfterSync = await request("GET", "/api/shopify/sync-status");
+    assert(scopedStatusAfterSync.last_orders_sync_at && scopedStatusAfterSync.last_orders_sync_at !== previousOrdersSyncAt, "Order sync timestamp should advance when orders scope runs");
+    assert(scopedStatusAfterSync.last_products_sync_at === previousProductsSyncAt, "Product sync timestamp should stay untouched when products scope is disabled");
+    await request("PATCH", "/api/shopify/connection", {
+      pull_products: true,
+      pull_inventory: true,
+      pull_orders: true,
+      pull_payouts: true
+    });
 
     const shopifyImport = await request("POST", "/api/import/payouts/shopify", {});
     assert(shopifyImport.rows_total > 0, "Shopify payouts import should read rows");
@@ -521,6 +581,128 @@ async function run() {
     materialCost = costs.find((row) => row.material_id === material.id);
     assert(materialCost.purchase_lots === 2, "Restored invoice should affect costs again");
 
+    const kitRecipe = await request("POST", "/api/kit-recipes", {
+      name: "Kit test base",
+      version: "maternal",
+      is_default: true,
+      notes: "API test fixed set"
+    });
+    assert(kitRecipe.id, "Kit recipe should be created");
+    assert(Number(kitRecipe.is_default) === 1, "Kit recipe should be markable as default");
+
+    const kitItem = await request("POST", `/api/kit-recipes/${kitRecipe.id}/items`, {
+      material_id: material.id,
+      quantity: 2,
+      notes: "Component included by default"
+    });
+    assert(kitItem.id, "Kit recipe item should be created");
+
+    let kits = await request("GET", "/api/kit-recipes");
+    let defaultKit = kits.find((row) => row.id === kitRecipe.id);
+    assert(defaultKit.item_count === 1, "Kit recipe should expose item count");
+    assert(defaultKit.included_item_count === 1, "Kit recipe should count included components");
+    assert(defaultKit.excluded_item_count === 0, "Kit recipe should count excluded components");
+    assert(Math.abs(defaultKit.known_cost - 2) < 0.0001, "Kit recipe should include component cost in known cost");
+    assert(defaultKit.missing_cost_items === 0, "Kit recipe should not mark included costed components as missing");
+
+    const excludedKitItem = await request("PATCH", `/api/kit-recipes/${kitRecipe.id}/items/${kitItem.id}/include`, {
+      include_in_cost: false
+    });
+    assert(Number(excludedKitItem.include_in_cost) === 0, "Kit item should be excludable from fixed set cost");
+    kits = await request("GET", "/api/kit-recipes");
+    defaultKit = kits.find((row) => row.id === kitRecipe.id);
+    assert(defaultKit.included_item_count === 0, "Excluded kit items should not count as included");
+    assert(defaultKit.excluded_item_count === 1, "Excluded kit items should count as excluded");
+    assert(Math.abs(defaultKit.known_cost) < 0.0001, "Excluded kit item should not contribute to fixed set cost");
+    assert(defaultKit.missing_cost_items === 0, "Excluded kit item should not count as missing cost");
+
+    const includedKitItem = await request("PATCH", `/api/kit-recipes/${kitRecipe.id}/items/${kitItem.id}/include`, {
+      include_in_cost: true
+    });
+    assert(Number(includedKitItem.include_in_cost) === 1, "Kit item should be includable again");
+    const completedKit = await request("PATCH", `/api/kit-recipes/${kitRecipe.id}`, { is_complete: true });
+    assert(Number(completedKit.is_complete) === 1, "Kit recipe should be markable as complete");
+    const completeToggleAttempt = await requestRaw("PATCH", `/api/kit-recipes/${kitRecipe.id}/items/${kitItem.id}/include`, {
+      include_in_cost: false
+    });
+    assert(completeToggleAttempt.response.status === 400, "Completed kit recipe should block item inclusion edits");
+    await request("PATCH", `/api/kit-recipes/${kitRecipe.id}`, { is_complete: false });
+
+    const orderSyncAfterCost = await request("POST", "/api/shopify/sync/orders", { full: true });
+    assert(orderSyncAfterCost.orders?.rows > 0, "Full Shopify order sync should import order lines");
+    let profitability = await request("GET", "/api/orders/profitability");
+    assert(profitability.fixed_sets.some((row) => row.id === kitRecipe.id), "Order profitability should expose fixed sets");
+    assert(profitability.active_set?.id === kitRecipe.id, "Order profitability should use the default fixed set");
+    const profitableOrder = profitability.orders.find((order) => (order.lines || []).some((orderLine) => orderLine.material_id === material.id && orderLine.total_cost != null));
+    assert(profitableOrder, "Order profitability should expose synced order lines with linked materials");
+    const missingCostLines = profitableOrder.lines.filter((orderLine) => orderLine.material_id && orderLine.unit_cost == null);
+    assert(missingCostLines.length > 0, "Fixture order should include Shopify lines without registered cost");
+    assert(missingCostLines.every((orderLine) => Number(orderLine.include_in_cost) === 0), "Shopify lines without cost should be excluded automatically");
+    assert(profitableOrder.status === "complete", "Orders with only excluded missing-cost lines should remain complete");
+    assert(profitableOrder.missing_line_costs === 0, "Excluded missing-cost lines should not count as pending cost");
+    assert(profitableOrder.fixed_set_cost > 0, "Order profitability should include fixed set cost");
+    assert(profitableOrder.real_cost >= profitableOrder.fixed_set_cost, "Order real cost should include fixed set and content cost");
+    const blockedInclusionAttempt = await requestRaw("PATCH", `/api/order-lines/${missingCostLines[0].id}/include`, {
+      include_in_cost: true
+    });
+    assert(blockedInclusionAttempt.response.status === 400, "Order lines without cost should not be re-includable");
+    assert(blockedInclusionAttempt.payload.code === "ORDER_LINE_COST_REQUIRED", "Missing-cost order lines should expose a stable inclusion error");
+    const costedOrderLine = profitableOrder.lines.find((orderLine) => orderLine.material_id === material.id && orderLine.total_cost != null);
+    const excludedOrderLine = await request("PATCH", `/api/order-lines/${costedOrderLine.id}/include`, {
+      include_in_cost: false
+    });
+    assert(Number(excludedOrderLine.include_in_cost) === 0, "Order line should be excludable from content cost");
+    profitability = await request("GET", "/api/orders/profitability");
+    let changedOrder = profitability.orders.find((order) => order.id === profitableOrder.id);
+    const changedCostedOrderLine = changedOrder.lines.find((orderLine) => orderLine.id === costedOrderLine.id);
+    assert(Number(changedCostedOrderLine.include_in_cost) === 0, "Excluded order line should remain disabled after recomputing profitability");
+    await request("PATCH", `/api/order-lines/${costedOrderLine.id}/include`, { include_in_cost: true });
+    profitability = await request("GET", "/api/orders/profitability");
+    changedOrder = profitability.orders.find((order) => order.id === profitableOrder.id);
+    const restoredCostedOrderLine = changedOrder.lines.find((orderLine) => orderLine.id === costedOrderLine.id);
+    assert(Number(restoredCostedOrderLine.include_in_cost) === 1, "Reincluded order line should stay enabled after recomputing profitability");
+
+    await request("PATCH", `/api/kit-recipes/${kitRecipe.id}/items/${kitItem.id}/include`, { include_in_cost: false });
+    profitability = await request("GET", "/api/orders/profitability");
+    changedOrder = profitability.orders.find((order) => order.id === profitableOrder.id);
+    assert(Math.abs(changedOrder.fixed_set_cost) < 0.0001, "Excluded fixed set component should reduce order fixed set cost");
+    await request("PATCH", `/api/kit-recipes/${kitRecipe.id}/items/${kitItem.id}/include`, { include_in_cost: true });
+    profitability = await request("GET", "/api/orders/profitability");
+    changedOrder = profitability.orders.find((order) => order.id === profitableOrder.id);
+    assert(changedOrder.fixed_set_cost > 0, "Reincluded fixed set component should restore order fixed set cost");
+
+    const noCostFixedMaterial = await request("POST", "/api/materials", {
+      name: "Material sin coste para set",
+      category: "material",
+      unit_label: "ud",
+      preferred_supplier_id: supplier.id,
+      notes: "Used to validate set-specific missing cost status"
+    });
+    const noCostKit = await request("POST", "/api/kit-recipes", {
+      name: "Kit con coste pendiente",
+      version: "qa",
+      is_default: true,
+      notes: "Should become the active default set"
+    });
+    await request("POST", `/api/kit-recipes/${noCostKit.id}/items`, {
+      material_id: noCostFixedMaterial.id,
+      quantity: 1,
+      notes: "No cost component"
+    });
+    await request("PATCH", `/api/orders/${profitableOrder.id}/fixed-set`, { kit_recipe_id: kitRecipe.id });
+    profitability = await request("GET", "/api/orders/profitability");
+    changedOrder = profitability.orders.find((order) => order.id === profitableOrder.id);
+    assert(profitability.active_set?.id === noCostKit.id, "Newest default set should become active");
+    assert(changedOrder.fixed_set?.id === kitRecipe.id, "Order should preserve its explicitly assigned fixed set");
+    assert(changedOrder.status === "complete", "Explicit order set should win over active set when determining missing costs");
+
+    const fixedSetAudit = await request("GET", `/api/audit-log?entity=kit_recipe_item&id=${kitItem.id}`);
+    assert(fixedSetAudit.some((row) => row.action === "exclude_from_cost"), "Audit log should include fixed set cost exclusion");
+    assert(fixedSetAudit.some((row) => row.action === "include_in_cost"), "Audit log should include fixed set cost inclusion");
+    const orderLineAudit = await request("GET", `/api/audit-log?entity=sales_order_line&id=${costedOrderLine.id}`);
+    assert(orderLineAudit.some((row) => row.action === "exclude_from_cost"), "Audit log should include order line cost exclusion");
+    assert(orderLineAudit.some((row) => row.action === "include_in_cost"), "Audit log should include order line cost inclusion");
+
     const dashboard = await request("GET", "/api/dashboard/finance");
     assert(dashboard.kpis.period_expense > 0, "Dashboard finance should aggregate invoice totals");
     assert(dashboard.kpis.materials_expense > 0, "Dashboard finance should aggregate material spend");
@@ -539,6 +721,20 @@ async function run() {
     const payoutAudit = await request("GET", `/api/audit-log?entity=channel_payout&id=${manualPayout.id}`);
     assert(payoutAudit.some((row) => row.action === "create"), "Audit log should include payout creation");
     assert(payoutAudit.some((row) => row.action === "update"), "Audit log should include payout update");
+
+    if (!process.env.MUA_OPS_SKIP_SYSTEM_TEST_HEALTH) {
+      const initialTestHealth = await request("GET", "/api/system/test-health");
+      assert(Object.prototype.hasOwnProperty.call(initialTestHealth, "coverage"), "Test health should expose a coverage slot even before running");
+      const executedTestHealthRaw = await requestRaw("POST", "/api/system/test-health/run", {});
+      assert(executedTestHealthRaw.response.ok, `System test health run should complete successfully: ${JSON.stringify(executedTestHealthRaw.payload)}`);
+      const executedTestHealth = executedTestHealthRaw.payload;
+      assert(executedTestHealth.status === "ok", `System test health run should finish in ok state: ${JSON.stringify(executedTestHealth)}`);
+      assert(Array.isArray(executedTestHealth.suites) && executedTestHealth.suites.some((suite) => suite.id === "coverage"), "System test health should include coverage suite");
+      assert(executedTestHealth.coverage && executedTestHealth.coverage.lines.pct > 0, "System test health should persist backend coverage summary");
+      const reloadedTestHealth = await request("GET", "/api/system/test-health");
+      assert(reloadedTestHealth.coverage && reloadedTestHealth.coverage.functions.pct > 0, "Reloaded system test health should keep coverage data");
+      assert(Array.isArray(reloadedTestHealth.history) && reloadedTestHealth.history.length > 0, "System test health should keep execution history");
+    }
 
     await stopTestServer();
     const dbFile = path.join(TEST_DIR, "mua_ops_test.sqlite");

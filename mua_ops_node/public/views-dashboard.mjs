@@ -1,4 +1,4 @@
-export function createDashboardViews(ctx) {
+﻿export function createDashboardViews(ctx) {
   const {
     state,
     $,
@@ -10,7 +10,6 @@ export function createDashboardViews(ctx) {
     chartColors,
     compactTimeline,
     dashboardChart,
-    img,
     DASHBOARD_EXPENSE_LABELS,
     DASHBOARD_INCOME_LABELS
   } = ctx;
@@ -146,8 +145,8 @@ export function createDashboardViews(ctx) {
           type: "line",
           smooth: true,
           symbolSize: 7,
-          lineStyle: { width: 3, color: colors.channel_bizum || "#c18a3a" },
-          itemStyle: { color: colors.channel_bizum || "#c18a3a" },
+          lineStyle: { width: 3, color: colors.balance || "#c18a3a" },
+          itemStyle: { color: colors.balance || "#c18a3a" },
           data: balanceValues
         }
       ]
@@ -218,7 +217,6 @@ export function createDashboardViews(ctx) {
           .filter((row) => number(row.value) > 0)
       }]
     }, true);
-
   }
 
   function renderDashboard() {
@@ -242,79 +240,82 @@ export function createDashboardViews(ctx) {
     $("#dashboardExpenseText").textContent = `Lectura de ${expenseLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
     $("#dashboardIncomeTitle").textContent = `Ingresos ${trendWord}`;
     $("#dashboardIncomeText").textContent = `Seguimiento de ${incomeLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
-    $("#dashboardCards").innerHTML = [
-      ["Gasto del periodo", euro.format(k.period_expense), `${k.invoice_count} facturas imputadas`],
-      ["Ingreso neto", euro.format(k.period_net_received || 0), `${k.payout_count || 0} ingresos registrados`],
-      ["Balance", euro.format(k.period_balance || 0), "Ingresos menos gasto"],
-      ["Materiales", euro.format(k.materials_expense), "Compras del periodo"],
-      ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia"],
-      ["Envíos", euro.format(k.shipping_expense), "Coste logístico"],
-      ["Facturas del periodo", k.invoice_count, "Registros incluidos"]
-    ].map(([label, value, hint]) => `
+
+    const dashboardCards = [
+      ["Gasto del periodo", euro.format(k.period_expense), `${k.invoice_count} facturas imputadas`, "icon-coin"],
+      ["Ingreso neto", euro.format(k.period_net_received || 0), `${k.payout_count || 0} ingresos registrados`, "icon-chart"],
+      ["Balance", euro.format(k.period_balance || 0), "Ingresos menos gasto", "icon-activity"],
+      ["Materiales", euro.format(k.materials_expense), "Compras del periodo", "icon-cube"],
+      ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia", "icon-tag"],
+      ["Envíos", euro.format(k.shipping_expense), "Coste logístico", "icon-truck"],
+      ["Facturas del periodo", k.invoice_count, "Registros incluidos", "icon-file"]
+    ];
+    $("#dashboardCards").innerHTML = dashboardCards.map(([label, value, hint, icon]) => `
       <article class="card dashboard-kpi-card">
-        <span>${label}</span>
+        <span class="dashboard-kpi-icon" aria-hidden="true"><svg><use href="#${icon}"></use></svg></span>
+        <span class="dashboard-kpi-label">${label}</span>
         <strong>${value}</strong>
         <small>${hint}</small>
       </article>
     `).join("");
 
-    const operational = finance.operational;
+    const operational = finance.operational || {};
     const opsRows = [
       {
         label: "Ingresos pendientes",
         icon: "icon-chart",
-        count: operational.pending_payouts.length,
-        hint: operational.pending_payouts[0]
+        count: operational.pending_payouts?.length || 0,
+        hint: operational.pending_payouts?.[0]
           ? `${channelLabel(operational.pending_payouts[0].channel)} · ${text(operational.pending_payouts[0].payout_date)}`
           : "Todos los ingresos están ejecutados",
         action: "income",
-        tone: operational.pending_payouts.length ? "warn" : "ok"
+        tone: operational.pending_payouts?.length ? "warn" : "ok"
       },
       {
         label: "Facturas en borrador",
         icon: "icon-file",
-        count: operational.draft_invoices.length,
-        hint: operational.draft_invoices[0]
+        count: operational.draft_invoices?.length || 0,
+        hint: operational.draft_invoices?.[0]
           ? `${text(operational.draft_invoices[0].supplier_name, "Sin proveedor")} · ${text(operational.draft_invoices[0].invoice_date)}`
           : "No quedan facturas en borrador",
         action: "invoices",
-        tone: operational.draft_invoices.length ? "warn" : "ok"
+        tone: operational.draft_invoices?.length ? "warn" : "ok"
       },
       {
         label: "Materiales a reponer",
         icon: "icon-cube",
-        count: operational.reorder_materials.length,
-        hint: operational.reorder_materials[0]
+        count: operational.reorder_materials?.length || 0,
+        hint: operational.reorder_materials?.[0]
           ? `${text(operational.reorder_materials[0].name)} · stock ${operational.reorder_materials[0].effective_stock_qty} / aviso ${number(operational.reorder_materials[0].reorder_alert_threshold)}`
           : "Sin alertas de reposición",
         action: "materials",
-        tone: operational.reorder_materials.length ? "warn" : "ok"
+        tone: operational.reorder_materials?.length ? "warn" : "ok"
       },
       {
         label: "Materiales sin imagen",
         icon: "icon-image",
-        count: operational.materials_without_image.length,
-        hint: operational.materials_without_image[0] ? text(operational.materials_without_image[0].name) : "Catálogo visual al día",
+        count: operational.materials_without_image?.length || 0,
+        hint: operational.materials_without_image?.[0] ? text(operational.materials_without_image[0].name) : "Catálogo visual al día",
         action: "materials",
-        tone: operational.materials_without_image.length ? "warn" : "ok"
+        tone: operational.materials_without_image?.length ? "warn" : "ok"
       },
       {
         label: "Materiales sin coste",
         icon: "icon-coin",
-        count: operational.materials_without_cost.length,
-        hint: operational.materials_without_cost[0] ? text(operational.materials_without_cost[0].name) : "Compras con coste medio resuelto",
-        action: "costs",
-        tone: operational.materials_without_cost.length ? "warn" : "ok"
+        count: operational.materials_without_cost?.length || 0,
+        hint: operational.materials_without_cost?.[0] ? text(operational.materials_without_cost[0].name) : "Compras con coste medio resuelto",
+        action: "materials",
+        tone: operational.materials_without_cost?.length ? "warn" : "ok"
       },
       {
         label: "Kits incompletos",
         icon: "icon-kit",
-        count: operational.incomplete_kits.length,
-        hint: operational.incomplete_kits[0]
+        count: operational.incomplete_kits?.length || 0,
+        hint: operational.incomplete_kits?.[0]
           ? `${text(operational.incomplete_kits[0].name)}${operational.incomplete_kits[0].version ? ` · ${text(operational.incomplete_kits[0].version)}` : ""}`
           : "No hay kits pendientes",
         action: "kits",
-        tone: operational.incomplete_kits.length ? "warn" : "ok"
+        tone: operational.incomplete_kits?.length ? "warn" : "ok"
       }
     ];
     $("#dashboardOpsList").innerHTML = `<div class="ops-list">${opsRows.map((item) => `
@@ -349,7 +350,17 @@ export function createDashboardViews(ctx) {
       </div>
     `).join("") || `<div class="empty-state small">Todavía no hay gasto suficiente para este ranking.</div>`}</div>`;
 
-    const reorderRows = (operational.reorder_materials || []).slice(0, 4);
+    const reorderRows = (operational.reorder_materials || [])
+      .map((row) => {
+        const material = state.materials.find((item) => Number(item.id) === Number(row.id) || item.name === row.name);
+        return {
+          ...row,
+          material,
+          imageUrl: material?.image_url_override || material?.image_url || ""
+        };
+      })
+      .slice(0, 8);
+
     $("#dashboardReorderList").innerHTML = reorderRows.length ? `
       <div class="dashboard-reorder-table">
         <div class="dashboard-reorder-head">
@@ -359,9 +370,9 @@ export function createDashboardViews(ctx) {
           <span>Estado</span>
         </div>
         ${reorderRows.map((row) => {
-          const material = state.materials.find((item) => item.name === row.name);
-          const imageUrl = material?.image_url_override || material?.image_url || "";
-                    const initials = text(row.name)
+          const material = row.material;
+          const imageUrl = row.imageUrl;
+          const initials = text(row.name)
             .trim()
             .split(/\s+/)
             .slice(0, 2)
@@ -369,27 +380,30 @@ export function createDashboardViews(ctx) {
             .join("")
             .slice(0, 2) || "MK";
           const thumb = imageUrl
-            ? `<img src="${text(imageUrl)}" loading="lazy" alt="" onerror="this.outerHTML='&lt;div class=&quot;image-empty dashboard-thumb-fallback&quot;&gt;${initials}&lt;/div&gt;'">`
+            ? `<img src="${text(imageUrl)}" loading="eager" decoding="async" alt="" onerror="this.outerHTML='&lt;div class=&quot;image-empty dashboard-thumb-fallback&quot;&gt;${initials}&lt;/div&gt;'">`
             : `<div class="image-empty dashboard-thumb-fallback">${initials}</div>`;
           const critical = number(row.effective_stock_qty) <= number(row.reorder_point);
           return `
-            <button type="button" class="dashboard-reorder-row" data-jump-view="materials">
+            <button type="button" class="dashboard-reorder-row" data-view-material="${material?.id || ""}">
               <span class="dashboard-reorder-material">
                 <span class="dashboard-reorder-thumb">${thumb}</span>
                 <strong>${text(row.name)}</strong>
               </span>
-              <span>${number(row.effective_stock_qty)} ${text(material?.unit_label || "ud")}</span>
-              <span>${number(row.reorder_point)} ${text(material?.unit_label || "ud")}</span>
+              <span>${number(row.effective_stock_qty)} ${text(material?.unit_label || row.unit_label || "ud")}</span>
+              <span>${number(row.reorder_point)} ${text(material?.unit_label || row.unit_label || "ud")}</span>
               <span>${badge(critical ? "Crítico" : "Bajo", critical ? "warn" : "neutral")}</span>
             </button>
           `;
         }).join("")}
       </div>
-    ` : `<div class="empty-state small">No hay materiales en reposición ahora mismo.</div>`;
+    ` : `<div class="empty-state small">No hay materiales por debajo del punto de reposición.</div>`;
 
     requestAnimationFrame(() => renderDashboardCharts());
   }
 
   return { renderDashboardCharts, renderDashboard };
 }
+
+
+
 

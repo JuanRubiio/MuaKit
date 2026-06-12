@@ -1,4 +1,4 @@
-export function createOperationViews(ctx) {
+﻿export function createOperationViews(ctx) {
   const {
     state,
     $,
@@ -10,6 +10,7 @@ export function createOperationViews(ctx) {
     lower,
     badge,
     img,
+    entityIconMarkup,
     hierarchySummary,
     materialPickerMarkup,
     syncMaterialPicker,
@@ -25,7 +26,8 @@ export function createOperationViews(ctx) {
     const includeDeleted = $("#suppliersDeleted")?.checked ? 1 : 0;
     state.suppliers = await api(`/api/suppliers?include_deleted=${includeDeleted}`);
     window.refreshSupplierSelects();
-    renderSuppliers();
+    refreshSupplierCategoryControls();
+    renderSuppliersNew();
   }
 
   function renderSuppliers() {
@@ -44,8 +46,13 @@ export function createOperationViews(ctx) {
     $("#supplierList").innerHTML = meta.rows.map((supplier) => `
       <article class="row ${supplier.is_deleted ? "deleted" : ""}">
         <div class="row-main">
+          <div class="entity-row-head">
+            ${entityIconMarkup(supplier.name, { type: "supplier", className: "supplier-avatar" })}
+            <div>
           <strong>${text(supplier.name)}</strong>
-          <div class="meta">${text(supplier.category, "Sin categoría")} ${supplier.lead_time_days ? `· ${supplier.lead_time_days} días` : ""}</div>
+          <div class="meta">${text(supplier.category, "Sin categorÃ­a")} ${supplier.lead_time_days ? `Â· ${supplier.lead_time_days} dÃ­as` : ""}</div>
+            </div>
+          </div>
           ${supplier.website ? `<a class="subtle-link" href="${text(supplier.website)}" target="_blank" rel="noreferrer">${text(supplier.website)}</a>` : ""}
           ${supplier.notes ? `<p>${text(supplier.notes)}</p>` : ""}
         </div>
@@ -58,214 +65,695 @@ export function createOperationViews(ctx) {
     renderPagination("#supplierPagination", "suppliers", meta);
   }
 
-  async function loadCosts() {
-    state.costs = await api("/api/costs/materials");
-    renderCosts();
+  function distinctSupplierCategories() {
+    return Array.from(new Set(state.suppliers.map((supplier) => String(supplier.category || "").trim()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, "es"));
   }
 
-  function renderCosts() {
-    let rows = state.costs.filter((row) => !row.is_outlet);
-    rows = applyTextSearch(rows, $("#costSearch")?.value, ["name", "category", "preferred_supplier_name", "main_supplier_name"]);
-    const category = $("#costCategoryFilter")?.value;
-    if (category) rows = rows.filter((row) => row.category === category);
-    if ($("#costOnlyWithPurchases")?.checked) rows = rows.filter((row) => number(row.purchase_lots) > 0);
-    rows = sortRows(rows, $("#costSort")?.value, {
-      avg_desc: (a, b) => number(b.weighted_avg_unit_cost_inc_vat) - number(a.weighted_avg_unit_cost_inc_vat),
-      name_asc: (a, b) => lower(a.name).localeCompare(lower(b.name)),
-      lots_desc: (a, b) => number(b.purchase_lots) - number(a.purchase_lots),
-      default: (a, b) => number(b.total_spend) - number(a.total_spend),
-      spend_desc: (a, b) => number(b.total_spend) - number(a.total_spend)
+  function supplierCategoryValues() {
+    const values = distinctSupplierCategories();
+    return values.length ? values : ["materiales", "componentes", "packaging", "logistica", "plataforma", "servicios"];
+  }
+
+  function refreshSupplierCategoryControls() {
+    const values = supplierCategoryValues();
+    const filter = $("#supplierCategoryFilter");
+    if (filter) {
+      const selected = filter.value;
+      filter.innerHTML = `<option value="">Todas</option>${values.map((value) => `<option value="${text(value)}" ${selected === value ? "selected" : ""}>${text(value)}</option>`).join("")}`;
+    }
+    const formCategory = $("#supplierFormCategory");
+    if (formCategory) {
+      const selected = formCategory.value;
+      formCategory.innerHTML = values.map((value) => `<option value="${text(value)}" ${selected === value ? "selected" : ""}>${text(value)}</option>`).join("");
+      if (selected && !values.includes(selected)) {
+        formCategory.insertAdjacentHTML("afterbegin", `<option value="${text(selected)}" selected>${text(selected)}</option>`);
+      }
+    }
+  }
+
+  function supplierMaterials(supplier) {
+    return state.materials.filter((material) => !material.is_deleted && String(material.preferred_supplier_id || "") === String(supplier?.id || ""));
+  }
+
+  function supplierInvoices(supplier) {
+    return state.invoices.filter((invoice) => !invoice.is_deleted && String(invoice.supplier_id || "") === String(supplier?.id || ""));
+  }
+
+  function supplierStats(supplier) {
+    const materials = supplierMaterials(supplier);
+    const invoices = supplierInvoices(supplier);
+    const spend = invoices.reduce((sum, invoice) => sum + number(invoice.total), 0);
+    const lastInvoice = invoices.filter((invoice) => invoice.invoice_date).sort((a, b) => String(b.invoice_date).localeCompare(String(a.invoice_date)))[0] || null;
+    const multiplier = Math.max(1, number(state.settings?.reorder_alert_multiplier || 1.25) || 1.25);
+    const criticalMaterials = materials.filter((material) => {
+      const reorder = number(material.reorder_point);
+      return reorder > 0 && number(material.effective_stock_qty) <= reorder * multiplier;
     });
-    const meta = paginateRows("costs", rows);
-    $("#costResultText").textContent = `${meta.total} materiales visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
-    $("#costTable").innerHTML = `
-      <div class="cost-row header"><span>Material</span><span>Categoría</span><span>Proveedor</span><span>Coste medio</span><span>Último coste</span><span>Gasto</span><span>Lotes</span><span></span></div>
-      ${meta.rows.length ? meta.rows.map((row) => `
-        <div class="cost-row">
-          <strong data-label="Material">${text(row.name)}</strong>
-          <span data-label="Categoría">${text(row.category)}</span>
-          <span data-label="Proveedor">${text(row.main_supplier_name || row.preferred_supplier_name || "")}</span>
-          <span data-label="Coste medio">${row.weighted_avg_unit_cost_inc_vat == null ? "-" : `${euro.format(number(row.weighted_avg_unit_cost_inc_vat))}${row.inherited_cost ? " *" : ""}`}</span>
-          <span data-label="Último coste">${row.last_unit_cost_inc_vat == null ? "-" : `${euro.format(number(row.last_unit_cost_inc_vat))}${row.inherited_cost ? " *" : ""}`}</span>
-          <span data-label="Gasto">${euro.format(number(row.total_spend))}</span>
-          <span data-label="Lotes">${row.purchase_lots || 0}</span>
-          <span data-label="Detalle"><button type="button" class="ghost" data-open-cost="${row.material_id}">Ver</button></span>
-        </div>
-      `).join("") : `<div class="empty-state"><strong>Sin costes visibles</strong>Ajusta la búsqueda o los filtros para ver materiales con compras.</div>`}
-    `;
-    renderPagination("#costPagination", "costs", meta);
+    const missingCost = materials.filter((material) => {
+      const cost = state.costs.find((row) => String(row.material_id) === String(material.id));
+      return !cost || cost.weighted_avg_unit_cost_inc_vat == null;
+    });
+    return {
+      materials,
+      invoices,
+      spend,
+      lastInvoice,
+      criticalMaterials,
+      missingCost,
+      hasWebsite: Boolean(String(supplier?.website || "").trim()),
+      hasLead: number(supplier?.lead_time_days) > 0
+    };
   }
 
-  async function openCostDetail(materialId) {
-    const detail = await api(`/api/costs/materials/${materialId}`);
-    state.selectedCostMaterialId = Number(materialId);
-    const panel = $("#costDetailPanel");
-    if (!panel) return;
-    const { summary, lots } = detail;
-    panel.classList.remove("hidden");
-    panel.innerHTML = `
-      <div class="panel-head">
-        <div>
-          <h2>${text(summary.name)}</h2>
-          <p>${text(summary.category)} · ${lots.length} lotes activos · coste medio ${summary.weighted_avg_unit_cost_inc_vat == null ? "-" : euro.format(number(summary.weighted_avg_unit_cost_inc_vat))}</p>
-        </div>
-        <button type="button" class="ghost" data-close-cost-detail>Cerrar</button>
+  function supplierStatus(stats, supplier) {
+    if (supplier?.is_deleted) return { label: "Archivado", tone: "warn" };
+    if (stats.criticalMaterials.length) return { label: "Critico", tone: "danger" };
+    if (!stats.hasWebsite || !stats.hasLead || !stats.materials.length) return { label: "Completar", tone: "warn" };
+    return { label: "Activo", tone: "ok" };
+  }
+
+  function supplierLeadLabel(days) {
+    const value = number(days);
+    return value ? `${value} dias` : "Sin plazo";
+  }
+
+  function supplierLeadTone(days) {
+    const value = number(days);
+    if (!value) return "warn";
+    if (value <= 7) return "ok";
+    if (value <= 14) return "accent";
+    return "warn";
+  }
+
+  function supplierFilteredRows() {
+    let rows = applyTextSearch([...state.suppliers], $("#supplierSearch")?.value, ["name", "category", "website", "notes"]);
+    const category = $("#supplierCategoryFilter")?.value;
+    const lead = $("#supplierLeadFilter")?.value;
+    const web = $("#supplierWebFilter")?.value;
+    const lane = $("#supplierStatusTabs")?.dataset.activeLane || "";
+    if (category) rows = rows.filter((supplier) => String(supplier.category || "") === String(category));
+    if (lead === "short") rows = rows.filter((supplier) => number(supplier.lead_time_days) > 0 && number(supplier.lead_time_days) <= 7);
+    if (lead === "medium") rows = rows.filter((supplier) => number(supplier.lead_time_days) >= 8 && number(supplier.lead_time_days) <= 14);
+    if (lead === "long") rows = rows.filter((supplier) => number(supplier.lead_time_days) >= 15);
+    if (web === "with") rows = rows.filter((supplier) => String(supplier.website || "").trim());
+    if (web === "without") rows = rows.filter((supplier) => !String(supplier.website || "").trim());
+    if ($("#suppliersWithMaterials")?.checked) rows = rows.filter((supplier) => supplierStats(supplier).materials.length > 0);
+    if (lane) {
+      rows = rows.filter((supplier) => {
+        const stats = supplierStats(supplier);
+        if (lane === "active") return !supplier.is_deleted;
+        if (lane === "archived") return supplier.is_deleted;
+        if (lane === "critical") return stats.criticalMaterials.length > 0;
+        if (lane === "missing_web") return !stats.hasWebsite;
+        if (lane === "missing_lead") return !stats.hasLead;
+        if (lane === "missing_materials") return !stats.materials.length;
+        return true;
+      });
+    }
+    return sortRows(rows, $("#supplierSort")?.value, {
+      category_asc: (a, b) => lower(a.category).localeCompare(lower(b.category)) || lower(a.name).localeCompare(lower(b.name)),
+      lead_asc: (a, b) => number(a.lead_time_days || 9999) - number(b.lead_time_days || 9999),
+      spend_desc: (a, b) => supplierStats(b).spend - supplierStats(a).spend,
+      materials_desc: (a, b) => supplierStats(b).materials.length - supplierStats(a).materials.length,
+      default: (a, b) => lower(a.name).localeCompare(lower(b.name)),
+      name_asc: (a, b) => lower(a.name).localeCompare(lower(b.name))
+    });
+  }
+
+  function renderSupplierSummary(allRows) {
+    const active = allRows.filter((supplier) => !supplier.is_deleted);
+    const withMaterials = active.filter((supplier) => supplierStats(supplier).materials.length);
+    const invoiceCount = state.invoices.filter((invoice) => !invoice.is_deleted && invoice.supplier_id).length;
+    const totalSpend = state.invoices.filter((invoice) => !invoice.is_deleted && invoice.supplier_id).reduce((sum, invoice) => sum + number(invoice.total), 0);
+    const leadValues = active.map((supplier) => number(supplier.lead_time_days)).filter(Boolean);
+    const avgLead = leadValues.length ? Math.round(leadValues.reduce((sum, value) => sum + value, 0) / leadValues.length) : 0;
+    const incomplete = active.filter((supplier) => {
+      const stats = supplierStats(supplier);
+      return !stats.hasWebsite || !stats.hasLead || !stats.materials.length;
+    });
+    const cards = [
+      ["Proveedores activos", active.length, "Disponibles para compras", "icon-users", "accent"],
+      ["Con materiales", withMaterials.length, "Asignados como preferentes", "icon-cube", "ok"],
+      ["Facturas", invoiceCount, "Compras con proveedor", "icon-file", "neutral"],
+      ["Gasto", euro.format(totalSpend), "Compras registradas", "icon-coin", "gold"],
+      ["Plazo medio", avgLead ? `${avgLead} dias` : "-", "Tiempo de reposicion", "icon-clock", "rose"],
+      ["Por completar", incomplete.length, "Web, plazo o materiales", "icon-alert", "warn"]
+    ];
+    $("#supplierSummaryCards").innerHTML = cards.map(([label, value, hint, icon, tone]) => `
+      <article class="suppliers-summary-card tone-${tone}">
+        <span class="suppliers-summary-icon" aria-hidden="true"><svg><use href="#${icon}"></use></svg></span>
+        <span><small>${text(label)}</small><strong>${text(value)}</strong><em>${text(hint)}</em></span>
+      </article>
+    `).join("");
+  }
+
+  function renderSupplierCritical(allRows) {
+    const critical = allRows.map((supplier) => ({ supplier, stats: supplierStats(supplier) }))
+      .filter((item) => item.stats.criticalMaterials.length)
+      .sort((a, b) => b.stats.criticalMaterials.length - a.stats.criticalMaterials.length)
+      .slice(0, 4);
+    $("#supplierCriticalCards").innerHTML = critical.length ? critical.map(({ supplier, stats }) => {
+      const first = stats.criticalMaterials[0];
+      const target = Math.max(1, number(first?.target_stock || first?.reorder_point || 1));
+      const width = Math.min(100, Math.max(8, number(first?.effective_stock_qty) / target * 100));
+      return `
+        <button type="button" class="supplier-critical-card" data-view-supplier="${supplier.id}">
+          <span class="supplier-critical-head">${entityIconMarkup(supplier.name, { type: "supplier", className: "supplier-avatar compact", label: supplier.name })}<span><strong>${text(supplier.name)}</strong><small>${text(stats.criticalMaterials.length)} materiales tensionados</small></span></span>
+          <span class="supplier-critical-meter"><i style="width:${width}%"></i></span>
+          <span class="supplier-critical-foot"><small>${text(first?.name || "Material sin nombre")}</small><strong>${text(first?.effective_stock_qty ?? "-")} / ${text(first?.reorder_point ?? "-")}</strong></span>
+        </button>
+      `;
+    }).join("") : `<div class="empty-state small"><strong>Sin proveedores criticos</strong>La reposicion no senala proveedores tensionados.</div>`;
+  }
+
+  function renderSupplierReview(allRows) {
+    const active = allRows.filter((supplier) => !supplier.is_deleted);
+    const items = [
+      ["critical", "Reposicion critica", active.filter((supplier) => supplierStats(supplier).criticalMaterials.length).length, "Materiales por debajo del aviso", "danger", "icon-alert"],
+      ["missing_web", "Sin web", active.filter((supplier) => !supplierStats(supplier).hasWebsite).length, "Completa enlace de compra", "warn", "icon-link"],
+      ["missing_lead", "Sin plazo", active.filter((supplier) => !supplierStats(supplier).hasLead).length, "Falta tiempo medio de entrega", "warn", "icon-clock"],
+      ["missing_materials", "Sin materiales", active.filter((supplier) => !supplierStats(supplier).materials.length).length, "No suministra materiales preferentes", "accent", "icon-cube"],
+      ["archived", "Archivados", allRows.filter((supplier) => supplier.is_deleted).length, "Fichas fuera de uso", "neutral", "icon-archive"]
+    ];
+    $("#supplierReviewQueue").innerHTML = items.map(([lane, label, count, hint, tone, icon]) => `
+      <button type="button" class="invoice-review-item supplier-review-item invoice-review-${tone}" data-supplier-lane="${lane}">
+        <span class="invoice-review-icon" aria-hidden="true"><svg><use href="#${icon}"></use></svg></span>
+        <span class="invoice-review-copy"><strong>${text(label)}</strong><p>${text(hint)}</p></span>
+        <span class="invoice-review-count">${text(count)}</span>
+        <span class="review-chevron" aria-hidden="true">&rsaquo;</span>
+      </button>
+    `).join("");
+  }
+
+  function renderSupplierStatusTabs(allRows) {
+    const lanes = [
+      ["", "Todos", allRows.length],
+      ["active", "Activos", allRows.filter((supplier) => !supplier.is_deleted).length],
+      ["critical", "Criticos", allRows.filter((supplier) => supplierStats(supplier).criticalMaterials.length).length],
+      ["missing_web", "Sin web", allRows.filter((supplier) => !supplierStats(supplier).hasWebsite).length],
+      ["missing_materials", "Sin materiales", allRows.filter((supplier) => !supplierStats(supplier).materials.length).length]
+    ];
+    const active = $("#supplierStatusTabs")?.dataset.activeLane || "";
+    $("#supplierStatusTabs").innerHTML = `<div class="invoice-status-strip">${lanes.map(([lane, label, count]) => `
+      <button type="button" class="invoice-status-tab ${active === lane ? "is-active" : ""}" data-supplier-lane="${lane || "all"}">${text(label)}<span>${text(count)}</span></button>
+    `).join("")}</div>`;
+  }
+
+  function renderSupplierRecent(allRows) {
+    const recent = [...allRows].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || ""))).slice(0, 6);
+    $("#supplierRecentList").innerHTML = recent.map((supplier) => {
+      const stats = supplierStats(supplier);
+      return `
+        <button type="button" class="supplier-side-item" data-view-supplier="${supplier.id}">
+          ${entityIconMarkup(supplier.name, { type: "supplier", className: "supplier-avatar", label: supplier.name })}
+          <span><strong>${text(supplier.name)}</strong><small>${text(supplier.category || "Sin categoria")} - ${stats.materials.length} materiales</small></span>
+        </button>
+      `;
+    }).join("") || `<div class="empty-state small">No hay proveedores recientes.</div>`;
+  }
+
+  function renderSuppliersNew() {
+    refreshSupplierCategoryControls();
+    const allRows = [...state.suppliers];
+    const rows = supplierFilteredRows();
+    const meta = paginateRows("suppliers", rows);
+    const now = new Date();
+    $("#supplierResultText").textContent = `${meta.total} proveedores visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+    $("#supplierListMetaText").textContent = meta.total ? `Mostrando ${meta.startIndex + 1}-${meta.endIndex} de ${meta.total} proveedores filtrados.` : "No hay proveedores con esos filtros.";
+    $("#supplierUpdatedMeta").innerHTML = `<svg><use href="#icon-clock"></use></svg><span>Actualizado ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>`;
+    renderSupplierSummary(allRows);
+    renderSupplierCritical(allRows);
+    renderSupplierReview(allRows);
+    renderSupplierStatusTabs(allRows);
+    renderSupplierRecent(allRows);
+    $("#supplierList").innerHTML = `
+      <div class="supplier-table-head">
+        <span>Proveedor</span><span>Categoria</span><span>Plazo</span><span>Materiales</span><span>Facturas</span><span>Gasto</span><span>Estado</span><span>Acciones</span>
       </div>
-      ${summary.inherited_cost ? `<div class="inline-note">Este material outlet hereda el coste de <strong>${text(summary.cost_reference_material_name)}</strong>.</div>` : ""}
-      <div id="costHistoryChart" class="chart-surface chart-surface-small"></div>
-      <div class="list compact">
-        ${lots.length ? lots.map((lot) => `
-          <article class="row">
-            <div class="row-main">
-              <strong>${text(lot.invoice_date)} · ${text(lot.supplier_name || "Sin proveedor")}</strong>
-              <div class="meta">${text(lot.invoice_number || "Sin número")} · ${lot.package_count} paquetes · ${lot.units_per_package} ud/paquete · ${lot.total_units} unidades</div>
-              ${lot.description ? `<p>${text(lot.description)}</p>` : ""}
-            </div>
-            <div class="row-side">
-              <strong>${lot.unit_cost == null ? "-" : euro.format(number(lot.unit_cost))}</strong>
-              <div class="meta">${euro.format(number(lot.line_total))}</div>
-            </div>
+      ${meta.rows.length ? meta.rows.map((supplier) => {
+        const stats = supplierStats(supplier);
+        const status = supplierStatus(stats, supplier);
+        return `
+          <article class="supplier-table-row ${supplier.is_deleted ? "deleted" : ""}">
+            <span class="supplier-name-cell">
+              ${entityIconMarkup(supplier.name, { type: "supplier", className: "supplier-avatar", label: supplier.name })}
+              <span><strong>${text(supplier.name)}</strong><small>${supplier.website ? `<a href="${text(supplier.website)}" target="_blank" rel="noreferrer">${text(supplier.website)}</a>` : "Sin web"}</small></span>
+            </span>
+            <span>${badge(supplier.category || "Sin categoria")}</span>
+            <span>${badge(supplierLeadLabel(supplier.lead_time_days), supplierLeadTone(supplier.lead_time_days))}</span>
+            <span class="supplier-number-stack"><strong>${text(stats.materials.length)}</strong><small>${stats.criticalMaterials.length ? `${stats.criticalMaterials.length} a reponer` : "sin alertas"}</small></span>
+            <span class="supplier-number-stack"><strong>${text(stats.invoices.length)}</strong><small>${stats.lastInvoice ? text(stats.lastInvoice.invoice_date) : "sin compras"}</small></span>
+            <span class="amount">${euro.format(stats.spend)}</span>
+            <span>${badge(status.label, status.tone)}</span>
+            <span class="table-actions">
+              <button type="button" class="icon-action" data-view-supplier="${supplier.id}" title="Ver proveedor"><svg><use href="#icon-eye"></use></svg></button>
+              ${supplier.is_deleted ? `<button type="button" class="icon-action" data-restore-supplier="${supplier.id}" title="Restaurar"><svg><use href="#icon-check-circle"></use></svg></button>` : `<button type="button" class="icon-action danger-text" data-delete-supplier="${supplier.id}" title="Archivar"><svg><use href="#icon-archive"></use></svg></button>`}
+            </span>
           </article>
-        `).join("") : `<div class="empty-state small">Este material todavía no tiene lotes registrados.</div>`}
-      </div>
+        `;
+      }).join("") : `<div class="empty-state"><strong>Sin proveedores visibles</strong>Ajusta la busqueda o limpia los filtros para recuperar la lista.</div>`}
     `;
-    renderCostHistoryChart(lots);
-    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    renderPagination("#supplierPagination", "suppliers", meta);
   }
 
-  function renderCostHistoryChart(lots) {
-    const chart = dashboardChart("costHistoryChart");
-    if (!chart) return;
-    const colors = chartColors();
-    chart.setOption({
-      animationDuration: 350,
-      grid: { left: 54, right: 18, top: 24, bottom: 36 },
-      tooltip: {
-        trigger: "axis",
-        valueFormatter: (value) => euro.format(Number(value || 0))
-      },
-      xAxis: {
-        type: "category",
-        data: lots.map((lot) => `${String(lot.invoice_date || "").slice(2)} · ${lot.invoice_number || "s/n"}`),
-        axisLine: { lineStyle: { color: "#c9bfb5" } },
-        axisLabel: { color: "#766e68", interval: 0, rotate: 18 }
-      },
-      yAxis: {
-        type: "value",
-        axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) },
-        splitLine: { lineStyle: { color: "#ede7df" } }
-      },
-      series: [{
-        name: "Coste por unidad",
-        type: "line",
-        smooth: true,
-        symbol: "circle",
-        symbolSize: 8,
-        lineStyle: { width: 3, color: colors.materiales },
-        itemStyle: { color: colors.materiales },
-        areaStyle: {
-          color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: `${colors.materiales}33` },
-            { offset: 1, color: `${colors.materiales}08` }
-          ])
-        },
-        data: lots.map((lot) => number(lot.unit_cost))
-      }]
-    }, true);
+  function renderSupplierWorkspace(supplier = null) {
+    const form = $("#supplierForm");
+    if (!form) return;
+    refreshSupplierCategoryControls();
+    const id = form.elements.id?.value || supplier?.id || "";
+    const stored = id ? state.suppliers.find((item) => String(item.id) === String(id)) : null;
+    const draft = {
+      id,
+      name: form.elements.name?.value || supplier?.name || "",
+      category: form.elements.category?.value || supplier?.category || "",
+      website: form.elements.website?.value || supplier?.website || "",
+      lead_time_days: form.elements.lead_time_days?.value || supplier?.lead_time_days || "",
+      notes: form.elements.notes?.value || supplier?.notes || "",
+      is_deleted: stored?.is_deleted || supplier?.is_deleted || false
+    };
+    const stats = stored ? supplierStats(stored) : {
+      materials: [],
+      invoices: [],
+      spend: 0,
+      lastInvoice: null,
+      criticalMaterials: [],
+      missingCost: [],
+      hasWebsite: Boolean(String(draft.website || "").trim()),
+      hasLead: number(draft.lead_time_days) > 0
+    };
+    const status = supplierStatus(stats, draft);
+    $("#supplierFormTitle").textContent = stored ? draft.name || `Proveedor #${id}` : "Nuevo proveedor";
+    $("#supplierFormStatusBadge").textContent = stored ? status.label : "Ficha incompleta";
+    $("#supplierFormStatusBadge").className = `status-pill ${stored ? status.tone : "warn"}`;
+    $("#supplierFormSubtitle").textContent = stored
+      ? `${draft.category || "Sin categoria"} - ${stats.materials.length} materiales - ${stats.invoices.length} facturas`
+      : "Crea un nuevo proveedor para compras, materiales y facturas.";
+
+    const websiteButton = $("#supplierOpenWebsiteButton");
+    if (websiteButton) {
+      websiteButton.classList.toggle("hidden", !draft.website);
+      websiteButton.href = draft.website || "#";
+    }
+    const archiveButton = $("#supplierArchiveButton");
+    if (archiveButton) {
+      archiveButton.classList.toggle("hidden", !stored);
+      archiveButton.dataset.deleteSupplier = stored ? stored.id : "";
+    }
+
+    $("#supplierFormMetrics").innerHTML = [
+      ["Materiales", stats.materials.length, stats.criticalMaterials.length ? `${stats.criticalMaterials.length} a reponer` : "Asignados"],
+      ["Facturas", stats.invoices.length, stats.lastInvoice ? `Ultima ${stats.lastInvoice.invoice_date}` : "Sin compras"],
+      ["Gasto", euro.format(stats.spend), "Historial registrado"],
+      ["Plazo", supplierLeadLabel(draft.lead_time_days), number(draft.lead_time_days) ? "Reposicion planificada" : "Completar"],
+      ["Sin coste", stats.missingCost.length, "Materiales vinculados"]
+    ].map(([label, value, hint]) => `
+      <article class="supplier-workspace-kpi"><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></article>
+    `).join("");
+
+    $("#supplierCategoryChips").innerHTML = supplierCategoryValues().slice(0, 8).map((value) => `
+      <button type="button" class="supplier-category-chip ${draft.category === value ? "is-active" : ""}" data-supplier-category-chip="${text(value)}">${text(value)}</button>
+    `).join("");
+
+    $("#supplierLinkedMaterials").innerHTML = stats.materials.length ? `
+      <div class="supplier-linked-list">
+        ${stats.materials.slice(0, 6).map((material) => `
+          <button type="button" class="supplier-linked-item" data-view-material="${material.id}">
+            <span class="supplier-linked-thumb">${img(material.image_url || material.image_url_override)}</span>
+            <span><strong>${text(material.name)}</strong><small>${text(material.category || "material")} - stock ${text(material.effective_stock_qty ?? "-")} - reposicion ${text(material.reorder_point ?? "-")}</small></span>
+            ${stats.criticalMaterials.some((row) => row.id === material.id) ? badge("reponer", "warn") : badge("ok", "ok")}
+          </button>
+        `).join("")}
+      </div>
+    ` : `<div class="empty-state small"><strong>Sin materiales vinculados</strong>Asigna este proveedor como preferente desde Materiales.</div>`;
+
+    $("#supplierInvoiceHistory").innerHTML = stats.invoices.length ? `
+      <div class="supplier-invoice-list">
+        ${stats.invoices.slice().sort((a, b) => String(b.invoice_date).localeCompare(String(a.invoice_date))).slice(0, 5).map((invoice) => `
+          <button type="button" class="supplier-invoice-item" data-view-invoice="${invoice.id}">
+            <span><strong>${text(invoice.invoice_date || "Sin fecha")}</strong><small>${text(invoice.invoice_number || "Sin numero")} - ${text(invoice.category || "Sin categoria")}</small></span>
+            <span class="amount">${euro.format(number(invoice.total))}</span>
+          </button>
+        `).join("")}
+      </div>
+    ` : `<div class="empty-state small"><strong>Sin facturas recientes</strong>Las compras apareceran aqui cuando se registren.</div>`;
+
+    const review = [
+      ["Nombre", draft.name ? "ok" : "warn", draft.name ? "Nombre informado" : "Obligatorio"],
+      ["Web", draft.website ? "ok" : "warn", draft.website ? "Enlace disponible" : "Pendiente"],
+      ["Plazo", number(draft.lead_time_days) ? "ok" : "warn", number(draft.lead_time_days) ? `${number(draft.lead_time_days)} dias` : "Pendiente"],
+      ["Materiales", stats.materials.length ? "ok" : "warn", stats.materials.length ? `${stats.materials.length} vinculados` : "Sin materiales"],
+      ["Compras", stats.invoices.length ? "ok" : "neutral", stats.invoices.length ? `${stats.invoices.length} facturas` : "Sin historial"]
+    ];
+    $("#supplierFormReviewState").innerHTML = review.map(([label, tone, detail]) => `
+      <div class="invoice-review-item static invoice-review-${tone}">
+        <span class="invoice-review-icon" aria-hidden="true"><svg><use href="#${tone === "ok" ? "icon-check-circle" : "icon-alert"}"></use></svg></span>
+        <span class="invoice-review-copy"><strong>${text(label)}</strong><p>${text(detail)}</p></span>
+      </div>
+    `).join("");
+
+    $("#supplierFormPreview").innerHTML = `
+      <div class="supplier-preview-head">
+        ${entityIconMarkup(draft.name || "Proveedor", { type: "supplier", className: "supplier-avatar", label: draft.name || "Proveedor" })}
+        <span><strong>${text(draft.name || "Nuevo proveedor")}</strong><small>${text(draft.category || "Sin categoria")}</small></span>
+      </div>
+      <div class="supplier-preview-grid">
+        <span><small>Web</small><strong>${draft.website ? "OK" : "Pendiente"}</strong></span>
+        <span><small>Plazo</small><strong>${text(supplierLeadLabel(draft.lead_time_days))}</strong></span>
+        <span><small>Materiales</small><strong>${text(stats.materials.length)}</strong></span>
+        <span><small>Gasto</small><strong>${euro.format(stats.spend)}</strong></span>
+      </div>
+      ${draft.notes ? `<p>${text(draft.notes)}</p>` : ""}
+    `;
+    $("#supplierActivityInfo").innerHTML = `
+      <div class="income-origin-row"><span>Creado</span><strong>${text(stored?.created_at ? new Date(stored.created_at).toLocaleDateString("es-ES") : "Sin guardar")}</strong></div>
+      <div class="income-origin-row"><span>Actualizado</span><strong>${text(stored?.updated_at ? new Date(stored.updated_at).toLocaleDateString("es-ES") : "Pendiente")}</strong></div>
+      <div class="income-origin-row"><span>Ultima compra</span><strong>${text(stats.lastInvoice?.invoice_date || "-")}</strong></div>
+    `;
+  }
+
+  function applySupplierCategoryChip(value) {
+    const select = $("#supplierFormCategory");
+    if (!select) return;
+    select.value = value;
+    renderSupplierWorkspace();
   }
 
   async function loadKits() {
-    state.kits = await api("/api/kit-recipes");
+    const [kits, profitability] = await Promise.all([
+      api("/api/kit-recipes"),
+      api("/api/orders/profitability")
+    ]);
+    state.kits = kits;
+    state.ordersProfitability = profitability;
     renderKits();
+  }
+
+  function orderStatusMeta(status) {
+    if (status === "complete") return { label: "Completo", tone: "ok" };
+    if (status === "missing_lines") return { label: "Sin desglose", tone: "warn" };
+    if (status === "missing_materials") return { label: "Sin material", tone: "danger" };
+    if (status === "missing_costs") return { label: "Sin coste", tone: "warn" };
+    if (status === "low_margin") return { label: "Margen bajo", tone: "danger" };
+    return { label: "Revisar", tone: "warn" };
+  }
+
+  function orderMarginTone(order) {
+    const margin = order?.margin_percent;
+    if (margin == null) return "warn";
+    if (number(margin) >= 85) return "ok";
+    if (number(margin) >= 60) return "warn";
+    return "danger";
+  }
+
+  function orderStatusTone(order) {
+    return orderStatusMeta(order?.status).tone;
+  }
+
+  function activeFixedSet() {
+    const sets = state.ordersProfitability?.fixed_sets || state.kits || [];
+    return sets.find((set) => String(set.id) === String(state.selectedFixedSetId))
+      || state.ordersProfitability?.active_set
+      || sets.find((set) => Number(set.is_default || 0))
+      || sets[0]
+      || null;
+  }
+
+  function fixedSetRows(set = activeFixedSet()) {
+    return set?.items || [];
+  }
+
+  function filteredOrderRows() {
+    let rows = [...(state.ordersProfitability?.orders || [])];
+    const search = lower($("#orderSearch")?.value).trim();
+    if (search) {
+      rows = rows.filter((order) => lower([
+        order.order_number,
+        order.channel,
+        order.financial_status,
+        order.fulfillment_status,
+        ...(order.lines || []).map((line) => `${line.title} ${line.material_name || ""}`)
+      ].join(" ")).includes(search));
+    }
+    const channel = $("#orderChannelFilter")?.value;
+    const status = $("#orderStatusFilter")?.value;
+    if (channel) rows = rows.filter((order) => order.channel === channel);
+    if (status === "complete") rows = rows.filter((order) => order.status === "complete");
+    if (status === "missing") rows = rows.filter((order) => order.status !== "complete");
+    if (status === "low_margin") rows = rows.filter((order) => order.status === "low_margin");
+    return sortRows(rows, $("#orderSort")?.value, {
+      margin_asc: (a, b) => (a.margin_percent == null ? 999 : number(a.margin_percent)) - (b.margin_percent == null ? 999 : number(b.margin_percent)),
+      profit_desc: (a, b) => number(b.profit) - number(a.profit),
+      sale_desc: (a, b) => number(b.net_amount) - number(a.net_amount),
+      default: (a, b) => String(b.order_date || "").localeCompare(String(a.order_date || "")) || number(b.id) - number(a.id)
+    });
+  }
+
+  function renderOrdersSummary(rows = state.ordersProfitability?.orders || []) {
+    const metrics = state.ordersProfitability?.metrics || {};
+    const avg = (values) => values.length ? values.reduce((sum, value) => sum + number(value), 0) / values.length : 0;
+    const complete = rows.filter((order) => order.status === "complete");
+    const cards = [
+      ["Ticket medio", euro.format(number(metrics.average_ticket) || avg(rows.map((order) => order.net_amount))), "Venta neta media", "icon-wallet", "accent"],
+      ["Margen medio", metrics.average_margin_percent == null ? "-" : `${number(metrics.average_margin_percent).toFixed(1)}%`, `${text(metrics.complete_orders || complete.length)} pedidos fiables`, "icon-chart", "gold"],
+      ["Coste fijo medio", euro.format(number(metrics.average_fixed_cost)), "Set aplicado por pedido", "icon-cube", "gold"],
+      ["Coste real medio", metrics.average_real_cost == null ? "-" : euro.format(number(metrics.average_real_cost)), "Contenido + set fijo", "icon-coin", "accent"],
+      ["Pedidos incompletos", number(metrics.incomplete_orders ?? rows.filter((order) => order.status !== "complete").length), "Falta coste o desglose", "icon-alert", "rose"]
+    ];
+    $("#ordersSummaryCards").innerHTML = cards.map(([label, value, hint, icon, tone]) => `
+      <article class="orders-summary-card tone-${tone}">
+        <span class="orders-summary-icon" aria-hidden="true"><svg><use href="#${icon}"></use></svg></span>
+        <span><small>${text(label)}</small><strong>${text(value)}</strong><em>${text(hint)}</em></span>
+      </article>
+    `).join("");
+  }
+
+  function renderFixedPreview() {
+    const set = activeFixedSet();
+    const rows = fixedSetRows(set);
+    $("#ordersFixedSubtitle").textContent = set ? `${set.name}${set.version ? ` - ${set.version}` : ""}` : "Sin set fijo activo.";
+    $("#ordersFixedPreview").innerHTML = rows.length ? `
+      <div class="orders-fixed-preview-list">
+        ${rows.slice(0, 2).map((item) => `<div class="orders-fixed-preview-item"><span>${text(item.material_name || "Sin material")}</span><strong>${item.total_cost == null ? "Sin coste" : euro.format(number(item.total_cost))}</strong></div>`).join("")}
+        ${rows.length > 2 ? `<div class="orders-fixed-preview-more">${text(rows.length - 2)} componentes mas</div>` : ""}
+      </div>
+      <div class="orders-fixed-total"><span>Total set fijo</span><strong>${euro.format(number(set?.known_cost))}</strong></div>
+    ` : `<div class="empty-state small">Define un set fijo para calcular el coste por pedido.</div>`;
+  }
+
+  function renderOrdersReview(rows = state.ordersProfitability?.orders || []) {
+    const total = rows.length || 0;
+    const complete = rows.filter((order) => order.status === "complete");
+    const missingLines = rows.filter((order) => !(order.lines || []).length);
+    const missingMaterials = rows.filter((order) => order.missing_materials);
+    const missingCosts = rows.filter((order) => order.status === "missing_costs");
+    const lowMargin = rows.filter((order) => order.status === "low_margin");
+    const reviewable = rows.filter((order) => ["missing_lines", "missing_materials", "missing_costs", "low_margin"].includes(order.status));
+    const reliableCoverage = total ? Math.round((complete.length / total) * 100) : 0;
+    const items = [
+      ["complete", "Cobertura fiable", `${reliableCoverage}%`, `${complete.length} pedidos con margen usable`, "ok", "icon-check-circle"],
+      ["missing", "Pedidos revisables", reviewable.length, `${total ? Math.round((reviewable.length / total) * 100) : 0}% del total necesita revision`, reviewable.length ? "warn" : "ok", "icon-alert"],
+      ["missing_lines", "Sin desglose", missingLines.length, "Pedidos sin lineas Shopify sincronizadas", missingLines.length ? "warn" : "ok", "icon-file"],
+      ["missing_materials", "Bloqueo de coste", missingMaterials.length + missingCosts.length, `${missingMaterials.length} sin material · ${missingCosts.length} sin coste`, (missingMaterials.length + missingCosts.length) ? "danger" : "ok", "icon-link"],
+      ["low_margin", "Presion de margen", lowMargin.length, "Pedidos por debajo del umbral operativo", lowMargin.length ? "danger" : "ok", "icon-chart"]
+    ];
+    $("#ordersReviewQueue").innerHTML = items.map(([status, label, count, hint, tone, icon]) => `
+      <button type="button" class="invoice-review-item invoice-review-${tone}" data-order-status-filter="${status}">
+        <span class="invoice-review-icon"><svg><use href="#${icon}"></use></svg></span>
+        <span><strong>${text(label)}</strong><small>${text(hint)}</small></span>
+        <em>${text(count)}</em>
+      </button>
+    `).join("");
+  }
+
+  function renderFixedSetView() {
+    const set = activeFixedSet();
+    const sets = state.ordersProfitability?.fixed_sets || state.kits || [];
+    const rows = fixedSetRows(set);
+    const componentForm = set ? `
+      <form id="kitItemForm" class="orders-add-component">
+        <input type="hidden" name="id">
+        <input type="hidden" name="recipe_id" value="${set?.id || ""}">
+        <div class="form-grid three">
+          <div class="form-span-full">${materialPickerMarkup({ context: "kit", required: true, includePreview: true })}</div>
+          <label>Cantidad por pedido<input name="quantity" inputmode="decimal" value="1"></label>
+          <label>Notas<input name="notes" placeholder="Opcional"></label>
+        </div>
+        <div class="row-actions"><button type="button" data-save-kit-item>Anadir componente</button></div>
+      </form>
+    ` : "";
+    $("#ordersFixedList").innerHTML = `
+      <div class="orders-set-version-list">
+        ${sets.map((item) => `
+          <article class="orders-set-version ${String(item.id) === String(set?.id) ? "is-active" : ""}">
+            <button type="button" data-select-fixed-set="${item.id}">
+              <span><strong>${text(item.name)}</strong><small>${text(item.version || "Sin version")}</small></span>
+              <em>${euro.format(number(item.known_cost))}</em>
+            </button>
+            <div class="row-actions slim">
+              ${Number(item.is_default || 0) ? badge("Por defecto", "ok") : `<button type="button" class="ghost" data-default-kit="${item.id}">Por defecto</button>`}
+              <button type="button" class="icon-action" data-edit-kit="${item.id}" title="Editar set"><svg><use href="#icon-pencil"></use></svg></button>
+            </div>
+          </article>
+        `).join("") || `<div class="empty-state small">Crea una version de set fijo para empezar.</div>`}
+      </div>
+      ${set ? `<div class="orders-selected-set-head"><div><small>Version seleccionada</small><strong>${text(set.name)}${set.version ? ` - ${text(set.version)}` : ""}</strong></div><button type="button" class="ghost button-with-icon" data-edit-kit="${set.id}"><svg><use href="#icon-pencil"></use></svg><span>Editar datos</span></button></div>` : ""}
+      ${rows.length ? `
+        <div class="orders-fixed-table">
+          <div class="orders-fixed-table-head"><span>Componente</span><span>Cantidad</span><span>Coste ud</span><span>Total</span><span>Incluido</span><span>Acciones</span></div>
+          ${rows.map((item) => `
+            <article class="orders-fixed-row ${Number(item.include_in_cost ?? 1) === 0 ? "is-excluded" : ""}">
+              <span class="orders-fixed-material"><span class="supplier-linked-thumb">${img(item.material_image_url)}</span><span><strong>${text(item.material_name || "Sin material")}</strong><small>${text(item.material_category || "material")}</small></span></span>
+              <span>${text(item.quantity)}</span>
+              <span>${Number(item.include_in_cost ?? 1) === 0 ? "-" : (item.unit_cost == null ? "-" : euro.format(number(item.unit_cost)))}</span>
+              <span><strong>${Number(item.include_in_cost ?? 1) === 0 ? "Excluido" : (item.total_cost == null ? "-" : euro.format(number(item.total_cost)))}</strong></span>
+              <span><label class="orders-include-toggle"><input type="checkbox" ${Number(item.include_in_cost ?? 1) === 0 ? "" : "checked"} data-kit-item-include="${item.id}" data-kit-id="${set.id}"><span></span></label>${Number(item.include_in_cost ?? 1) !== 0 && item.unit_cost == null ? badge("Sin coste", "warn") : ""}</span>
+              <span class="row-actions slim"><button type="button" class="icon-action danger-text" data-delete-kit-item="${item.id}" data-kit-id="${set.id}" title="Archivar"><svg><use href="#icon-archive"></use></svg></button></span>
+            </article>
+          `).join("")}
+        </div>
+      ` : (set ? `<div class="empty-state">Esta version todavia no tiene componentes fijos.</div>` : "")}
+      ${componentForm}
+    `;
+    $("#ordersFixedSummary").innerHTML = `
+      <div class="supplier-preview-grid">
+        <span><small>Total fijo</small><strong>${euro.format(number(set?.known_cost))}</strong></span>
+        <span><small>Componentes</small><strong>${text(set?.included_item_count ?? rows.filter((item) => Number(item.include_in_cost ?? 1) !== 0).length)} / ${text(rows.length)}</strong></span>
+        <span><small>Sin coste</small><strong>${text(set?.missing_cost_items || 0)}</strong></span>
+        <span><small>Desactivados</small><strong>${text(set?.excluded_item_count || rows.filter((item) => Number(item.include_in_cost ?? 1) === 0).length)}</strong></span>
+      </div>
+      <div class="inline-note">El set por defecto se aplica a pedidos sin version propia; dentro de cada pedido puedes seleccionar otra version.</div>
+    `;
+    bindKitItemForm();
   }
 
   function renderKits() {
     const list = $("#kitList");
     if (!list) return;
-    const meta = paginateRows("kits", [...state.kits]);
-    $("#kitResultText").textContent = `${meta.total} versiones definidas.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
-    list.innerHTML = meta.rows.map((kit) => `
-      <article class="row">
-        <div class="row-main">
-          <strong>${text(kit.name)} ${kit.version ? `· ${text(kit.version)}` : ""}</strong>
-          <div class="meta">${kit.item_count} materiales · coste conocido ${euro.format(number(kit.known_cost))} · ${kit.missing_cost_items} sin coste</div>
-          ${badge(kit.is_complete ? "completo" : "en curso", kit.is_complete ? "ok" : "warn")} ${kit.notes ? `<p>${text(kit.notes)}</p>` : ""}
-        </div>
-        <div class="row-actions">
-          <button data-open-kit="${kit.id}" type="button">Ver</button>
-          <button data-delete-kit="${kit.id}" type="button" class="ghost danger-text">Archivar</button>
-        </div>
-      </article>
-    `).join("") || `<div class="empty-state">No hay composiciones de kit todavía.</div>`;
+    const rows = filteredOrderRows();
+    const meta = paginateRows("kits", rows);
+    $("#kitResultText").textContent = `${rows.length} pedidos analizados.${rows.length ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+    $("#ordersUpdatedMeta").innerHTML = `<svg><use href="#icon-clock"></use></svg><span>Actualizado ${new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>`;
+    renderOrdersSummary(state.ordersProfitability?.orders || []);
+    renderFixedPreview();
+    renderOrdersReview(state.ordersProfitability?.orders || []);
+    renderFixedSetView();
+    $("#ordersListMetaText").textContent = meta.total ? `Mostrando ${meta.startIndex + 1}-${meta.endIndex} de ${meta.total} pedidos filtrados.` : "No hay pedidos con esos filtros.";
+    list.innerHTML = `
+      <div class="orders-table-head"><span>Pedido</span><span>Fecha</span><span>Contenido</span><span>Venta</span><span>Coste pedido</span><span>Set fijo</span><span>Coste real</span><span>Margen</span><span>Estado</span><span>Acciones</span></div>
+      ${meta.rows.length ? meta.rows.map((order) => {
+        const status = orderStatusMeta(order.status);
+        const marginTone = orderMarginTone(order);
+        const statusTone = orderStatusTone(order);
+        const set = order.fixed_set || activeFixedSet();
+        return `
+          <article class="orders-table-row">
+            <span><strong>${text(order.order_number || `Pedido #${order.id}`)}</strong><small>${text(order.channel || "canal")}</small></span>
+            <span>${text(order.order_date || "-")}</span>
+            <span><strong>${(order.lines || []).length ? `${order.lines.length} lineas` : "Sin desglose"}</strong><small>${text((order.lines || []).slice(0, 2).map((line) => line.title).join(", ") || "Pendiente de sincronizar")}</small></span>
+            <span>${euro.format(number(order.net_amount))}</span>
+            <span>${order.content_cost == null ? "-" : euro.format(number(order.content_cost))}</span>
+            <span><strong>${euro.format(number(order.fixed_set_cost))}</strong><small>${text(set?.version || set?.name || "Set fijo")}</small></span>
+            <span><strong>${order.content_cost == null ? "-" : euro.format(number(order.real_cost))}</strong></span>
+            <span class="orders-chip-cell">${badge(order.margin_percent == null ? "-" : `${number(order.margin_percent).toFixed(1)}%`, marginTone)}</span>
+            <span class="orders-chip-cell">${badge(status.label, statusTone)}</span>
+            <span class="row-actions slim"><button type="button" class="icon-action" data-open-order="${order.id}" title="Ver pedido"><svg><use href="#icon-eye"></use></svg></button></span>
+          </article>
+        `;
+      }).join("") : `<div class="empty-state">No hay pedidos sincronizados todavia.</div>`}
+    `;
     renderPagination("#kitPagination", "kits", meta);
+  }
+
+  function openOrderDetail(id) {
+    const order = (state.ordersProfitability?.orders || []).find((item) => String(item.id) === String(id));
+    if (!order) return;
+    $("#kitForm")?.classList.add("hidden");
+    $("#kits .orders-page")?.classList.add("orders-focus-mode");
+    const set = order.fixed_set || activeFixedSet();
+    const setOptions = order.fixed_set_options || state.ordersProfitability?.fixed_sets || [];
+    const panel = $("#kitDetailPanel");
+    const status = orderStatusMeta(order.status);
+    const issueList = [
+      !(order.lines || []).length ? "Falta desglose Shopify del pedido." : "",
+      order.missing_materials ? `${order.missing_materials} linea(s) sin material vinculado.` : "",
+      order.missing_line_costs ? `${order.missing_line_costs} material(es) sin coste registrado.` : "",
+      set?.missing_cost_items ? `${set.missing_cost_items} componente(s) del set sin coste.` : "",
+      order.status === "low_margin" ? "Margen por debajo del umbral operativo." : ""
+    ].filter(Boolean);
+    panel.classList.remove("hidden");
+    panel.innerHTML = `
+      <div class="invoice-workspace-hero">
+        <div><p class="eyebrow">OPERACIONES / PEDIDOS</p><h1>${text(order.order_number || `Pedido #${order.id}`)}</h1><p>${text(order.channel || "Shopify")} - ${text(order.order_date || "")} - ${(order.lines || []).length} lineas</p></div>
+        <div class="invoice-hero-actions"><button type="button" class="ghost button-with-icon" data-close-kit-detail><svg><use href="#icon-x"></use></svg><span>Cerrar</span></button></div>
+      </div>
+      <section class="panel orders-audit-panel">
+        <div class="panel-head compact">
+          <div><h2>Auditoria de rentabilidad</h2><p>Selecciona el set fijo aplicado y revisa el margen real de este pedido.</p></div>
+          ${badge(status.label, status.tone)}
+        </div>
+        <div class="orders-audit-topline">
+          <div class="orders-detail-toolbar">
+            <label>Set aplicado
+              <select data-order-fixed-set-select="${order.id}">
+                <option value="">Set por defecto</option>
+                ${setOptions.map((option) => `<option value="${option.id}" ${String(option.id) === String(order.kit_recipe_id || set?.id) ? "selected" : ""}>${text(option.name)}${option.version ? ` - ${text(option.version)}` : ""} (${euro.format(number(option.known_cost))})</option>`).join("")}
+              </select>
+            </label>
+          </div>
+          <div class="orders-sale-context"><small>Venta neta</small><strong>${euro.format(number(order.net_amount))}</strong><span>${(order.lines || []).length} lineas Shopify</span></div>
+        </div>
+        <div class="orders-formula orders-profit-strip">
+          <span class="tone-shopify"><small>Coste Shopify</small><strong>${order.content_cost == null ? "Pendiente" : euro.format(number(order.content_cost))}</strong><em>Contenido del pedido</em></span>
+          <i>+</i>
+          <span class="tone-fixed"><small>Set fijo</small><strong>${euro.format(number(order.fixed_set_cost))}</strong><em>${text(set?.name || "Sin set")}</em></span>
+          <i>=</i>
+          <span class="tone-real"><small>Coste real</small><strong>${order.content_cost == null ? "Pendiente" : euro.format(number(order.real_cost))}</strong><em>Coste total</em></span>
+          <i>-></i>
+          <span class="accent tone-margin"><small>Margen</small><strong>${order.margin_percent == null ? "-" : `${number(order.margin_percent).toFixed(1)}%`}</strong><em>${order.content_cost == null ? "Pendiente" : `${euro.format(number(order.profit))} beneficio`}</em></span>
+        </div>
+      </section>
+      <div class="invoice-workspace-grid">
+        <div class="invoice-workspace-main">
+          <section class="panel invoice-editor-card"><div class="panel-head compact"><div><h2>Contenido Shopify</h2><p>Lineas del pedido, coste y material vinculado.</p></div></div>
+            ${(order.lines || []).length ? `<div class="orders-material-table">
+              <div class="orders-material-head"><span>Producto</span><span>Material</span><span>Cantidad</span><span>Coste ud</span><span>Total</span><span>Incluido</span></div>
+              ${(order.lines || []).map((line) => {
+                const missingCost = line.material_id && line.unit_cost == null;
+                const included = Number(line.include_in_cost ?? 1) !== 0 && !missingCost;
+                const materialLabel = line.material_name && lower(line.material_name) !== lower(line.title) ? line.material_name : (line.material_id ? "Material vinculado" : "Sin material");
+                return `<article class="orders-material-row ${included ? "" : "is-excluded"}">
+                  <span class="orders-material-product"><span class="supplier-linked-thumb">${img(line.material_image_url)}</span><span><strong>${text(line.title || "Producto")}</strong><small>${text(line.sku || "sin SKU")}</small></span></span>
+                  <span><strong>${text(materialLabel)}</strong><small>${line.material_id ? "vinculado" : "pendiente"}</small></span>
+                  <span>${text(line.quantity)}</span>
+                  <span>${!included ? "-" : (line.unit_cost == null ? "-" : euro.format(number(line.unit_cost)))}</span>
+                  <span><strong>${!included ? "Excluido" : (line.total_cost == null ? "-" : euro.format(number(line.total_cost)))}</strong>${missingCost ? badge("Sin coste", "warn") : (line.total_cost == null && included ? badge("Sin material", "warn") : "")}</span>
+                  <span><label class="orders-include-toggle"><input type="checkbox" ${included ? "checked" : ""} ${missingCost ? "disabled" : ""} data-order-line-include="${line.id}" data-order-id="${order.id}"><span></span></label></span>
+                </article>`;
+              }).join("")}
+            </div>` : `<div class="empty-state small">Este pedido todavia no tiene lineas sincronizadas. Usa completar desglose en la portada.</div>`}
+          </section>
+          <section class="panel supplier-linked-panel"><div class="panel-head compact"><div><h2>Set fijo aplicado</h2><p>Componentes que se suman automaticamente a este pedido.</p></div></div><div class="orders-line-list">
+            ${fixedSetRows(set).map((item) => `<article class="supplier-linked-item"><span class="supplier-linked-thumb">${img(item.material_image_url)}</span><span><strong>${text(item.material_name || "Componente")}</strong><small>${text(item.quantity)} por pedido</small></span><span>${item.total_cost == null ? badge("Sin coste", "warn") : euro.format(number(item.total_cost))}</span></article>`).join("") || `<div class="empty-state small">No hay set fijo aplicado.</div>`}
+          </div></section>
+        </div>
+        <aside class="invoice-workspace-side"><section class="panel invoice-check-card"><div class="panel-head compact"><div><h2>Incidencias</h2><p>Bloqueos para confiar en el margen.</p></div></div><div class="orders-issues-list">
+          ${issueList.length ? issueList.map((issue) => `<span><svg><use href="#icon-alert"></use></svg>${text(issue)}</span>`).join("") : `<div class="empty-state small">Pedido listo para revisar margen.</div>`}
+        </div></section></aside>
+      </div>
+    `;
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function openKit(id) {
     const kit = state.kits.find((item) => item.id == id) || (await api("/api/kit-recipes")).find((item) => item.id == id);
     if (!kit) return;
-    $("#kitForm")?.classList.add("hidden");
+    window.showKitEditor(kit, true);
     const panel = $("#kitDetailPanel");
+    $("#kitForm")?.classList.add("hidden");
+    $("#kits .orders-page")?.classList.add("orders-focus-mode");
     panel.classList.remove("hidden");
-    panel.innerHTML = `
-      <div class="selected-invoice">
-        <div class="panel-head">
-          <div>
-            <h2>${text(kit.name)}${kit.version ? ` · ${text(kit.version)}` : ""}</h2>
-            <p>${kit.item_count} materiales · coste medio conocido ${euro.format(number(kit.known_cost))}</p>
-          </div>
-          <div class="row-actions">
-            <button type="button" class="ghost" data-toggle-kit-complete="${kit.id}" data-kit-complete="${kit.is_complete ? 1 : 0}">${kit.is_complete ? "Marcar incompleto" : "Marcar completo"}</button>
-            <button type="button" class="ghost" data-close-kit-detail>Cerrar</button>
-          </div>
-        </div>
-        <div class="tags">
-          ${badge(kit.is_complete ? "completo" : "en curso", kit.is_complete ? "ok" : "warn")}
-        </div>
-      </div>
-      ${kit.is_complete ? `<div class="inline-note">Este kit está marcado como completo. Si necesitas cambiar su composición, vuelve a marcarlo como incompleto.</div>` : `
-      <form id="kitItemForm" class="line-form">
-        <input type="hidden" name="id">
-        <input type="hidden" name="recipe_id" value="${kit.id}">
-        <div class="form-grid four">
-          <div class="form-span-full">${materialPickerMarkup({ context: "kit", required: true, includePreview: true })}</div>
-          <label>Cantidad por kit<input name="quantity" inputmode="decimal" value="1"></label>
-          <label>Notas<input name="notes"></label>
-        </div>
-        <div class="row-actions">
-          <button type="button" data-save-kit-item>Añadir material</button>
-          <button type="button" class="ghost" data-reset-form="kitItemForm">Limpiar</button>
-        </div>
-      </form>`}
-      <div class="line-list">
-        ${kit.items.map((item) => {
-          const summary = hierarchySummary({
-            usage_type: item.material_usage_type,
-            family: item.material_family,
-            subfamily: item.material_subfamily,
-            variant: item.material_variant,
-            base_material: item.material_base_material,
-            finish: item.material_finish
-          });
-          return `
-            <article class="line-card">
-              <div class="line-card-main ${item.material_image_url ? "with-image" : ""}">
-                ${item.material_image_url ? `<div class="material-mini-thumb">${img(item.material_image_url)}</div>` : ""}
-                <div>
-                  <strong>${text(item.material_name, "Sin material")}</strong>
-                  <div class="meta">${item.quantity} ${text(item.material_category || "")} · coste ud ${item.unit_cost == null ? "-" : euro.format(number(item.unit_cost))} · total ${item.total_cost == null ? "-" : euro.format(number(item.total_cost))}</div>
-                  ${summary ? `<div class="meta">${text(summary)}</div>` : ""}
-                  ${item.notes ? `<p>${text(item.notes)}</p>` : ""}
-                </div>
-              </div>
-              <div class="row-actions slim">
-                ${kit.is_complete ? "" : `<button data-delete-kit-item="${item.id}" data-kit-id="${kit.id}" type="button" class="ghost danger-text">Archivar</button>`}
-              </div>
-            </article>
-          `;
-        }).join("") || `<div class="empty-state small">Este kit todavía no tiene materiales.</div>`}
-      </div>
-    `;
-    bindKitItemForm();
+    panel.innerHTML = `<div class="empty-state">Edita ${text(kit.name)} desde la vista de sets creados o el boton Editar.</div>`;
     panel.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -275,7 +763,6 @@ export function createOperationViews(ctx) {
     window.showKitEditor(kit, true);
     await openKit(id);
   }
-
   function bindKitItemForm() {
     const form = $("#kitItemForm");
     if (!form) return;
@@ -289,15 +776,22 @@ export function createOperationViews(ctx) {
 
   return {
     loadSuppliers,
-    renderSuppliers,
-    loadCosts,
-    renderCosts,
-    openCostDetail,
-    renderCostHistoryChart,
+    renderSuppliers: renderSuppliersNew,
+    renderSupplierWorkspace,
+    applySupplierCategoryChip,
     loadKits,
     renderKits,
     openKit,
+    openOrderDetail,
     openKitWorkspace,
     bindKitItemForm
   };
 }
+
+
+
+
+
+
+
+

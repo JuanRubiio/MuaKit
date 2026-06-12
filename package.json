@@ -1,6 +1,6 @@
 {
   "name": "muakit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Mua Ops local operations app",
   "main": "mua_ops_node/server.js",
   "directories": {
@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node mua_ops_node/server.js --port 5055",
     "test": "node mua_ops_node/test-api.js",
-    "test:ui:smoke": "node mua_ops_node/test-ui-smoke.js"
+    "test:ui:smoke": "node mua_ops_node/test-ui-smoke.js",
+    "test:coverage": "c8 --reporter=json-summary --reporter=text-summary --report-dir coverage/api node mua_ops_node/test-api.js"
   },
   "keywords": [],
   "author": "",
@@ -18,9 +19,11 @@
     "echarts": "^6.0.0",
     "express": "^5.2.1",
     "multer": "^2.1.1",
+    "simple-icons": "^16.22.0",
     "sql.js": "^1.14.1"
   },
   "devDependencies": {
+    "c8": "^9.1.0",
     "playwright": "^1.60.0"
   }
 }
