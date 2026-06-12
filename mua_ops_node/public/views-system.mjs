@@ -209,6 +209,9 @@
         : coveragePct >= 75 ? "Cobertura razonable"
           : "Cobertura baja"
       : "Sin cobertura";
+    const ocr = health.automation?.ocr || {};
+    const importCounts = Object.fromEntries((health.automation?.expense_imports || []).map((row) => [row.status, Number(row.count || 0)]));
+    const importIssues = Number(importCounts.error || 0);
     const regressionLabel = testHealth.status === "ok"
       ? "Sin roturas detectadas"
       : testHealth.status === "error"
@@ -229,6 +232,9 @@
           <div><dt>Último backup</dt><dd>${text(health.backups?.latest?.created_at || "Sin backup")}</dd></div>
           <div><dt>Shopify</dt><dd>${text(health.shopify?.last_sync_status || "Sin sync")}</dd></div>
           <div><dt>Última sync</dt><dd>${text(health.shopify?.last_sync_at || "Nunca")}</dd></div>
+          <div><dt>Motor OCR local</dt><dd>${ocr.available ? `${(ocr.languages || []).join("+")} disponible` : "No disponible"}</dd></div>
+          <div><dt>Cola OCR</dt><dd>${Number(ocr.pending || 0)} pendientes · ${importIssues} fallidos</dd></div>
+          <div><dt>Última reposición</dt><dd>${text(health.automation?.replenishment?.last_run_at || "Aún no ejecutada")}</dd></div>
         </dl>
       </section>
       <section class="settings-context-card">

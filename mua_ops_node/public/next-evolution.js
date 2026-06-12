@@ -1,0 +1,140 @@
+(() => {
+  const expensePage = document.querySelector("#invoices .invoice-page");
+  const materialPage = document.querySelector("#materials .materials-page");
+  const expenseDefault = expensePage ? Array.from(expensePage.children).filter((node) => !node.matches(".next-domain-tabs,#expenseImportPanel,.invoice-overview-head")) : [];
+  const materialDefault = materialPage ? Array.from(materialPage.children).filter((node) => !node.matches(".next-domain-tabs,#replenishmentPanel,#purchasePlannerPanel,.materials-overview-head")) : [];
+  let replenishmentRows = [];
+  let currentPurchasePlan = null;
+
+  const fmt = (value) => euro.format(Number(value || 0));
+  const metric = (label, value, hint) => `<article class="next-kpi"><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></article>`;
+
+  function switchExpense(section) {
+    document.querySelectorAll("[data-expense-section]").forEach((button) => button.classList.toggle("is-active", button.dataset.expenseSection === section));
+    expenseDefault.forEach((node) => node.classList.toggle("hidden", section !== "registered"));
+    $("#expenseImportPanel").classList.toggle("hidden", section !== "imports");
+    if (section === "imports") loadImports();
+  }
+
+  function switchMaterials(section) {
+    document.querySelectorAll("[data-materials-section]").forEach((button) => button.classList.toggle("is-active", button.dataset.materialsSection === section));
+    materialDefault.forEach((node) => node.classList.toggle("hidden", section !== "catalog"));
+    $("#replenishmentPanel").classList.toggle("hidden", section !== "replenishment");
+    $("#purchasePlannerPanel").classList.toggle("hidden", section !== "purchases");
+    if (section === "replenishment") loadReplenishment();
+    if (section === "purchases") loadPurchasePlans();
+  }
+
+  async function loadImports() {
+    const rows = await api("/api/expense-imports");
+    const pending = rows.filter((row) => ["pending", "processing"].includes(row.status)).length;
+    const review = rows.filter((row) => ["ready", "review"].includes(row.status)).length;
+    $("#expenseImportMetrics").innerHTML = metric("En proceso", pending, "Cola local secuencial") + metric("Por validar", review, "Requieren supervisión") + metric("Confirmadas", rows.filter((row) => row.status === "confirmed").length, "Borradores creados");
+    $("#expenseImportList").innerHTML = rows.length ? rows.map((row) => `<article class="next-import-row">
+      <div><strong>${text(row.original_name)}</strong><small>${text(row.mime_type)} · ${Math.round(Number(row.size || 0) / 1024)} KB</small></div>
+      <span class="status-pill ${row.status === "error" ? "danger" : row.status === "confirmed" ? "ok" : "warn"}">${text(row.status)}</span>
+      <div><strong>${Math.round(Number(row.confidence || 0))}%</strong><small>${text(row.extraction_method || "Pendiente")}</small></div>
+      <button type="button" class="ghost" data-open-expense-import="${row.id}">Revisar</button>
+    </article>`).join("") : `<div class="empty-state">Aún no hay documentos importados.</div>`;
+  }
+
+  async function openImport(id) {
+    const data = await api(`/api/expense-imports/${id}`);
+    const item = data.import;
+    const fields = item.detected_fields || {};
+    $("#expenseImportDetail").classList.remove("hidden");
+    $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · confianza ${Math.round(item.confidence)}%</p></div><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div>
+      ${data.duplicates.exact ? `<div class="inline-alert danger">Duplicado bloqueante: factura #${data.duplicates.exact.id}</div>` : data.duplicates.warning ? `<div class="inline-alert warn">Posible duplicado: factura #${data.duplicates.warning.id}</div>` : ""}
+      <div class="next-validation-grid">
+        <form id="expenseImportReviewForm" data-import-id="${item.id}" class="form-grid three">
+          <label>Proveedor sugerido<input name="suggested_supplier_id" value="${text(fields.suggested_supplier_id || "")}"></label>
+          <label>Número de factura<input name="invoice_number" value="${text(fields.invoice_number || "")}"></label>
+          <label>Fecha<input name="invoice_date" value="${text(fields.invoice_date || "")}"></label>
+          <label>Total<input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"></label>
+          <label>Moneda<input name="currency" value="${text(fields.currency || "EUR")}"></label>
+          <button type="submit">Guardar revisión</button>
+        </form>
+        <div class="next-detected-pages"><strong>Lectura por página</strong>${item.pages.map((page) => `<div><span>Página ${page.page} · ${text(page.method)}</span><b>${Math.round(page.confidence)}%</b></div>`).join("")}</div>
+      </div>
+      <div class="next-lines"><h3>Líneas sugeridas</h3>${data.lines.length ? data.lines.map((line) => `<article><div><strong>${text(line.description)}</strong><small>${text(line.suggested_material_name || "Sin material sugerido")}</small></div><b>${fmt(line.line_total)}</b><select data-import-line="${line.id}" data-import-id="${item.id}"><option value="pending" ${line.human_decision === "pending" ? "selected" : ""}>Revisar</option><option value="accepted" ${line.human_decision === "accepted" ? "selected" : ""}>Aceptar</option><option value="rejected" ${line.human_decision === "rejected" ? "selected" : ""}>Excluir</option></select></article>`).join("") : `<div class="empty-state">No se detectaron líneas fiables. Puedes crear el gasto y completarlas después.</div>`}</div>
+      <div class="row-actions"><button type="button" class="ghost" data-discard-import="${item.id}">Descartar</button><button type="button" ${data.duplicates.exact ? "disabled" : ""} data-confirm-import="${item.id}">Confirmar y crear factura borrador</button></div>`;
+    $("#expenseImportDetail").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function loadReplenishment() {
+    const data = await api("/api/replenishment/recommendations");
+    replenishmentRows = data.recommendations;
+    const actionable = replenishmentRows.filter((row) => row.suggested_quantity > 0);
+    $("#replenishmentMetrics").innerHTML = metric("Compra sugerida", fmt(actionable.reduce((sum, row) => sum + row.estimated_cost, 0)), `${actionable.length} materiales`) + metric("Críticos", replenishmentRows.filter((row) => row.priority === "critical").length, "Rotura actual") + metric("Requieren configuración", replenishmentRows.filter((row) => row.priority === "configuration").length, "Stock desconocido");
+    $("#replenishmentList").innerHTML = replenishmentRows.map((row) => `<article class="next-replenishment-row priority-${row.priority}">
+      <input type="checkbox" data-replenishment-select="${row.id}" ${row.suggested_quantity > 0 ? "checked" : "disabled"}>
+      <div><strong>${text(row.name)}</strong><small>${text(row.supplier_name || "Sin proveedor")} · ${text(row.reason)}</small></div>
+      <div><small>Consumo 30/90</small><strong>${number(row.consumption_30).toFixed(0)} / ${number(row.consumption_90).toFixed(0)}</strong></div>
+      <div><small>Cobertura</small><strong>${row.coverage_days === null ? "Configurar" : `${number(row.coverage_days).toFixed(1)} días`}</strong></div>
+      <div><small>Sugerencia</small><strong>${number(row.suggested_quantity)} ${text(row.unit_label)}</strong><span>${fmt(row.estimated_cost)}</span></div>
+      <span class="status-pill">${text(row.priority)}</span>
+    </article>`).join("");
+  }
+
+  async function loadPurchasePlans() {
+    const rows = await api("/api/purchase-plans");
+    $("#purchasePlanList").innerHTML = rows.length ? rows.map((row) => `<article class="next-plan-row"><div><strong>${text(row.name)}</strong><small>${row.order_count} pedidos · ${text(row.status)}</small></div><b>${fmt(row.estimated_total)}</b><button class="ghost" data-open-plan="${row.id}">Abrir</button></article>`).join("") : `<div class="empty-state">No hay planes creados.</div>`;
+  }
+
+  async function openPlan(id) {
+    const data = await api(`/api/purchase-plans/${id}`);
+    currentPurchasePlan = data;
+    $("#purchasePlanDetail").classList.remove("hidden");
+    $("#purchasePlanDetail").innerHTML = `<div class="panel-head"><div><h2>${text(data.plan.name)}</h2><p>Snapshot de compra · ${fmt(data.plan.estimated_total)}</p></div></div>${data.orders.map((order) => `<section class="next-order"><div class="panel-head"><div><h3>${text(order.supplier_name || "Sin proveedor")}</h3><p>${text(order.status)} · ${fmt(order.estimated_total)}</p></div><button class="ghost" data-order-ordered="${order.id}">Marcar pedido</button></div>${order.lines.map((line) => `<article><span>${text(line.material_name)}</span><b>${number(line.received_quantity)} / ${number(line.ordered_quantity)} ${text(line.unit_label)}</b></article>`).join("")}<button type="button" data-receive-order="${order.id}">Registrar recepción completa pendiente</button></section>`).join("")}`;
+  }
+
+  document.body.addEventListener("click", async (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    try {
+      if (button.dataset.expenseSection) switchExpense(button.dataset.expenseSection);
+      if (button.dataset.materialsSection) switchMaterials(button.dataset.materialsSection);
+      if (button.dataset.openExpenseImport) await openImport(button.dataset.openExpenseImport);
+      if (button.dataset.reprocessImport) { await api(`/api/expense-imports/${button.dataset.reprocessImport}/reprocess`, { method: "POST" }); await loadImports(); }
+      if (button.dataset.discardImport) { await api(`/api/expense-imports/${button.dataset.discardImport}/discard`, { method: "POST" }); await loadImports(); }
+      if (button.dataset.confirmImport) { const result = await api(`/api/expense-imports/${button.dataset.confirmImport}/confirm`, { method: "POST", body: JSON.stringify({}) }); toast(`Factura borrador #${result.invoice_id} creada`); switchExpense("registered"); await loadInvoices(); }
+      if (button.id === "createPurchasePlan") {
+        const material_ids = Array.from(document.querySelectorAll("[data-replenishment-select]:checked")).map((node) => Number(node.dataset.replenishmentSelect));
+        await api("/api/purchase-plans", { method: "POST", body: JSON.stringify({ material_ids }) });
+        toast("Plan de compra creado"); switchMaterials("purchases");
+      }
+      if (button.dataset.openPlan) await openPlan(button.dataset.openPlan);
+      if (button.dataset.orderOrdered) { await api(`/api/purchase-orders/${button.dataset.orderOrdered}`, { method: "PATCH", body: JSON.stringify({ status: "ordered" }) }); toast("Pedido marcado como realizado"); }
+      if (button.dataset.receiveOrder) {
+        const order = currentPurchasePlan?.orders?.find((candidate) => String(candidate.id) === button.dataset.receiveOrder);
+        if (order) {
+          const result = await api(`/api/purchase-orders/${order.id}/receipts`, { method: "POST", body: JSON.stringify({ lines: order.lines.filter((line) => !line.is_excluded && line.received_quantity < line.ordered_quantity).map((line) => ({ purchase_order_line_id: line.id, quantity: line.ordered_quantity - line.received_quantity })) }) });
+          toast(result.warning);
+          await openPlan(currentPurchasePlan.plan.id);
+        }
+      }
+    } catch (error) { toast(error.message); }
+  });
+
+  document.body.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-import-line]");
+    if (!select) return;
+    await api(`/api/expense-imports/${select.dataset.importId}/lines/${select.dataset.importLine}`, { method: "PATCH", body: JSON.stringify({ human_decision: select.value }) }).catch((error) => toast(error.message));
+  });
+
+  $("#expenseImportUploadForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const response = await fetch("/api/expense-imports", { method: "POST", body: new FormData(event.currentTarget) });
+    if (!response.ok) return toast((await response.json().catch(() => ({}))).error || "No se pudo subir el documento");
+    event.currentTarget.reset(); toast("Documento añadido a la cola local"); setTimeout(loadImports, 500);
+  });
+
+  document.body.addEventListener("submit", async (event) => {
+    if (event.target.id !== "expenseImportReviewForm") return;
+    event.preventDefault();
+    const detected_fields = Object.fromEntries(new FormData(event.target).entries());
+    detected_fields.total = Number(detected_fields.total);
+    await api(`/api/expense-imports/${event.target.dataset.importId}`, { method: "PATCH", body: JSON.stringify({ detected_fields }) });
+    toast("Revisión guardada");
+  });
+})();

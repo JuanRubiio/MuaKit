@@ -80,7 +80,7 @@ export function createInvoiceViews(ctx) {
       ["Pendientes / borrador", draftCount, totalVisible ? `${((draftCount / Math.max(totalVisible, 1)) * 100).toFixed(1).replace(".", ",")}% del total` : "0% del total", "gold", "icon-file"],
       ["Sin líneas", withoutLinesCount, totalVisible ? `${((withoutLinesCount / Math.max(totalVisible, 1)) * 100).toFixed(1).replace(".", ",")}% del total` : "0% del total", "gold", "icon-coin"],
       ["Con adjunto", withAttachmentCount, totalVisible ? `${((withAttachmentCount / Math.max(totalVisible, 1)) * 100).toFixed(1).replace(".", ",")}% del total` : "0% del total", "accent", "icon-image"],
-      ["Importe total", euro.format(totalAmount), `${activeRows.length} facturas activas`, "rose", "icon-coin"]
+      ["Importe total", euro.format(totalAmount), `${activeRows.length} gastos registrados`, "rose", "icon-coin"]
     ].map(([label, value, hint, tone, icon]) => `
       <article class="card invoice-summary-card invoice-summary-${tone}">
         <span class="invoice-summary-icon" aria-hidden="true"><svg><use href="#${icon}"></use></svg></span>
@@ -102,10 +102,10 @@ export function createInvoiceViews(ctx) {
     `;
 
     const reviewRows = [
-      ["Facturas en borrador", draftCount, draftCount ? "Pendientes de completar" : "Sin borradores", "draft", "icon-alert", "danger"],
+      ["Gastos en borrador", draftCount, draftCount ? "Pendientes de completar" : "Sin borradores", "draft", "icon-alert", "danger"],
       ["Sin líneas", withoutLinesCount, withoutLinesCount ? "Requieren revisar líneas" : "Todas con líneas", "without_lines", "icon-minus-circle", "warn"],
       ["Sin proveedor", noSupplierCount, noSupplierCount ? "Faltan datos del proveedor" : "Proveedor completo", "supplier_missing", "icon-users", "danger"],
-      ["Adjuntos por revisar", pendingAttachmentCount, pendingAttachmentCount ? "Facturas sin adjunto" : "Adjuntos al dia", "attachment_missing", "icon-paperclip", "accent"]
+      ["Adjuntos por revisar", pendingAttachmentCount, pendingAttachmentCount ? "Gastos sin adjunto" : "Adjuntos al día", "attachment_missing", "icon-paperclip", "accent"]
     ];
 
     $("#invoiceReviewQueue").innerHTML = `
@@ -130,7 +130,7 @@ export function createInvoiceViews(ctx) {
     const meta = paginateRows("invoices", rows);
     const invoiceResultNode = $("#invoiceResultText");
     if (invoiceResultNode) {
-      invoiceResultNode.textContent = `${meta.total} facturas visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+      invoiceResultNode.textContent = `${meta.total} gastos visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
     }
     $("#invoiceList").innerHTML = meta.rows.map((invoice) => {
       const active = String(invoice.id) === String(state.selectedInvoiceId) ? "active" : "";
@@ -158,7 +158,7 @@ export function createInvoiceViews(ctx) {
           </div>
         </article>
       `;
-    }).join("") || `<div class="empty-state">No hay facturas con esos filtros.</div>`;
+    }).join("") || `<div class="empty-state">No hay gastos con esos filtros.</div>`;
     renderPagination("#invoicePagination", "invoices", meta);
   }
 
@@ -201,7 +201,7 @@ export function createInvoiceViews(ctx) {
     panel.innerHTML = `
       <div class="invoice-detail-hero">
         <div>
-          <p class="eyebrow">Operaciones / Facturas</p>
+          <p class="eyebrow">Operaciones / Gastos</p>
           <div class="invoice-title-row">
             <h2>${text(detail.invoice.supplier_name, "Factura sin proveedor")}</h2>
             <span class="external-link-mark" aria-hidden="true">&#8599;</span>

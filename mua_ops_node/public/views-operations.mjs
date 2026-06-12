@@ -195,7 +195,7 @@
     const cards = [
       ["Proveedores activos", active.length, "Disponibles para compras", "icon-users", "accent"],
       ["Con materiales", withMaterials.length, "Asignados como preferentes", "icon-cube", "ok"],
-      ["Facturas", invoiceCount, "Compras con proveedor", "icon-file", "neutral"],
+      ["Gastos", invoiceCount, "Compras con proveedor", "icon-file", "neutral"],
       ["Gasto", euro.format(totalSpend), "Compras registradas", "icon-coin", "gold"],
       ["Plazo medio", avgLead ? `${avgLead} dias` : "-", "Tiempo de reposicion", "icon-clock", "rose"],
       ["Por completar", incomplete.length, "Web, plazo o materiales", "icon-alert", "warn"]
@@ -289,7 +289,7 @@
     renderSupplierRecent(allRows);
     $("#supplierList").innerHTML = `
       <div class="supplier-table-head">
-        <span>Proveedor</span><span>Categoria</span><span>Plazo</span><span>Materiales</span><span>Facturas</span><span>Gasto</span><span>Estado</span><span>Acciones</span>
+        <span>Proveedor</span><span>Categoria</span><span>Plazo</span><span>Materiales</span><span>Gastos</span><span>Gasto</span><span>Estado</span><span>Acciones</span>
       </div>
       ${meta.rows.length ? meta.rows.map((supplier) => {
         const stats = supplierStats(supplier);
@@ -348,7 +348,7 @@
     $("#supplierFormStatusBadge").className = `status-pill ${stored ? status.tone : "warn"}`;
     $("#supplierFormSubtitle").textContent = stored
       ? `${draft.category || "Sin categoria"} - ${stats.materials.length} materiales - ${stats.invoices.length} facturas`
-      : "Crea un nuevo proveedor para compras, materiales y facturas.";
+      : "Crea un nuevo proveedor para compras, materiales y gastos.";
 
     const websiteButton = $("#supplierOpenWebsiteButton");
     if (websiteButton) {
@@ -363,7 +363,7 @@
 
     $("#supplierFormMetrics").innerHTML = [
       ["Materiales", stats.materials.length, stats.criticalMaterials.length ? `${stats.criticalMaterials.length} a reponer` : "Asignados"],
-      ["Facturas", stats.invoices.length, stats.lastInvoice ? `Ultima ${stats.lastInvoice.invoice_date}` : "Sin compras"],
+      ["Gastos", stats.invoices.length, stats.lastInvoice ? `Último ${stats.lastInvoice.invoice_date}` : "Sin compras"],
       ["Gasto", euro.format(stats.spend), "Historial registrado"],
       ["Plazo", supplierLeadLabel(draft.lead_time_days), number(draft.lead_time_days) ? "Reposicion planificada" : "Completar"],
       ["Sin coste", stats.missingCost.length, "Materiales vinculados"]
@@ -396,7 +396,7 @@
           </button>
         `).join("")}
       </div>
-    ` : `<div class="empty-state small"><strong>Sin facturas recientes</strong>Las compras apareceran aqui cuando se registren.</div>`;
+    ` : `<div class="empty-state small"><strong>Sin gastos recientes</strong>Las compras aparecerán aquí cuando se registren.</div>`;
 
     const review = [
       ["Nombre", draft.name ? "ok" : "warn", draft.name ? "Nombre informado" : "Obligatorio"],

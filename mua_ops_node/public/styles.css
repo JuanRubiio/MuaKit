@@ -8839,3 +8839,221 @@ textarea {
   }
 }
 
+/* v1.2: supervised expense imports, intelligent replenishment and purchase plans */
+.next-domain-tabs {
+  width: max-content;
+  margin: 0 0 16px;
+}
+
+.next-evolution-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.next-kpi {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-height: 94px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.next-kpi small,
+.next-kpi span {
+  color: var(--muted);
+}
+
+.next-kpi strong {
+  font-family: var(--serif);
+  font-size: 25px;
+  line-height: 1;
+}
+
+.next-import-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px;
+}
+
+.next-import-hero h2,
+.next-evolution-panel h2,
+.next-evolution-panel h3 {
+  margin: 0 0 4px;
+}
+
+.next-import-hero p,
+.next-evolution-panel p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.next-upload-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.next-upload-form input {
+  max-width: 310px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.next-upload-form button {
+  min-width: 190px;
+  white-space: nowrap;
+}
+
+#createPurchasePlan {
+  white-space: nowrap;
+}
+
+.next-import-list,
+.next-replenishment-list,
+.next-plan-list,
+.next-lines,
+.next-order {
+  display: grid;
+  gap: 8px;
+}
+
+.next-import-row,
+.next-replenishment-row,
+.next-plan-row,
+.next-lines article,
+.next-order article {
+  display: grid;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.next-import-row {
+  grid-template-columns: minmax(220px, 1fr) auto 130px auto;
+}
+
+.next-replenishment-row {
+  grid-template-columns: auto minmax(260px, 1fr) 110px 110px 125px auto;
+}
+
+.next-plan-row {
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+}
+
+.next-import-row div,
+.next-replenishment-row div,
+.next-plan-row div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.next-import-row small,
+.next-replenishment-row small,
+.next-plan-row small,
+.next-lines small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.next-replenishment-row.priority-critical {
+  border-left: 4px solid #b63d55;
+}
+
+.next-replenishment-row.priority-high,
+.next-replenishment-row.priority-medium {
+  border-left: 4px solid #c28a35;
+}
+
+.next-replenishment-row.priority-configuration {
+  background: #faf7f1;
+}
+
+.next-validation-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.next-detected-pages {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.next-detected-pages div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.next-lines article {
+  grid-template-columns: minmax(0, 1fr) auto 130px;
+}
+
+.next-order {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.next-order article {
+  grid-template-columns: 1fr auto;
+}
+
+@media (max-width: 900px) {
+  .next-import-hero,
+  .next-upload-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .next-upload-form input {
+    width: 100%;
+    max-width: none;
+  }
+
+  .next-evolution-panel .invoice-summary-grid,
+  .next-evolution-panel .materials-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .next-evolution-panel .panel-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #createPurchasePlan {
+    width: 100%;
+  }
+
+  .next-import-row,
+  .next-replenishment-row,
+  .next-plan-row,
+  .next-validation-grid,
+  .next-lines article {
+    grid-template-columns: 1fr;
+  }
+
+  .next-domain-tabs {
+    width: 100%;
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+}

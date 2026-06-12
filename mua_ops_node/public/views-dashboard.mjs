@@ -242,13 +242,13 @@
     $("#dashboardIncomeText").textContent = `Seguimiento de ${incomeLabel.toLocaleLowerCase("es")} en ${finance.window?.label?.toLocaleLowerCase("es") || "todo el periodo"}.`;
 
     const dashboardCards = [
-      ["Gasto del periodo", euro.format(k.period_expense), `${k.invoice_count} facturas imputadas`, "icon-coin"],
+      ["Gasto del periodo", euro.format(k.period_expense), `${k.invoice_count} gastos imputados`, "icon-coin"],
       ["Ingreso neto", euro.format(k.period_net_received || 0), `${k.payout_count || 0} ingresos registrados`, "icon-chart"],
       ["Balance", euro.format(k.period_balance || 0), "Ingresos menos gasto", "icon-activity"],
       ["Materiales", euro.format(k.materials_expense), "Compras del periodo", "icon-cube"],
       ["Marketing", euro.format(k.marketing_expense), "Publicidad y agencia", "icon-tag"],
       ["Envíos", euro.format(k.shipping_expense), "Coste logístico", "icon-truck"],
-      ["Facturas del periodo", k.invoice_count, "Registros incluidos", "icon-file"]
+      ["Gastos del periodo", k.invoice_count, "Registros incluidos", "icon-file"]
     ];
     $("#dashboardCards").innerHTML = dashboardCards.map(([label, value, hint, icon]) => `
       <article class="card dashboard-kpi-card">
@@ -272,12 +272,12 @@
         tone: operational.pending_payouts?.length ? "warn" : "ok"
       },
       {
-        label: "Facturas en borrador",
+        label: "Gastos en borrador",
         icon: "icon-file",
         count: operational.draft_invoices?.length || 0,
         hint: operational.draft_invoices?.[0]
           ? `${text(operational.draft_invoices[0].supplier_name, "Sin proveedor")} · ${text(operational.draft_invoices[0].invoice_date)}`
-          : "No quedan facturas en borrador",
+          : "No quedan gastos en borrador",
         action: "invoices",
         tone: operational.draft_invoices?.length ? "warn" : "ok"
       },
@@ -341,7 +341,7 @@
       <div class="rank-item">
         <span>
           <strong>${text(row.name || row.supplier_name)}</strong>
-          <small>${state.dashboardSpendView === "materials" ? `${text(row.category)} · ${row.purchase_lots || 0} lotes` : `${row.invoice_count || 0} facturas imputadas`}</small>
+          <small>${state.dashboardSpendView === "materials" ? `${text(row.category)} · ${row.purchase_lots || 0} lotes` : `${row.invoice_count || 0} gastos imputados`}</small>
         </span>
         <span>
           <span class="amount">${euro.format(number(row.total_spend))}</span>

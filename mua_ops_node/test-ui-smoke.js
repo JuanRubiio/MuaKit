@@ -53,6 +53,15 @@ async function run() {
 
     await page.locator('button[data-view="invoices"]').click();
     await page.waitForTimeout(350);
+    if ((await page.locator("#pageTitle").innerText()) !== "Gastos") {
+      throw new Error("El dominio invoice no se presenta visualmente como Gastos");
+    }
+    await page.locator('[data-expense-section="imports"]').click();
+    await page.waitForTimeout(250);
+    if (!(await page.locator("#expenseImportPanel:not(.hidden)").count()) || !(await page.locator("#expenseImportUploadForm").count())) {
+      throw new Error("No cargo la bandeja supervisada de importacion de gastos");
+    }
+    await page.locator('[data-expense-section="registered"]').click();
     const firstInvoice = page.locator("[data-view-invoice]:visible").first();
     if (await firstInvoice.count()) {
       await firstInvoice.click();
@@ -65,6 +74,17 @@ async function run() {
 
     await page.locator('button[data-view="materials"]').click();
     await page.waitForTimeout(350);
+    await page.locator('[data-materials-section="replenishment"]').click();
+    await page.waitForTimeout(300);
+    if (!(await page.locator("#replenishmentPanel:not(.hidden)").count()) || !(await page.locator(".next-replenishment-row").count())) {
+      throw new Error("No cargo la vista de reposicion inteligente");
+    }
+    await page.locator('[data-materials-section="purchases"]').click();
+    await page.waitForTimeout(200);
+    if (!(await page.locator("#purchasePlannerPanel:not(.hidden)").count())) {
+      throw new Error("No cargo la vista de planes de compra");
+    }
+    await page.locator('[data-materials-section="catalog"]').click();
     const firstMaterial = page.locator("[data-view-material]:visible").first();
     if (await firstMaterial.count()) {
       await firstMaterial.click();
@@ -216,6 +236,13 @@ async function run() {
 
     if (pageTitle.normalize("NFD").replace(/\p{Diacritic}/gu, "") !== "Configuracion") {
       throw new Error(`La vista final no es Configuracion (actual: ${pageTitle})`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('button[data-view="invoices"]').click();
+    await page.locator('[data-expense-section="imports"]').click();
+    const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    if (mobileOverflow > 0) {
+      throw new Error(`La bandeja de importacion desborda en movil (${mobileOverflow}px)`);
     }
     if (errors.length) {
       throw new Error(`Se detectaron errores de frontend: ${errors.join(" | ")}`);

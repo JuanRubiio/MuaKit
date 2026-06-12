@@ -58,7 +58,7 @@
       </div>
       <nav class="tabs tabs-main">
         <button class="tab active" data-view="dashboard" aria-label="Dashboard"><svg><use href="#icon-home"></use></svg><span>Dashboard</span></button>
-        <button class="tab" data-view="invoices" aria-label="Facturas"><svg><use href="#icon-file"></use></svg><span>Facturas</span></button>
+        <button class="tab" data-view="invoices" aria-label="Gastos"><svg><use href="#icon-file"></use></svg><span>Gastos</span></button>
         <button class="tab" data-view="income" aria-label="Ingresos"><svg><use href="#icon-chart"></use></svg><span>Ingresos</span></button>
         <button class="tab" data-view="materials" aria-label="Materiales"><svg><use href="#icon-cube"></use></svg><span>Materiales</span></button>
         <button class="tab" data-view="suppliers" aria-label="Proveedores"><svg><use href="#icon-users"></use></svg><span>Proveedores</span></button>
@@ -231,6 +231,23 @@
                 <button type="button" class="button-with-icon" data-new-invoice><svg><use href="#icon-plus"></use></svg><span>Nueva factura</span></button>
               </div>
             </div>
+            <div class="next-domain-tabs segmented-control">
+              <button type="button" class="ghost is-active" data-expense-section="registered">Gastos registrados</button>
+              <button type="button" class="ghost" data-expense-section="imports">Bandeja de importación</button>
+            </div>
+
+            <section id="expenseImportPanel" class="next-evolution-panel hidden">
+              <section class="panel next-import-hero">
+                <div><h2>Bandeja de importación</h2><p>Sube una factura en PDF o imagen. La lectura es local y siempre requiere confirmación humana.</p></div>
+                <form id="expenseImportUploadForm" class="next-upload-form">
+                  <input name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required>
+                  <button type="submit" class="button-with-icon"><svg><use href="#icon-plus"></use></svg><span>Procesar documento</span></button>
+                </form>
+              </section>
+              <div id="expenseImportMetrics" class="invoice-summary-grid"></div>
+              <section class="panel"><div class="panel-head"><div><h2>Documentos</h2><p>Estado, confianza y siguiente acción.</p></div></div><div id="expenseImportList" class="next-import-list"></div></section>
+              <section id="expenseImportDetail" class="panel hidden"></section>
+            </section>
 
             <div id="invoiceSummaryCards" class="invoice-summary-grid"></div>
 
@@ -297,7 +314,7 @@
                 <div class="panel-head">
                   <div>
                     <h2>Cola de revisión</h2>
-                    <p>Alertas rápidas para limpiar la bandeja de facturas.</p>
+                    <p>Alertas rápidas para limpiar los gastos registrados.</p>
                   </div>
                   <span class="panel-head-icon" aria-hidden="true"><svg><use href="#icon-sliders"></use></svg></span>
                 </div>
@@ -308,7 +325,7 @@
             <form id="invoiceForm" class="invoice-workspace invoice-module hidden">
               <div class="invoice-workspace-hero">
                 <div>
-                  <p class="eyebrow">Operaciones / Facturas</p>
+                  <p class="eyebrow">Operaciones / Gastos</p>
                   <div class="invoice-title-row">
                     <h2 id="invoiceFormTitle">Nueva factura</h2>
                     <span id="invoiceFormStatusBadge" class="status-pill warn">Borrador</span>
@@ -700,6 +717,22 @@
                 <button type="button" class="button-with-icon" data-new-material><svg><use href="#icon-plus"></use></svg><span>Nuevo material</span></button>
               </div>
             </div>
+            <div class="next-domain-tabs segmented-control">
+              <button type="button" class="ghost is-active" data-materials-section="catalog">Catálogo</button>
+              <button type="button" class="ghost" data-materials-section="replenishment">Reposición inteligente</button>
+              <button type="button" class="ghost" data-materials-section="purchases">Planes de compra</button>
+            </div>
+            <section id="replenishmentPanel" class="next-evolution-panel hidden">
+              <div id="replenishmentMetrics" class="materials-summary-grid"></div>
+              <section class="panel">
+                <div class="panel-head"><div><h2>Reposición inteligente</h2><p>Cada recomendación explica consumo, cobertura, plazo y redondeo de compra.</p></div><button id="createPurchasePlan" type="button" class="button-with-icon"><svg><use href="#icon-plus"></use></svg><span>Revisar y crear compra</span></button></div>
+                <div id="replenishmentList" class="next-replenishment-list"></div>
+              </section>
+            </section>
+            <section id="purchasePlannerPanel" class="next-evolution-panel hidden">
+              <section class="panel"><div class="panel-head"><div><h2>Planes de compra</h2><p>Snapshots agrupados por proveedor, con recepción trazable sin alterar stock.</p></div></div><div id="purchasePlanList" class="next-plan-list"></div></section>
+              <section id="purchasePlanDetail" class="panel hidden"></section>
+            </section>
 
             <div id="materialSummaryCards" class="materials-summary-grid"></div>
 
@@ -876,6 +909,11 @@
                           <label><span class="field-label"><svg><use href="#icon-alert"></use></svg><span>Punto de reposición</span></span><input name="reorder_point" inputmode="decimal" placeholder="Ej: 20"></label>
                           <label><span class="field-label"><svg><use href="#icon-kit"></use></svg><span>Stock objetivo</span></span><input name="target_stock" inputmode="decimal" placeholder="Ej: 100"></label>
                           <label class="check material-priority-check"><input name="is_priority_restock" type="checkbox"><span>Reposición prioritaria</span></label>
+                        </div>
+                        <div class="form-grid three">
+                          <label class="check"><input name="tracks_inventory" type="checkbox" checked><span>Controlar inventario</span></label>
+                          <label><span class="field-label"><svg><use href="#icon-cube"></use></svg><span>Formato de compra</span></span><input name="purchase_pack_size" inputmode="decimal" value="1"></label>
+                          <label><span class="field-label"><svg><use href="#icon-hash"></use></svg><span>Pedido mínimo</span></span><input name="minimum_order_quantity" inputmode="decimal" value="1"></label>
                         </div>
 
                         <label><span class="field-label"><svg><use href="#icon-note"></use></svg><span>Notas internas</span></span><textarea name="notes" rows="4" placeholder="Proveedor alternativo, observaciones o contexto de compra..."></textarea></label>
@@ -1061,7 +1099,7 @@
                   <h1 id="supplierFormTitle">Nuevo proveedor</h1>
                   <div class="invoice-subtitle-row">
                     <span id="supplierFormStatusBadge" class="status-pill warn">Ficha incompleta</span>
-                    <p id="supplierFormSubtitle">Crea un nuevo proveedor para compras, materiales y facturas.</p>
+                    <p id="supplierFormSubtitle">Crea un nuevo proveedor para compras, materiales y gastos.</p>
                   </div>
                 </div>
                 <div class="invoice-hero-actions">
@@ -1091,7 +1129,7 @@
                     <div class="panel-head compact">
                       <div>
                         <h2>1. Datos del proveedor</h2>
-                        <p>Datos base para compras, materiales y facturas vinculadas.</p>
+                        <p>Datos base para compras, materiales y gastos vinculados.</p>
                       </div>
                     </div>
                     <div class="form-grid two">
@@ -1138,7 +1176,7 @@
                   <section class="panel supplier-invoices-panel">
                     <div class="panel-head compact">
                       <div>
-                        <h2>3. Facturas recientes</h2>
+                        <h2>3. Gastos recientes</h2>
                         <p>Histórico reciente para compras y seguimiento económico.</p>
                       </div>
                     </div>
@@ -1410,6 +1448,13 @@
                   <label>Umbral base de stock bajo<input name="low_stock_default" inputmode="decimal"></label>
                   <label>Multiplicador preventivo de reposición<input name="reorder_alert_multiplier" inputmode="decimal" placeholder="1.25"></label>
                 </div>
+                <div class="form-grid five">
+                  <label>Peso consumo 30 días<input name="replenishment_weight_30" inputmode="decimal"></label>
+                  <label>Peso consumo 90 días<input name="replenishment_weight_90" inputmode="decimal"></label>
+                  <label>Plazo por defecto<input name="replenishment_default_lead_days" inputmode="decimal"></label>
+                  <label>Días de seguridad<input name="replenishment_safety_days" inputmode="decimal"></label>
+                  <label>Cobertura adicional<input name="replenishment_target_coverage_days" inputmode="decimal"></label>
+                </div>
                 <div class="inline-note">
                   Se mostrarán materiales próximos a reponer cuando su stock Shopify sea menor o igual que `punto de reposición x multiplicador`.
                 </div>
@@ -1626,7 +1671,7 @@
 
               <nav class="audit-lane-tabs" id="auditLaneTabs" aria-label="Dominios de actividad">
                 <button type="button" data-audit-lane="all" class="is-active"><svg><use href="#icon-activity"></use></svg><span>Todo</span><b data-audit-count="all">0</b></button>
-                <button type="button" data-audit-lane="invoices"><svg><use href="#icon-file"></use></svg><span>Facturas</span><b data-audit-count="invoices">0</b></button>
+                <button type="button" data-audit-lane="invoices"><svg><use href="#icon-file"></use></svg><span>Gastos</span><b data-audit-count="invoices">0</b></button>
                 <button type="button" data-audit-lane="income"><svg><use href="#icon-chart"></use></svg><span>Ingresos</span><b data-audit-count="income">0</b></button>
                 <button type="button" data-audit-lane="materials"><svg><use href="#icon-cube"></use></svg><span>Materiales</span><b data-audit-count="materials">0</b></button>
                 <button type="button" data-audit-lane="suppliers"><svg><use href="#icon-users"></use></svg><span>Proveedores</span><b data-audit-count="suppliers">0</b></button>
@@ -1642,7 +1687,7 @@
                           <option value="">Todas</option>
                           <option value="material">Materiales</option>
                           <option value="supplier">Proveedores</option>
-                          <option value="invoice">Facturas</option>
+                          <option value="invoice">Gastos</option>
                           <option value="invoice_line">Líneas de factura</option>
                           <option value="channel_payout">Ingresos</option>
                           <option value="kit_recipe">Kits</option>
@@ -1742,6 +1787,7 @@
     <script src="/vendor/echarts/echarts.min.js"></script>
     <script src="/app-core.js"></script>
     <script src="/app.js"></script>
+    <script src="/next-evolution.js"></script>
   </body>
 </html>
 

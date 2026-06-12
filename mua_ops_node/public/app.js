@@ -1485,6 +1485,9 @@ async function saveMaterial(event) {
     const data = formObject(form);
     data.is_outlet = Boolean(form.elements.is_outlet?.checked);
     data.is_priority_restock = Boolean(form.elements.is_priority_restock?.checked);
+    data.tracks_inventory = Boolean(form.elements.tracks_inventory?.checked);
+    data.purchase_pack_size = number(data.purchase_pack_size || 1);
+    data.minimum_order_quantity = number(data.minimum_order_quantity || 1);
     const id = data.id;
     delete data.id;
     const saved = await api(id ? `/api/materials/${id}` : "/api/materials", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
