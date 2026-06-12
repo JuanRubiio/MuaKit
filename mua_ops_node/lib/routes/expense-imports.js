@@ -26,27 +26,45 @@ function registerExpenseImportRoutes(app, ctx) {
       WHERE ($status='' OR ei.status=$status) ORDER BY ei.created_at DESC, ei.id DESC`, { status }).map(payload));
   });
 
-  app.post("/api/expense-imports", upload.single("document"), (req, res) => {
-    if (!req.file) return badRequest(res, "Falta el documento.", "DOCUMENT_REQUIRED");
-    if (!ALLOWED_TYPES.has(req.file.mimetype)) {
-      fs.unlinkSync(req.file.path);
-      return badRequest(res, "Formato no permitido. Usa PDF, JPG, PNG o WebP.", "DOCUMENT_TYPE_UNSUPPORTED");
+  app.post("/api/expense-imports", upload.fields([{ name: "documents", maxCount: 20 }, { name: "document", maxCount: 1 }]), (req, res) => {
+    const files = [...(req.files?.documents || []), ...(req.files?.document || [])];
+    if (!files.length) return badRequest(res, "Falta al menos un documento.", "DOCUMENT_REQUIRED");
+    const existingNames = new Set(query(`SELECT LOWER(d.original_name) name FROM documents d
+      JOIN expense_imports ei ON ei.document_id=d.id`).map((row) => row.name));
+    const batchNames = new Set();
+    const accepted = [];
+    const rejected = [];
+    for (const file of files) {
+      const normalizedName = String(file.originalname || "").trim().toLowerCase();
+      if (!ALLOWED_TYPES.has(file.mimetype)) {
+        fs.unlinkSync(file.path);
+        rejected.push({ name: file.originalname, code: "DOCUMENT_TYPE_UNSUPPORTED", error: "Formato no permitido." });
+        continue;
+      }
+      if (existingNames.has(normalizedName) || batchNames.has(normalizedName)) {
+        fs.unlinkSync(file.path);
+        rejected.push({ name: file.originalname, code: "EXPENSE_IMPORT_NAME_DUPLICATE", error: "Ya existe una factura importada con este nombre." });
+        continue;
+      }
+      batchNames.add(normalizedName);
+      const ext = path.extname(file.originalname);
+      const storedName = `${Date.now()}-${file.filename}${ext}`;
+      const finalPath = path.join(UPLOAD_DIR, storedName);
+      fs.renameSync(file.path, finalPath);
+      const documentId = insert(`INSERT INTO documents
+        (original_name, stored_name, stored_path, mime_type, size, related_entity)
+        VALUES ($original, $stored, $path, $mime, $size, 'expense_import')`, {
+        original: file.originalname, stored: storedName, path: finalPath, mime: file.mimetype, size: file.size
+      });
+      const importId = insert("INSERT INTO expense_imports (document_id, status) VALUES ($document, 'pending')", { document: documentId });
+      exec("UPDATE documents SET related_id=$import WHERE id=$document", { import: importId, document: documentId });
+      audit("expense_import", importId, "upload", null, { document_id: documentId, original_name: file.originalname });
+      accepted.push(payload(one("SELECT * FROM expense_imports WHERE id=$id", { id: importId })));
+      documentExtraction.enqueue(importId);
     }
-    const ext = path.extname(req.file.originalname);
-    const storedName = `${Date.now()}-${req.file.filename}${ext}`;
-    const finalPath = path.join(UPLOAD_DIR, storedName);
-    fs.renameSync(req.file.path, finalPath);
-    const documentId = insert(`INSERT INTO documents
-      (original_name, stored_name, stored_path, mime_type, size, related_entity)
-      VALUES ($original, $stored, $path, $mime, $size, 'expense_import')`, {
-      original: req.file.originalname, stored: storedName, path: finalPath, mime: req.file.mimetype, size: req.file.size
-    });
-    const importId = insert("INSERT INTO expense_imports (document_id, status) VALUES ($document, 'pending')", { document: documentId });
-    exec("UPDATE documents SET related_id=$import WHERE id=$document", { import: importId, document: documentId });
-    audit("expense_import", importId, "upload", null, { document_id: documentId, original_name: req.file.originalname });
     saveDb();
-    documentExtraction.enqueue(importId);
-    res.status(202).json(payload(one("SELECT * FROM expense_imports WHERE id=$id", { id: importId })));
+    const rejectedOnlyStatus = rejected.some((item) => item.code === "EXPENSE_IMPORT_NAME_DUPLICATE") ? 409 : 400;
+    res.status(accepted.length ? 202 : rejectedOnlyStatus).json({ accepted, rejected });
   });
 
   app.get("/api/expense-imports/health", (req, res) => {

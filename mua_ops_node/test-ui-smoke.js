@@ -61,6 +61,12 @@ async function run() {
     if (!(await page.locator("#expenseImportPanel:not(.hidden)").count()) || !(await page.locator("#expenseImportUploadForm").count())) {
       throw new Error("No cargo la bandeja supervisada de importacion de gastos");
     }
+    if (!(await page.locator("#expenseImportDropzone").count()) || !(await page.locator('#expenseImportUploadForm input[type="file"][multiple]').count())) {
+      throw new Error("La bandeja no ofrece una zona moderna de carga multiple");
+    }
+    if (await page.locator('#expenseImportUploadForm button[type="submit"]').isEnabled()) {
+      throw new Error("El boton de importacion debe permanecer deshabilitado sin archivos");
+    }
     await page.locator('[data-expense-section="registered"]').click();
     const firstInvoice = page.locator("[data-view-invoice]:visible").first();
     if (await firstInvoice.count()) {

@@ -8874,11 +8874,45 @@ textarea {
 }
 
 .next-import-hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.8fr) minmax(420px, 1.2fr);
+  align-items: stretch;
   gap: 24px;
   padding: 22px;
+  background: linear-gradient(135deg, #fff 0%, #f7fbfa 100%);
+}
+
+.next-import-copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.next-import-copy small {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.next-import-icon,
+.next-file-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 7px;
+  color: #a63655;
+  background: #fff0f4;
+  border: 1px solid #f2ccd7;
+}
+
+.next-import-icon svg,
+.next-file-icon svg,
+.next-upload-dropzone svg,
+.next-upload-selection svg {
+  width: 18px;
+  height: 18px;
 }
 
 .next-import-hero h2,
@@ -8894,22 +8928,74 @@ textarea {
 }
 
 .next-upload-form {
-  display: flex;
-  align-items: center;
+  display: grid;
   gap: 10px;
 }
 
-.next-upload-form input {
-  max-width: 310px;
-  padding: 7px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+.next-upload-dropzone {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
+  min-height: 86px;
+  padding: 16px 18px;
+  border: 1px dashed #b9cfc9;
+  border-radius: 7px;
+  color: #166b5e;
+  background: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.next-upload-dropzone:hover,
+.next-upload-dropzone.is-dragging {
+  border-color: #087e70;
+  background: #effaf7;
+}
+
+.next-upload-dropzone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.next-upload-dropzone svg {
+  grid-row: 1 / span 2;
+}
+
+.next-upload-dropzone span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.next-upload-selection {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border-radius: 7px;
   background: #fff;
+  border: 1px solid var(--line);
+}
+
+.next-upload-selection span {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.next-upload-selection small,
+.next-upload-selection em {
+  color: var(--muted);
 }
 
 .next-upload-form button {
-  min-width: 190px;
-  white-space: nowrap;
+  width: 100%;
 }
 
 #createPurchasePlan {
@@ -8940,7 +9026,64 @@ textarea {
 }
 
 .next-import-row {
-  grid-template-columns: minmax(220px, 1fr) auto 130px auto;
+  grid-template-columns: auto minmax(220px, 1fr) auto 130px auto;
+}
+
+.next-import-row.is-processing,
+.next-import-row.is-pending {
+  border-color: #9fcfc4;
+  background: #f5fcfa;
+}
+
+.next-import-row.is-discarded {
+  opacity: 0.65;
+}
+
+.next-import-confidence {
+  text-align: right;
+}
+
+.next-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #abd8cf;
+  border-top-color: #087e70;
+  border-radius: 50%;
+  animation: next-spin 750ms linear infinite;
+}
+
+@keyframes next-spin {
+  to { transform: rotate(360deg); }
+}
+
+.next-import-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  border: 1px solid #abd8cf;
+  border-radius: 7px;
+  background: #f1faf8;
+}
+
+.next-import-notice div {
+  display: grid;
+  gap: 2px;
+}
+
+.next-import-notice small {
+  color: var(--muted);
+}
+
+.next-import-notice.tone-warn {
+  border-color: #e7cb99;
+  background: #fff9ee;
+}
+
+.next-import-notice.tone-danger {
+  border-color: #edbdc8;
+  background: #fff4f6;
 }
 
 .next-replenishment-row {
@@ -9020,13 +9163,11 @@ textarea {
 @media (max-width: 900px) {
   .next-import-hero,
   .next-upload-form {
-    align-items: stretch;
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
-  .next-upload-form input {
-    width: 100%;
-    max-width: none;
+  .next-import-copy {
+    align-items: flex-start;
   }
 
   .next-evolution-panel .invoice-summary-grid,

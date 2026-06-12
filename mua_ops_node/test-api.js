@@ -3,6 +3,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const initSqlJs = require("sql.js");
+const { amount: parsedAmount, detectFields, detectedInvoiceLines } = require("./lib/services/document-extraction");
 
 const ROOT = path.resolve(__dirname, "..");
 const SERVER = path.join(__dirname, "server.js");
@@ -256,6 +257,12 @@ async function waitForServer() {
 }
 
 async function run() {
+  assert(parsedAmount("19.90") === 19.9, "Dot-decimal amounts should not be multiplied by 100");
+  assert(parsedAmount("1.725,00") === 1725, "European amounts should parse thousands and decimals");
+  const euroFields = detectFields("Shopify\nPaid on Jun 12, 2026\nTOTAL €17.25 EUR\nBill #543058864");
+  assert(euroFields.total === 17.25 && euroFields.currency === "EUR", "The currency attached to invoice total should win over other currencies");
+  assert(euroFields.invoice_number === "543058864" && euroFields.invoice_date === "2026-06-12", "Common invoice references and named dates should be normalized");
+  assert(detectedInvoiceLines(["TOTAL €17.25 EUR", "Mua Kit Apps (1 item) €17.25 EUR", "Globo Product Options $19.90 USD", "Payment status paid"]).length === 1, "Only plausible product lines should become suggestions");
   cleanTestDir();
   const mockShopifyServer = await createMockShopifyServer();
   let serverOutput = "";
@@ -737,13 +744,16 @@ async function run() {
     const importForm = new FormData();
     const tinyPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
     const rejectedImportForm = new FormData();
-    rejectedImportForm.append("document", new Blob([Buffer.from("not an invoice")], { type: "text/plain" }), "invoice-test.txt");
+    rejectedImportForm.append("documents", new Blob([Buffer.from("not an invoice")], { type: "text/plain" }), "invoice-test.txt");
     const rejectedImport = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: rejectedImportForm });
     assert(rejectedImport.status === 400, "Unsupported expense document types should be rejected");
-    importForm.append("document", new Blob([tinyPng], { type: "image/png" }), "invoice-test.png");
+    importForm.append("documents", new Blob([tinyPng], { type: "image/png" }), "invoice-test.png");
+    importForm.append("documents", new Blob([tinyPng], { type: "image/png" }), "invoice-second.png");
     const importResponse = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: importForm });
     assert(importResponse.status === 202, "Supported expense document should enter the local processing queue");
-    const expenseImport = await importResponse.json();
+    const importBatch = await importResponse.json();
+    assert(importBatch.accepted.length === 2, "Multiple expense documents should enter the queue in one request");
+    const expenseImport = importBatch.accepted[0];
     await request("PATCH", `/api/expense-imports/${expenseImport.id}`, {
       detected_fields: {
         suggested_supplier_id: supplier.id,
@@ -758,14 +768,20 @@ async function run() {
     const importedInvoice = await request("GET", `/api/invoices/${confirmedImport.invoice_id}`);
     assert(importedInvoice.invoice.status === "draft", "Imported expense must remain draft after confirmation");
     const duplicateImportForm = new FormData();
-    duplicateImportForm.append("document", new Blob([tinyPng], { type: "image/png" }), "invoice-duplicate.png");
+    duplicateImportForm.append("documents", new Blob([tinyPng], { type: "image/png" }), "invoice-test.png");
     const duplicateUpload = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: duplicateImportForm });
-    const duplicateImport = await duplicateUpload.json();
+    const duplicateNameResult = await duplicateUpload.json();
+    assert(duplicateUpload.status === 409 && duplicateNameResult.rejected[0].code === "EXPENSE_IMPORT_NAME_DUPLICATE", "Previously imported filenames should be rejected before processing");
+    const duplicateInvoiceForm = new FormData();
+    duplicateInvoiceForm.append("documents", new Blob([tinyPng], { type: "image/png" }), "invoice-third.png");
+    const duplicateInvoiceUpload = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: duplicateInvoiceForm });
+    const duplicateInvoiceBatch = await duplicateInvoiceUpload.json();
+    const duplicateImport = duplicateInvoiceBatch.accepted[0];
     await request("PATCH", `/api/expense-imports/${duplicateImport.id}`, {
       detected_fields: { suggested_supplier_id: supplier.id, invoice_number: "OCR-QA-001", invoice_date: "2026-06-01", total: 17.25 }
     });
     const duplicateConfirm = await requestRaw("POST", `/api/expense-imports/${duplicateImport.id}/confirm`, {});
-    assert(duplicateConfirm.response.status === 400 && duplicateConfirm.payload.code === "EXPENSE_IMPORT_DUPLICATE", "Exact supplier and invoice number should block duplicate confirmation");
+    assert(duplicateConfirm.response.status === 400 && duplicateConfirm.payload.code === "EXPENSE_IMPORT_DUPLICATE", "Exact supplier and invoice number should still block duplicate confirmation");
 
     const dashboard = await request("GET", "/api/dashboard/finance");
     assert(dashboard.kpis.period_expense > 0, "Dashboard finance should aggregate invoice totals");

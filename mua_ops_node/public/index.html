@@ -238,12 +238,19 @@
 
             <section id="expenseImportPanel" class="next-evolution-panel hidden">
               <section class="panel next-import-hero">
-                <div><h2>Bandeja de importación</h2><p>Sube una factura en PDF o imagen. La lectura es local y siempre requiere confirmación humana.</p></div>
+                <div class="next-import-copy"><span class="next-import-icon"><svg><use href="#icon-file"></use></svg></span><div><h2>Importar facturas</h2><p>Arrastra PDFs o imágenes. Se procesan localmente y siempre requieren tu validación.</p><small>Hasta 20 archivos · 10 MB por archivo · PDF, JPG, PNG o WebP</small></div></div>
                 <form id="expenseImportUploadForm" class="next-upload-form">
-                  <input name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required>
-                  <button type="submit" class="button-with-icon"><svg><use href="#icon-plus"></use></svg><span>Procesar documento</span></button>
+                  <label id="expenseImportDropzone" class="next-upload-dropzone">
+                    <input name="documents" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple required>
+                    <svg><use href="#icon-plus"></use></svg>
+                    <strong>Seleccionar o arrastrar facturas</strong>
+                    <span>La subida múltiple evita repetir tareas</span>
+                  </label>
+                  <div id="expenseImportSelection" class="next-upload-selection hidden"></div>
+                  <button type="submit" class="button-with-icon" disabled><svg><use href="#icon-plus"></use></svg><span>Importar facturas</span></button>
                 </form>
               </section>
+              <div id="expenseImportNotice" class="next-import-notice hidden"></div>
               <div id="expenseImportMetrics" class="invoice-summary-grid"></div>
               <section class="panel"><div class="panel-head"><div><h2>Documentos</h2><p>Estado, confianza y siguiente acción.</p></div></div><div id="expenseImportList" class="next-import-list"></div></section>
               <section id="expenseImportDetail" class="panel hidden"></section>

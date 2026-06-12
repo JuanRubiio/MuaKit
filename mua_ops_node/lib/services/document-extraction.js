@@ -8,17 +8,57 @@ function normalize(value) {
 }
 
 function amount(value) {
-  const parsed = Number(String(value || "").replace(/\./g, "").replace(",", ".").replace(/[^\d.-]/g, ""));
+  let raw = String(value || "").replace(/[^\d,.-]/g, "");
+  const comma = raw.lastIndexOf(",");
+  const dot = raw.lastIndexOf(".");
+  if (comma > dot) raw = raw.replace(/\./g, "").replace(",", ".");
+  else if (dot > comma) raw = raw.replace(/,/g, "");
+  const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function nativePageText(items) {
+  const rows = new Map();
+  for (const item of items) {
+    const y = Math.round(Number(item.transform?.[5] || 0) / 3) * 3;
+    if (!rows.has(y)) rows.set(y, []);
+    rows.get(y).push(item);
+  }
+  return [...rows.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([, row]) => row.sort((a, b) => Number(a.transform?.[4] || 0) - Number(b.transform?.[4] || 0)).map((item) => item.str).join(" ").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
 }
 
 function detectFields(text) {
   const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const date = text.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/)?.[1] || "";
-  const invoiceNumber = text.match(/(?:factura|invoice|n[oº.]|numero|number)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_-]{2,})/i)?.[1] || "";
-  const totalMatches = [...text.matchAll(/(?:total|importe)\s*[: ]+\s*([0-9.,]+)\s*(?:€|eur)?/gi)];
-  const total = amount(totalMatches.at(-1)?.[1]);
-  return { invoice_number: invoiceNumber, invoice_date: date, total, currency: /usd|\$/i.test(text) ? "USD" : "EUR", lines };
+  const numericDate = text.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/)?.[1] || "";
+  const namedDate = text.match(/\b(?:paid on|bill created|fecha)\s+([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{4})/i);
+  const month = namedDate ? ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(namedDate[1].slice(0, 3).toLowerCase()) + 1 : 0;
+  const date = namedDate && month ? `${namedDate[3]}-${String(month).padStart(2, "0")}-${String(namedDate[2]).padStart(2, "0")}` : numericDate;
+  const invoiceNumber = text.match(/\bbill\s*#\s*([A-Z0-9][A-Z0-9/_-]{2,})/i)?.[1]
+    || text.match(/(?:factura|invoice|n[oº.]|numero|number)\s*[:#-]\s*([A-Z0-9][A-Z0-9/_-]{2,})/i)?.[1] || "";
+  const totalCandidates = [];
+  for (const line of lines) {
+    if (!/\b(grand\s+total|total\s+due|total|importe)\b/i.test(line) || /\b(subtotal|vat|iva|tax)\b/i.test(line)) continue;
+    for (const match of line.matchAll(/(?:€\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(EUR|USD)|\$\s*([0-9][0-9.,]*))/gi)) {
+      const raw = match[1] || match[2] || match[4];
+      totalCandidates.push({ value: amount(raw), currency: match[1] || String(match[3] || "").toUpperCase() === "EUR" ? "EUR" : "USD" });
+    }
+  }
+  const selectedTotal = totalCandidates.at(-1) || null;
+  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", lines };
+}
+
+function detectedInvoiceLines(lines) {
+  const excluded = /\b(total|subtotal|vat|iva|tax|payment|paid|billing|bill|address|overview|page \d|learn more|recipient|credit|discount|shipping|mastercard|floor|dublin|spain)\b|=|\(\d+\s+items?\)/i;
+  return lines.filter((line) => {
+    if (line.length > 220 || excluded.test(line)) return false;
+    const hasMoney = /(?:€|\$)\s*[0-9][0-9.,]*|[0-9][0-9.,]*\s*(?:EUR|USD)\b/i.test(line);
+    const description = line.replace(/(?:€|\$|EUR|USD|[0-9][0-9.,]*)/gi, " ");
+    return hasMoney && /[a-záéíóúñ]{3,}/i.test(description);
+  }).slice(0, 100);
 }
 
 function createDocumentExtractionService({ query, one, exec, insert, saveDb, audit, UPLOAD_DIR }) {
@@ -52,7 +92,7 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
       const started = Date.now();
       const page = await pdf.getPage(pageNumber);
       const content = await page.getTextContent();
-      const nativeText = content.items.map((item) => item.str).join(" ").trim();
+      const nativeText = nativePageText(content.items);
       if (nativeText.length >= 60) {
         pages.push({ page: pageNumber, method: "native", text: nativeText, confidence: 100, duration_ms: Date.now() - started, coordinates: content.items.slice(0, 500).map((item) => ({ text: item.str, transform: item.transform, width: item.width, height: item.height })) });
         continue;
@@ -74,7 +114,7 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
 
   function suggest(fields) {
     const suppliers = query("SELECT id, name FROM suppliers WHERE is_deleted=0");
-    const normalizedText = normalize(fields.lines.slice(0, 12).join(" "));
+    const normalizedText = normalize(fields.lines.slice(0, 20).join(" "));
     const supplier = suppliers.find((item) => normalizedText.includes(normalize(item.name))) || null;
     return { ...fields, suggested_supplier_id: supplier?.id || null, suggested_supplier_name: supplier?.name || "" };
   }
@@ -97,12 +137,11 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
         fields: JSON.stringify(fields), pages: JSON.stringify(pages), warnings: JSON.stringify(fields.total === null ? ["No se ha detectado un total fiable."] : [])
       });
       exec("DELETE FROM expense_import_lines WHERE expense_import_id=$id", { id: importId });
-      fields.lines.filter((line) => /\d+[.,]\d{2}/.test(line)).slice(0, 100).forEach((line, index) => {
-        const values = [...line.matchAll(/(\d+[.,]\d{2})/g)].map((match) => amount(match[1])).filter((value) => value !== null);
+      [...new Set(detectedInvoiceLines(fields.lines))].forEach((line, index) => {
+        const values = [...line.matchAll(/(?:€|\$)?\s*([0-9][0-9.,]*)\s*(?:EUR|USD)?/gi)].map((match) => amount(match[1])).filter((value) => value !== null);
         const total = values.at(-1) || 0;
         const normalizedLine = normalize(line);
-        const material = query("SELECT id, name FROM materials WHERE is_deleted=0 ORDER BY LENGTH(name) DESC")
-          .find((candidate) => normalizedLine.includes(normalize(candidate.name)));
+        const material = query("SELECT id, name FROM materials WHERE is_deleted=0 ORDER BY LENGTH(name) DESC").find((candidate) => normalizedLine.includes(normalize(candidate.name)));
         insert(`INSERT INTO expense_import_lines
           (expense_import_id, position, original_text, description, quantity, line_total, suggested_material_id, confidence, human_decision, original_data_json)
           VALUES ($import, $position, $original, $description, 1, $total, $material, $confidence, 'pending', $originalData)`, {
@@ -136,4 +175,4 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   return { enqueue, process, status: () => ({ available: true, languages: ["spa", "eng"], model_path: langPath, pending: queue.length, running }) };
 }
 
-module.exports = { createDocumentExtractionService, detectFields, normalize };
+module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, nativePageText, normalize, amount };

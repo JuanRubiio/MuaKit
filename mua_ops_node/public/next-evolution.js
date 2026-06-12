@@ -5,6 +5,8 @@
   const materialDefault = materialPage ? Array.from(materialPage.children).filter((node) => !node.matches(".next-domain-tabs,#replenishmentPanel,#purchasePlannerPanel,.materials-overview-head")) : [];
   let replenishmentRows = [];
   let currentPurchasePlan = null;
+  let expensePoll = null;
+  let importUploading = false;
 
   const fmt = (value) => euro.format(Number(value || 0));
   const metric = (label, value, hint) => `<article class="next-kpi"><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></article>`;
@@ -27,15 +29,39 @@
 
   async function loadImports() {
     const rows = await api("/api/expense-imports");
+    const visibleRows = rows.filter((row) => row.status !== "discarded");
     const pending = rows.filter((row) => ["pending", "processing"].includes(row.status)).length;
     const review = rows.filter((row) => ["ready", "review"].includes(row.status)).length;
     $("#expenseImportMetrics").innerHTML = metric("En proceso", pending, "Cola local secuencial") + metric("Por validar", review, "Requieren supervisión") + metric("Confirmadas", rows.filter((row) => row.status === "confirmed").length, "Borradores creados");
-    $("#expenseImportList").innerHTML = rows.length ? rows.map((row) => `<article class="next-import-row">
-      <div><strong>${text(row.original_name)}</strong><small>${text(row.mime_type)} · ${Math.round(Number(row.size || 0) / 1024)} KB</small></div>
-      <span class="status-pill ${row.status === "error" ? "danger" : row.status === "confirmed" ? "ok" : "warn"}">${text(row.status)}</span>
-      <div><strong>${Math.round(Number(row.confidence || 0))}%</strong><small>${text(row.extraction_method || "Pendiente")}</small></div>
-      <button type="button" class="ghost" data-open-expense-import="${row.id}">Revisar</button>
-    </article>`).join("") : `<div class="empty-state">Aún no hay documentos importados.</div>`;
+    $("#expenseImportList").innerHTML = visibleRows.length ? visibleRows.map((row) => `<article class="next-import-row is-${row.status}">
+      <span class="next-file-icon"><svg><use href="#icon-file"></use></svg></span>
+      <div><strong>${text(row.original_name)}</strong><small>${Math.round(Number(row.size || 0) / 1024)} KB · ${text(row.mime_type)}</small></div>
+      <span class="status-pill ${row.status === "error" ? "danger" : row.status === "confirmed" ? "ok" : "warn"}">${statusText(row.status)}</span>
+      <div class="next-import-confidence"><strong>${["pending", "processing"].includes(row.status) ? `<span class="next-spinner"></span>` : `${Math.round(Number(row.confidence || 0))}%`}</strong><small>${text(row.extraction_method || (row.status === "pending" ? "En cola" : "Procesando"))}</small></div>
+      <button type="button" class="ghost" data-open-expense-import="${row.id}" ${["pending", "processing"].includes(row.status) ? "disabled" : ""}>${row.status === "confirmed" ? "Ver" : "Revisar"}</button>
+    </article>`).join("") : `<div class="empty-state">Aún no hay documentos pendientes de validación.</div>`;
+    const active = rows.some((row) => ["pending", "processing"].includes(row.status));
+    if (active && !expensePoll) expensePoll = setInterval(loadImports, 1200);
+    if (!active && expensePoll) { clearInterval(expensePoll); expensePoll = null; }
+  }
+
+  function statusText(status) {
+    return ({ pending: "En cola", processing: "Procesando", ready: "Lista para validar", review: "Revisar", error: "Error", confirmed: "Confirmada", discarded: "Descartada" })[status] || status;
+  }
+
+  function showImportNotice(message, tone = "ok") {
+    const node = $("#expenseImportNotice");
+    node.className = `next-import-notice tone-${tone}`;
+    node.innerHTML = message;
+  }
+
+  function renderSelectedFiles() {
+    const input = $("#expenseImportUploadForm input[type=file]");
+    const files = Array.from(input.files || []);
+    const node = $("#expenseImportSelection");
+    node.classList.toggle("hidden", !files.length);
+    node.innerHTML = files.length ? `<strong>${files.length} ${files.length === 1 ? "factura seleccionada" : "facturas seleccionadas"}</strong>${files.slice(0, 5).map((file) => `<span><svg><use href="#icon-file"></use></svg>${text(file.name)}<small>${Math.round(file.size / 1024)} KB</small></span>`).join("")}${files.length > 5 ? `<em>+${files.length - 5} archivos más</em>` : ""}` : "";
+    $("#expenseImportUploadForm button[type=submit]").disabled = !files.length || importUploading;
   }
 
   async function openImport(id) {
@@ -47,11 +73,11 @@
       ${data.duplicates.exact ? `<div class="inline-alert danger">Duplicado bloqueante: factura #${data.duplicates.exact.id}</div>` : data.duplicates.warning ? `<div class="inline-alert warn">Posible duplicado: factura #${data.duplicates.warning.id}</div>` : ""}
       <div class="next-validation-grid">
         <form id="expenseImportReviewForm" data-import-id="${item.id}" class="form-grid three">
-          <label>Proveedor sugerido<input name="suggested_supplier_id" value="${text(fields.suggested_supplier_id || "")}"></label>
+          <label>Proveedor sugerido<select name="suggested_supplier_id"><option value="">Sin proveedor</option>${(state.suppliers || []).filter((supplier) => !supplier.is_deleted).map((supplier) => `<option value="${supplier.id}" ${String(supplier.id) === String(fields.suggested_supplier_id) ? "selected" : ""}>${text(supplier.name)}</option>`).join("")}</select></label>
           <label>Número de factura<input name="invoice_number" value="${text(fields.invoice_number || "")}"></label>
           <label>Fecha<input name="invoice_date" value="${text(fields.invoice_date || "")}"></label>
           <label>Total<input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"></label>
-          <label>Moneda<input name="currency" value="${text(fields.currency || "EUR")}"></label>
+          <label>Moneda<select name="currency"><option value="EUR" ${(fields.currency || "EUR") === "EUR" ? "selected" : ""}>EUR · Euro</option><option value="USD" ${fields.currency === "USD" ? "selected" : ""}>USD · Dólar</option></select></label>
           <button type="submit">Guardar revisión</button>
         </form>
         <div class="next-detected-pages"><strong>Lectura por página</strong>${item.pages.map((page) => `<div><span>Página ${page.page} · ${text(page.method)}</span><b>${Math.round(page.confidence)}%</b></div>`).join("")}</div>
@@ -124,9 +150,35 @@
 
   $("#expenseImportUploadForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (importUploading) return;
+    importUploading = true;
+    renderSelectedFiles();
+    const submit = event.currentTarget.querySelector("button[type=submit]");
+    submit.querySelector("span").textContent = "Subiendo facturas...";
+    showImportNotice(`<span class="next-spinner"></span><div><strong>Subiendo documentos</strong><small>En cuanto termine la subida aparecerán en la cola de procesamiento local.</small></div>`, "progress");
     const response = await fetch("/api/expense-imports", { method: "POST", body: new FormData(event.currentTarget) });
-    if (!response.ok) return toast((await response.json().catch(() => ({}))).error || "No se pudo subir el documento");
-    event.currentTarget.reset(); toast("Documento añadido a la cola local"); setTimeout(loadImports, 500);
+    const result = await response.json().catch(() => ({}));
+    importUploading = false;
+    submit.querySelector("span").textContent = "Importar facturas";
+    if (!response.ok && !result.rejected) { renderSelectedFiles(); return showImportNotice(`<strong>No se pudo completar la subida.</strong><span>${text(result.error || "Revisa los archivos seleccionados.")}</span>`, "danger"); }
+    event.currentTarget.reset();
+    renderSelectedFiles();
+    const accepted = result.accepted?.length || 0;
+    const rejected = result.rejected || [];
+    showImportNotice(`<div><strong>${accepted ? `${accepted} ${accepted === 1 ? "factura añadida" : "facturas añadidas"} a la cola.` : "No se añadió ninguna factura."}</strong><small>${rejected.length ? `${rejected.length} rechazadas: ${rejected.map((item) => item.name).join(", ")}. No se permiten nombres repetidos.` : "El estado se actualizará automáticamente mientras se procesan."}</small></div>`, rejected.length ? "warn" : "ok");
+    await loadImports();
+  });
+
+  $("#expenseImportUploadForm input[type=file]")?.addEventListener("change", renderSelectedFiles);
+  const dropzone = $("#expenseImportDropzone");
+  ["dragenter", "dragover"].forEach((name) => dropzone?.addEventListener(name, (event) => { event.preventDefault(); dropzone.classList.add("is-dragging"); }));
+  dropzone?.addEventListener("dragleave", (event) => { event.preventDefault(); dropzone.classList.remove("is-dragging"); });
+  dropzone?.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropzone.classList.remove("is-dragging");
+    const input = $("#expenseImportUploadForm input[type=file]");
+    if (event.dataTransfer?.files?.length) input.files = event.dataTransfer.files;
+    renderSelectedFiles();
   });
 
   document.body.addEventListener("submit", async (event) => {
