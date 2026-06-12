@@ -15,7 +15,8 @@ function registerMaterialRoutes(app, ctx) {
     inferMaterialHierarchy,
     importShopify,
     PRODUCTS_CSV,
-    INVENTORY_CSV
+    INVENTORY_CSV,
+    replenishment
   } = ctx;
 
   function materialColumnSet() {
@@ -91,6 +92,9 @@ function registerMaterialRoutes(app, ctx) {
       finish: b.finish || inferred.finish || "",
       notes: b.notes || ""
     };
+    row.tracks_inventory = b.tracks_inventory === false ? 0 : 1;
+    row.purchase_pack_size = Number(b.purchase_pack_size || 1);
+    row.minimum_order_quantity = Number(b.minimum_order_quantity || 1);
     const insertFields = Object.keys(row).filter((field) => columns.has(field));
     const values = Object.fromEntries(insertFields.map((field) => [field, row[field]]));
     const id = insert(
@@ -110,12 +114,13 @@ function registerMaterialRoutes(app, ctx) {
     const columns = materialColumnSet();
     const fields = [
       "name", "category", "unit_label", "preferred_supplier_id", "manual_stock", "is_outlet", "is_priority_restock", "reorder_point", "target_stock",
-      "image_url_override", "usage_type", "family", "subfamily", "variant", "base_material", "finish", "notes"
+      "image_url_override", "usage_type", "family", "subfamily", "variant", "base_material", "finish", "notes",
+      "tracks_inventory", "purchase_pack_size", "minimum_order_quantity"
     ].filter((field) => Object.prototype.hasOwnProperty.call(req.body, field) && columns.has(field));
     if (!fields.length) return res.json(materialPayload(before));
     const params = { id: req.params.id };
     for (const field of fields) {
-      if (field === "is_outlet" || field === "is_priority_restock") params[field] = req.body[field] ? 1 : 0;
+      if (field === "is_outlet" || field === "is_priority_restock" || field === "tracks_inventory") params[field] = req.body[field] ? 1 : 0;
       else params[field] = req.body[field] === "" ? null : req.body[field];
     }
     exec(`UPDATE materials SET ${nowPatch("materials", fields)} WHERE id=$id`, params);
@@ -155,6 +160,7 @@ function registerMaterialRoutes(app, ctx) {
   });
 
   app.post("/api/import/shopify", (req, res) => res.json(importShopify(PRODUCTS_CSV, INVENTORY_CSV)));
+  app.get("/api/materials/replenishment", (req, res) => res.json(replenishment.recommendations({ priority: req.query.priority })));
 }
 
 module.exports = { registerMaterialRoutes };

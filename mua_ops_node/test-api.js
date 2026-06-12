@@ -703,6 +703,70 @@ async function run() {
     assert(orderLineAudit.some((row) => row.action === "exclude_from_cost"), "Audit log should include order line cost exclusion");
     assert(orderLineAudit.some((row) => row.action === "include_in_cost"), "Audit log should include order line cost inclusion");
 
+    const replenishmentMaterial = await request("POST", "/api/materials", {
+      name: "Caja de prueba para reposicion",
+      category: "packaging",
+      unit_label: "ud",
+      preferred_supplier_id: supplier.id,
+      manual_stock: 0,
+      reorder_point: 5,
+      target_stock: 12,
+      tracks_inventory: true,
+      purchase_pack_size: 5,
+      minimum_order_quantity: 10
+    });
+    const replenishment = await request("GET", "/api/replenishment/recommendations");
+    const replenishmentRow = replenishment.recommendations.find((row) => row.id === replenishmentMaterial.id);
+    assert(replenishmentRow, "Replenishment should include inventory-controlled materials");
+    assert(replenishmentRow.suggested_quantity === 15, "Replenishment should round fallback target deficit to purchase pack size");
+    assert(replenishmentRow.reason.includes("Sin consumo suficiente"), "Every replenishment recommendation should explain its fallback");
+
+    const purchasePlan = await request("POST", "/api/purchase-plans", { material_ids: [replenishmentMaterial.id], name: "Plan QA" });
+    assert(purchasePlan.orders.length === 1, "Purchase plan should group selected recommendations by supplier");
+    const purchaseOrder = purchasePlan.orders[0];
+    const purchaseLine = purchaseOrder.lines[0];
+    await request("PATCH", `/api/purchase-orders/${purchaseOrder.id}`, { status: "ordered" });
+    const receipt = await request("POST", `/api/purchase-orders/${purchaseOrder.id}/receipts`, {
+      lines: [{ purchase_order_line_id: purchaseLine.id, quantity: 5 }]
+    });
+    assert(receipt.stock_mutated === false, "Purchase receipt must never mutate operational stock");
+    assert(receipt.status === "partially_received", "Partial receipt should preserve pending quantities");
+    const purchasePlanAfterReceipt = await request("GET", `/api/purchase-plans/${purchasePlan.plan.id}`);
+    assert(Number(purchasePlanAfterReceipt.orders[0].lines[0].received_quantity) === 5, "Purchase receipt should preserve traceable received quantity");
+
+    const importForm = new FormData();
+    const tinyPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+    const rejectedImportForm = new FormData();
+    rejectedImportForm.append("document", new Blob([Buffer.from("not an invoice")], { type: "text/plain" }), "invoice-test.txt");
+    const rejectedImport = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: rejectedImportForm });
+    assert(rejectedImport.status === 400, "Unsupported expense document types should be rejected");
+    importForm.append("document", new Blob([tinyPng], { type: "image/png" }), "invoice-test.png");
+    const importResponse = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: importForm });
+    assert(importResponse.status === 202, "Supported expense document should enter the local processing queue");
+    const expenseImport = await importResponse.json();
+    await request("PATCH", `/api/expense-imports/${expenseImport.id}`, {
+      detected_fields: {
+        suggested_supplier_id: supplier.id,
+        invoice_number: "OCR-QA-001",
+        invoice_date: "2026-06-01",
+        total: 17.25,
+        currency: "EUR"
+      }
+    });
+    const confirmedImport = await request("POST", `/api/expense-imports/${expenseImport.id}/confirm`, {});
+    assert(confirmedImport.invoice_id > 0, "Human confirmation should create a draft invoice transactionally");
+    const importedInvoice = await request("GET", `/api/invoices/${confirmedImport.invoice_id}`);
+    assert(importedInvoice.invoice.status === "draft", "Imported expense must remain draft after confirmation");
+    const duplicateImportForm = new FormData();
+    duplicateImportForm.append("document", new Blob([tinyPng], { type: "image/png" }), "invoice-duplicate.png");
+    const duplicateUpload = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: duplicateImportForm });
+    const duplicateImport = await duplicateUpload.json();
+    await request("PATCH", `/api/expense-imports/${duplicateImport.id}`, {
+      detected_fields: { suggested_supplier_id: supplier.id, invoice_number: "OCR-QA-001", invoice_date: "2026-06-01", total: 17.25 }
+    });
+    const duplicateConfirm = await requestRaw("POST", `/api/expense-imports/${duplicateImport.id}/confirm`, {});
+    assert(duplicateConfirm.response.status === 400 && duplicateConfirm.payload.code === "EXPENSE_IMPORT_DUPLICATE", "Exact supplier and invoice number should block duplicate confirmation");
+
     const dashboard = await request("GET", "/api/dashboard/finance");
     assert(dashboard.kpis.period_expense > 0, "Dashboard finance should aggregate invoice totals");
     assert(dashboard.kpis.materials_expense > 0, "Dashboard finance should aggregate material spend");

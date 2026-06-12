@@ -24,7 +24,9 @@ function registerSystemRoutes(app, ctx) {
     testShopifyConnection,
     shopifySyncStatus,
     runShopifySync,
-    badRequest
+    badRequest,
+    documentExtraction,
+    replenishment
   } = ctx;
   const TEST_HEALTH_DIR = path.join(DATA_DIR, "health");
   const TEST_HEALTH_FILE = path.join(TEST_HEALTH_DIR, "test-health.json");
@@ -276,7 +278,8 @@ function registerSystemRoutes(app, ctx) {
   });
 
   app.get("/api/system/health", (req, res) => {
-    res.json(systemHealth({
+    res.json({
+      ...systemHealth({
       dbFile: DB_FILE,
       dataDir: DATA_DIR,
       uploadDir: UPLOAD_DIR,
@@ -284,7 +287,13 @@ function registerSystemRoutes(app, ctx) {
       expectedMigrations: SCHEMA_MIGRATIONS,
       packageInfo,
       shopifyConnectionPayload
-    }));
+      }),
+      automation: {
+        ocr: documentExtraction?.status?.() || { available: false },
+        expense_imports: query("SELECT status, COUNT(*) count FROM expense_imports GROUP BY status"),
+        replenishment: { last_run_at: replenishment?.getLastRun?.() || "" }
+      }
+    });
   });
 
   app.get("/api/system/test-health", (req, res) => {

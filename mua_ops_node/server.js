@@ -13,6 +13,10 @@ const { registerInvoiceRoutes } = require("./lib/routes/invoices");
 const { registerSupplierRoutes } = require("./lib/routes/suppliers");
 const { registerKitRoutes } = require("./lib/routes/kits");
 const { registerAnalyticsRoutes } = require("./lib/routes/analytics");
+const { registerExpenseImportRoutes } = require("./lib/routes/expense-imports");
+const { registerPurchaseRoutes } = require("./lib/routes/purchasing");
+const { createReplenishmentService } = require("./lib/services/replenishment");
+const { createDocumentExtractionService } = require("./lib/services/document-extraction");
 const packageInfo = require("../package.json");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -48,7 +52,15 @@ const DEFAULT_SETTINGS = {
   dashboard_color_shopify: "#166b5e",
   dashboard_color_etsy: "#9f7234",
   dashboard_color_bizum: "#c18a3a",
-  reorder_alert_multiplier: "1.25"
+  reorder_alert_multiplier: "1.25",
+  replenishment_weight_30: "0.7",
+  replenishment_weight_90: "0.3",
+  replenishment_default_lead_days: "14",
+  replenishment_safety_days: "7",
+  replenishment_target_coverage_days: "30",
+  feature_expense_imports: "1",
+  feature_replenishment: "1",
+  feature_purchase_planner: "1"
 };
 
 let shopifySyncState = {
@@ -133,6 +145,9 @@ function materialPayload(row) {
     effective_stock_qty: optionalN(row.effective_stock_qty),
     is_outlet: Boolean(Number(row.is_outlet || 0)),
     is_priority_restock: Boolean(Number(row.is_priority_restock || 0)),
+    tracks_inventory: Boolean(Number(row.tracks_inventory ?? 1)),
+    purchase_pack_size: Number(row.purchase_pack_size || 1),
+    minimum_order_quantity: Number(row.minimum_order_quantity || 1),
     usage_type: normalizeUsageType(row.usage_type),
     family: row.family || "",
     subfamily: row.subfamily || "",
@@ -661,6 +676,115 @@ const SCHEMA_MIGRATIONS = [
     name: "Ensure kit items can be excluded from cost",
     up: ({ ensureColumn }) => {
       ensureColumn("kit_recipe_items", "include_in_cost", "INTEGER NOT NULL DEFAULT 1");
+    }
+  },
+  {
+    id: "008_expense_imports",
+    name: "Create supervised expense import schema",
+    up: ({ exec }) => {
+      exec(`
+        CREATE TABLE IF NOT EXISTS expense_imports (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          document_id INTEGER NOT NULL REFERENCES documents(id),
+          status TEXT NOT NULL DEFAULT 'pending',
+          invoice_id INTEGER REFERENCES invoices(id),
+          extraction_method TEXT DEFAULT '',
+          confidence REAL NOT NULL DEFAULT 0,
+          detected_fields_json TEXT DEFAULT '{}',
+          pages_json TEXT DEFAULT '[]',
+          warnings_json TEXT DEFAULT '[]',
+          error_message TEXT DEFAULT '',
+          processing_started_at TEXT,
+          processing_finished_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS expense_import_lines (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          expense_import_id INTEGER NOT NULL REFERENCES expense_imports(id) ON DELETE CASCADE,
+          position INTEGER NOT NULL DEFAULT 0,
+          original_text TEXT NOT NULL DEFAULT '',
+          description TEXT NOT NULL DEFAULT '',
+          quantity REAL NOT NULL DEFAULT 1,
+          unit_price REAL,
+          line_total REAL NOT NULL DEFAULT 0,
+          suggested_material_id INTEGER REFERENCES materials(id),
+          confidence REAL NOT NULL DEFAULT 0,
+          human_decision TEXT NOT NULL DEFAULT 'pending',
+          original_data_json TEXT DEFAULT '{}',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_expense_import_status ON expense_imports(status);
+        CREATE INDEX IF NOT EXISTS idx_expense_import_lines_import ON expense_import_lines(expense_import_id);
+      `);
+    }
+  },
+  {
+    id: "009_replenishment_material_fields",
+    name: "Add intelligent replenishment fields",
+    up: ({ ensureColumn }) => {
+      ensureColumn("materials", "tracks_inventory", "INTEGER NOT NULL DEFAULT 1");
+      ensureColumn("materials", "purchase_pack_size", "REAL NOT NULL DEFAULT 1");
+      ensureColumn("materials", "minimum_order_quantity", "REAL NOT NULL DEFAULT 1");
+    }
+  },
+  {
+    id: "010_purchase_planner",
+    name: "Create purchase planner schema",
+    up: ({ exec }) => {
+      exec(`
+        CREATE TABLE IF NOT EXISTS purchase_plans (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'draft',
+          estimated_total REAL NOT NULL DEFAULT 0,
+          notes TEXT DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS purchase_orders (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          purchase_plan_id INTEGER NOT NULL REFERENCES purchase_plans(id) ON DELETE CASCADE,
+          supplier_id INTEGER REFERENCES suppliers(id),
+          invoice_id INTEGER REFERENCES invoices(id),
+          status TEXT NOT NULL DEFAULT 'draft',
+          estimated_total REAL NOT NULL DEFAULT 0,
+          ordered_at TEXT,
+          received_at TEXT,
+          notes TEXT DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS purchase_order_lines (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          purchase_order_id INTEGER NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+          material_id INTEGER NOT NULL REFERENCES materials(id),
+          suggested_quantity REAL NOT NULL DEFAULT 0,
+          ordered_quantity REAL NOT NULL DEFAULT 0,
+          received_quantity REAL NOT NULL DEFAULT 0,
+          unit_cost_snapshot REAL NOT NULL DEFAULT 0,
+          pack_size_snapshot REAL NOT NULL DEFAULT 1,
+          reason_snapshot TEXT DEFAULT '',
+          is_excluded INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS purchase_receipts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          purchase_order_id INTEGER NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+          received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          notes TEXT DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS purchase_receipt_lines (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          purchase_receipt_id INTEGER NOT NULL REFERENCES purchase_receipts(id) ON DELETE CASCADE,
+          purchase_order_line_id INTEGER NOT NULL REFERENCES purchase_order_lines(id),
+          quantity REAL NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
     }
   }
 ];
@@ -2644,7 +2768,9 @@ function dashboardFinance(options = {}) {
 
 function createApp() {
   const app = express();
-  const upload = multer({ dest: UPLOAD_DIR });
+  const upload = multer({ dest: UPLOAD_DIR, limits: { fileSize: 10 * 1024 * 1024 } });
+  const replenishment = createReplenishmentService({ query, one, materialCosts, settingsObject });
+  const documentExtraction = createDocumentExtractionService({ query, one, exec, insert, saveDb, audit, UPLOAD_DIR });
   app.use(express.json({ limit: "10mb" }));
   app.use("/img", express.static(path.join(ROOT, "img")));
   app.use("/uploads", express.static(UPLOAD_DIR));
@@ -2672,7 +2798,9 @@ function createApp() {
     testShopifyConnection,
     shopifySyncStatus,
     runShopifySync,
-    badRequest
+    badRequest,
+    documentExtraction,
+    replenishment
   });
 
   registerIncomeRoutes(app, {
@@ -2713,7 +2841,8 @@ function createApp() {
     inferMaterialHierarchy,
     importShopify,
     PRODUCTS_CSV,
-    INVENTORY_CSV
+    INVENTORY_CSV,
+    replenishment
   });
 
   app.post("/api/client-log", (req, res) => {
@@ -2765,6 +2894,14 @@ function createApp() {
     UPLOAD_DIR
   });
 
+  registerExpenseImportRoutes(app, {
+    query, one, exec, insert, saveDb, audit, badRequest, notFound, upload, fs, path, UPLOAD_DIR, documentExtraction
+  });
+
+  registerPurchaseRoutes(app, {
+    query, one, exec, insert, saveDb, audit, badRequest, notFound, replenishment
+  });
+
   registerKitRoutes(app, {
     query,
     exec,
@@ -2793,6 +2930,7 @@ function createApp() {
 
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
+    if (error?.code === "LIMIT_FILE_SIZE") return apiError(res, 413, "DOCUMENT_TOO_LARGE", "El documento supera el limite de 10 MB.");
     apiError(res, 500, "INTERNAL_ERROR", error);
   });
 
