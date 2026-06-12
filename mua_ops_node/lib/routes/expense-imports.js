@@ -8,6 +8,21 @@ function json(value, fallback) {
 function registerExpenseImportRoutes(app, ctx) {
   const { query, one, exec, insert, saveDb, audit, badRequest, notFound, upload, fs, path, UPLOAD_DIR, documentExtraction } = ctx;
 
+  function purgeImport(item) {
+    exec("BEGIN TRANSACTION");
+    try {
+      audit("expense_import", Number(item.id), "delete", item, { document_id: item.document_id, original_name: item.original_name });
+      exec("DELETE FROM expense_imports WHERE id=$id", { id: item.id });
+      exec("DELETE FROM documents WHERE id=$id", { id: item.document_id });
+      if (item.stored_path && fs.existsSync(item.stored_path)) fs.unlinkSync(item.stored_path);
+      exec("COMMIT");
+      saveDb();
+    } catch (error) {
+      exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   function payload(row) {
     if (!row) return null;
     return {
@@ -30,7 +45,8 @@ function registerExpenseImportRoutes(app, ctx) {
     const files = [...(req.files?.documents || []), ...(req.files?.document || [])];
     if (!files.length) return badRequest(res, "Falta al menos un documento.", "DOCUMENT_REQUIRED");
     const existingNames = new Set(query(`SELECT LOWER(d.original_name) name FROM documents d
-      JOIN expense_imports ei ON ei.document_id=d.id`).map((row) => row.name));
+      JOIN expense_imports ei ON ei.document_id=d.id
+      WHERE ei.status!='discarded'`).map((row) => row.name));
     const batchNames = new Set();
     const accepted = [];
     const rejected = [];
@@ -123,12 +139,12 @@ function registerExpenseImportRoutes(app, ctx) {
   });
 
   app.post("/api/expense-imports/:id/discard", (req, res) => {
-    const item = one("SELECT * FROM expense_imports WHERE id=$id", { id: req.params.id });
+    const item = one(`SELECT ei.*, d.original_name, d.stored_path FROM expense_imports ei
+      JOIN documents d ON d.id=ei.document_id WHERE ei.id=$id`, { id: req.params.id });
     if (!item) return notFound(res, "Importacion no encontrada", "EXPENSE_IMPORT_NOT_FOUND");
-    exec("UPDATE expense_imports SET status='discarded', updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: req.params.id });
-    audit("expense_import", Number(req.params.id), "discard", item, { status: "discarded" });
-    saveDb();
-    res.json({ ok: true });
+    if (item.status === "confirmed") return badRequest(res, "Una importacion confirmada no se puede eliminar.", "EXPENSE_IMPORT_CONFIRMED");
+    purgeImport(item);
+    res.json({ ok: true, deleted: true });
   });
 
   app.post("/api/expense-imports/:id/confirm", (req, res) => {
@@ -167,6 +183,9 @@ function registerExpenseImportRoutes(app, ctx) {
       throw error;
     }
   });
+
+  for (const item of query(`SELECT ei.*, d.original_name, d.stored_path FROM expense_imports ei
+    JOIN documents d ON d.id=ei.document_id WHERE ei.status='discarded'`)) purgeImport(item);
 }
 
 module.exports = { registerExpenseImportRoutes };

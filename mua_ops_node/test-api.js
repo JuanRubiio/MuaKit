@@ -776,6 +776,14 @@ async function run() {
     const duplicateUpload = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: duplicateImportForm });
     const duplicateNameResult = await duplicateUpload.json();
     assert(duplicateUpload.status === 409 && duplicateNameResult.rejected[0].code === "EXPENSE_IMPORT_NAME_DUPLICATE", "Previously imported filenames should be rejected before processing");
+    await request("POST", `/api/expense-imports/${importBatch.accepted[1].id}/discard`, {});
+    const deletedImport = await requestRaw("GET", `/api/expense-imports/${importBatch.accepted[1].id}`);
+    assert(deletedImport.response.status === 404, "Discarding an import should physically delete its records");
+    const discardedNameForm = new FormData();
+    discardedNameForm.append("documents", new Blob([tinyPng], { type: "image/png" }), "invoice-second.png");
+    const discardedNameUpload = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: discardedNameForm });
+    const discardedNameResult = await discardedNameUpload.json();
+    assert(discardedNameUpload.status === 202 && discardedNameResult.accepted.length === 1, "Discarded imports should not block uploading the same filename again");
     const duplicateInvoiceForm = new FormData();
     duplicateInvoiceForm.append("documents", new Blob([tinyPng], { type: "image/png" }), "invoice-third.png");
     const duplicateInvoiceUpload = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: duplicateInvoiceForm });

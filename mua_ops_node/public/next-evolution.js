@@ -133,7 +133,7 @@
         <div class="next-detected-pages"><strong>Lectura por página</strong>${item.pages.map((page) => `<div><span>Página ${page.page} · ${text(page.method)}</span><b>${Math.round(page.confidence)}%</b><i><em style="width:${Math.max(0, Math.min(100, Number(page.confidence || 0)))}%"></em></i></div>`).join("")}</div>
       </div>
       <div class="next-lines"><div class="next-lines-head"><div><h3>Líneas sugeridas</h3><p>Edita los datos detectados y decide qué líneas pasarán al gasto borrador.</p></div><div class="next-lines-balance"><span>Suma líneas <strong>${currencyFormat(data.lines.reduce((sum, line) => sum + number(line.line_total), 0), fields.currency || "EUR")}</strong></span><span>Total factura <strong>${currencyFormat(fields.total, fields.currency || "EUR")}</strong></span></div></div>${data.lines.length ? data.lines.map(lineMarkup).join("") : `<div class="empty-state">No se detectaron líneas fiables. Puedes crear el gasto y completarlas después.</div>`}</div>
-      <div class="row-actions"><button type="button" class="ghost" data-discard-import="${item.id}">Descartar</button><button type="button" ${data.duplicates.exact ? "disabled" : ""} data-confirm-import="${item.id}">Confirmar y crear factura borrador</button></div>`;
+      <div class="row-actions next-import-final-actions"><div class="next-discard-action"><button type="button" class="ghost" data-request-discard-import="${item.id}">Eliminar importación</button><span>El archivo y su lectura se borrarán definitivamente.</span></div><button type="button" ${data.duplicates.exact ? "disabled" : ""} data-confirm-import="${item.id}">Confirmar y crear factura borrador</button></div>`;
     $("#expenseImportDetail").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -173,6 +173,12 @@
       if (Object.prototype.hasOwnProperty.call(button.dataset, "closeExpenseImport")) showImportList();
       if (button.dataset.openExpenseImport) await openImport(button.dataset.openExpenseImport);
       if (button.dataset.reprocessImport) { await api(`/api/expense-imports/${button.dataset.reprocessImport}/reprocess`, { method: "POST" }); await loadImports(); }
+      if (button.dataset.requestDiscardImport) {
+        const action = button.closest(".next-discard-action");
+        action.classList.add("is-confirming");
+        action.innerHTML = `<button type="button" class="danger-button" data-discard-import="${button.dataset.requestDiscardImport}">Sí, eliminar definitivamente</button><button type="button" class="ghost" data-cancel-discard-import="${button.dataset.requestDiscardImport}">Cancelar</button><span>No se podrá recuperar el documento ni su lectura.</span>`;
+      }
+      if (button.dataset.cancelDiscardImport) await openImport(button.dataset.cancelDiscardImport);
       if (button.dataset.discardImport) { await api(`/api/expense-imports/${button.dataset.discardImport}/discard`, { method: "POST" }); showImportList(); }
       if (button.dataset.confirmImport) { const result = await api(`/api/expense-imports/${button.dataset.confirmImport}/confirm`, { method: "POST", body: JSON.stringify({}) }); toast(`Factura borrador #${result.invoice_id} creada`); switchExpense("registered"); await loadInvoices(); }
       if (button.dataset.saveImportLine) {
@@ -221,22 +227,28 @@
   $("#expenseImportUploadForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (importUploading) return;
+    const form = event.currentTarget;
     importUploading = true;
     renderSelectedFiles();
-    const submit = event.currentTarget.querySelector("button[type=submit]");
+    const submit = form.querySelector("button[type=submit]");
     submit.querySelector("span").textContent = "Subiendo facturas...";
     showImportNotice(`<span class="next-spinner"></span><div><strong>Subiendo documentos</strong><small>En cuanto termine la subida aparecerán en la cola de procesamiento local.</small></div>`, "progress");
-    const response = await fetch("/api/expense-imports", { method: "POST", body: new FormData(event.currentTarget) });
-    const result = await response.json().catch(() => ({}));
-    importUploading = false;
-    submit.querySelector("span").textContent = "Importar facturas";
-    if (!response.ok && !result.rejected) { renderSelectedFiles(); return showImportNotice(`<strong>No se pudo completar la subida.</strong><span>${text(result.error || "Revisa los archivos seleccionados.")}</span>`, "danger"); }
-    event.currentTarget.reset();
-    renderSelectedFiles();
-    const accepted = result.accepted?.length || 0;
-    const rejected = result.rejected || [];
-    showImportNotice(`<div><strong>${accepted ? `${accepted} ${accepted === 1 ? "factura añadida" : "facturas añadidas"} a la cola.` : "No se añadió ninguna factura."}</strong><small>${rejected.length ? `${rejected.length} rechazadas: ${rejected.map((item) => item.name).join(", ")}. No se permiten nombres repetidos.` : "El estado se actualizará automáticamente mientras se procesan."}</small></div>`, rejected.length ? "warn" : "ok");
-    await loadImports();
+    try {
+      const response = await fetch("/api/expense-imports", { method: "POST", body: new FormData(form) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok && !result.rejected) throw new Error(result.error || "No se pudo completar la subida.");
+      form.reset();
+      const accepted = result.accepted?.length || 0;
+      const rejected = result.rejected || [];
+      showImportNotice(`<div><strong>${accepted ? `${accepted} ${accepted === 1 ? "factura añadida" : "facturas añadidas"} a la cola.` : "No se añadió ninguna factura."}</strong><small>${rejected.length ? `${rejected.length} rechazadas: ${rejected.map((item) => `${item.name} (${item.error})`).join(", ")}.` : "El estado se actualizará automáticamente mientras se procesan."}</small></div>`, rejected.length ? "warn" : "ok");
+      await loadImports();
+    } catch (error) {
+      showImportNotice(`<div><strong>No se pudo completar la subida.</strong><small>${text(error.message || "Revisa el archivo e inténtalo de nuevo.")}</small></div>`, "danger");
+    } finally {
+      importUploading = false;
+      submit.querySelector("span").textContent = "Importar facturas";
+      renderSelectedFiles();
+    }
   });
 
   $("#expenseImportUploadForm input[type=file]")?.addEventListener("change", renderSelectedFiles);
