@@ -11,6 +11,27 @@
   const fmt = (value) => euro.format(Number(value || 0));
   const metric = (label, value, hint) => `<article class="next-kpi"><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></article>`;
   const currencyFormat = (value, currency = "EUR") => new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(Number(value || 0));
+  const expenseCategoryLabel = (value) => ({ materiales: "Materiales", envios: "Envíos", marketing: "Marketing", software: "Software", servicios: "Servicios", otros: "Otros" })[value] || "Sin clasificar";
+  function importQuality(item) {
+    if (["pending", "processing"].includes(item.status)) return { tone: "processing", label: "Procesando", hint: "Lectura en curso", missing: [] };
+    if (item.status === "error") return { tone: "low", label: "Con error", hint: "Reprocesar documento", missing: [] };
+    const fields = item.detected_fields || {};
+    const required = [["suggested_supplier_id", "proveedor"], ["invoice_number", "número"], ["invoice_date", "fecha"], ["total", "total"], ["category", "tipo"]];
+    const missing = required.filter(([key]) => fields[key] === null || fields[key] === undefined || fields[key] === "").map(([, label]) => label);
+    const confidence = Math.round(Number(item.confidence || 0));
+    if (confidence >= 90 && !missing.length) return { tone: "high", label: "Muy buena", hint: "Datos esenciales detectados", missing };
+    if (confidence >= 70 && missing.length <= 1) return { tone: "medium", label: "Revisable", hint: missing.length ? `Falta ${missing[0]}` : "Comprobar lectura", missing };
+    return { tone: "low", label: "Requiere atención", hint: missing.length ? `Faltan ${missing.join(", ")}` : "Confianza baja", missing };
+  }
+  const confidenceMarkup = (item, compact = false) => {
+    const quality = importQuality(item);
+    const confidence = Math.round(Number(item.confidence || 0));
+    return `<div class="next-confidence quality-${quality.tone} ${compact ? "is-compact" : ""}">
+      <div class="next-confidence-head"><span>${text(quality.label)}</span><strong>${["pending", "processing"].includes(item.status) ? `<span class="next-spinner"></span>` : `${confidence}%`}</strong></div>
+      <span class="next-confidence-track"><i style="width:${Math.max(0, Math.min(100, confidence))}%"></i></span>
+      <small>${text(quality.hint)}</small>
+    </div>`;
+  };
   function showImportList() {
     $("#expenseImportListView").classList.remove("hidden");
     $("#expenseImportDetail").classList.add("hidden");
@@ -36,15 +57,20 @@
 
   async function loadImports() {
     const rows = await api("/api/expense-imports");
-    const visibleRows = rows.filter((row) => row.status !== "discarded");
+    const qualityOrder = { low: 0, medium: 1, processing: 2, high: 3 };
+    const visibleRows = rows
+      .filter((row) => row.status !== "discarded")
+      .sort((a, b) => (qualityOrder[importQuality(a).tone] ?? 4) - (qualityOrder[importQuality(b).tone] ?? 4) || Number(b.id) - Number(a.id));
     const pending = rows.filter((row) => ["pending", "processing"].includes(row.status)).length;
     const review = rows.filter((row) => ["ready", "review"].includes(row.status)).length;
-    $("#expenseImportMetrics").innerHTML = metric("En proceso", pending, "Cola local secuencial") + metric("Por validar", review, "Requieren supervisión") + metric("Confirmadas", rows.filter((row) => row.status === "confirmed").length, "Borradores creados");
+    const reliable = visibleRows.filter((row) => ["ready", "review"].includes(row.status) && importQuality(row).tone === "high").length;
+    const attention = visibleRows.filter((row) => ["ready", "review", "error"].includes(row.status) && importQuality(row).tone !== "high").length;
+    $("#expenseImportMetrics").innerHTML = metric("En proceso", pending, "Cola local secuencial") + metric("Lectura fiable", reliable, "Listas para validar") + metric("Requieren atención", attention, "Revisar datos detectados");
     $("#expenseImportList").innerHTML = visibleRows.length ? visibleRows.map((row) => `<article class="next-import-row is-${row.status}">
       ${row.detected_fields?.suggested_supplier_name ? entityIconMarkup(row.detected_fields.suggested_supplier_name, { type: "supplier", className: "supplier-avatar compact", label: row.detected_fields.suggested_supplier_name }) : `<span class="next-file-icon"><svg><use href="#icon-file"></use></svg></span>`}
-      <div><strong>${text(row.original_name)}</strong><small>${row.detected_fields?.suggested_supplier_name ? `${text(row.detected_fields.suggested_supplier_name)} · ` : ""}${Math.round(Number(row.size || 0) / 1024)} KB · ${text(row.mime_type)}</small></div>
+      <div class="next-import-document"><strong>${text(row.original_name)}</strong><small>${row.detected_fields?.suggested_supplier_name ? `${text(row.detected_fields.suggested_supplier_name)} · ` : ""}${Math.round(Number(row.size || 0) / 1024)} KB</small><span class="next-import-facts"><em>${text(expenseCategoryLabel(row.detected_fields?.category))}</em>${row.detected_fields?.invoice_date ? `<em>${text(row.detected_fields.invoice_date)}</em>` : ""}${row.detected_fields?.total !== null && row.detected_fields?.total !== undefined ? `<em>${currencyFormat(row.detected_fields.total, row.detected_fields.currency || "EUR")}</em>` : ""}</span></div>
       <span class="status-pill ${row.status === "error" ? "danger" : row.status === "confirmed" ? "ok" : "warn"}">${statusText(row.status)}</span>
-      <div class="next-import-confidence"><strong>${["pending", "processing"].includes(row.status) ? `<span class="next-spinner"></span>` : `${Math.round(Number(row.confidence || 0))}%`}</strong><small>${text(row.extraction_method || (row.status === "pending" ? "En cola" : "Procesando"))}</small></div>
+      ${confidenceMarkup(row, true)}
       <button type="button" class="ghost" data-open-expense-import="${row.id}" ${["pending", "processing"].includes(row.status) ? "disabled" : ""}>${row.status === "confirmed" ? "Ver" : "Revisar"}</button>
     </article>`).join("") : `<div class="empty-state">Aún no hay documentos pendientes de validación.</div>`;
     const active = rows.some((row) => ["pending", "processing"].includes(row.status));
@@ -75,6 +101,7 @@
     const data = await api(`/api/expense-imports/${id}`);
     const item = data.import;
     const fields = item.detected_fields || {};
+    const quality = importQuality(item);
     const isMaterialExpense = fields.category === "materiales";
     const materialOptionsMarkup = (selected) => `<option value="">${isMaterialExpense ? "Sin material sugerido" : "No aplica a este gasto"}</option>${isMaterialExpense ? (state.materials || []).filter((material) => !material.is_deleted).map((material) => `<option value="${material.id}" ${String(material.id) === String(selected) ? "selected" : ""}>${text(material.name)}</option>`).join("") : ""}`;
     const lineMarkup = (line) => {
@@ -90,7 +117,8 @@
     };
     $("#expenseImportListView").classList.add("hidden");
     $("#expenseImportDetail").classList.remove("hidden");
-    $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · confianza ${Math.round(item.confidence)}%</p></div><div class="row-actions"><button class="ghost button-with-icon" data-close-expense-import><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar revisión</span></button><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div></div>
+    $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · ${text(expenseCategoryLabel(fields.category))}</p></div><div class="row-actions"><button class="ghost button-with-icon" data-close-expense-import><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar revisión</span></button><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div></div>
+      <div class="next-review-quality quality-${quality.tone}">${confidenceMarkup(item)}<div><strong>${quality.tone === "high" ? "La lectura tiene buena pinta" : "Conviene revisar los datos detectados"}</strong><span>${quality.tone === "high" ? "Proveedor, referencia, fecha, tipo y total detectados." : `${text(quality.hint)}.`} La confirmación siempre requiere supervisión humana.</span></div></div>
       ${data.duplicates.exact ? `<div class="inline-alert danger">Duplicado bloqueante: factura #${data.duplicates.exact.id}</div>` : data.duplicates.warning ? `<div class="inline-alert warn">Posible duplicado: factura #${data.duplicates.warning.id}</div>` : ""}
       <div class="next-validation-grid">
         <form id="expenseImportReviewForm" data-import-id="${item.id}" class="form-grid three">
@@ -102,7 +130,7 @@
           <label>Moneda<select name="currency"><option value="EUR" ${(fields.currency || "EUR") === "EUR" ? "selected" : ""}>EUR · Euro</option><option value="USD" ${fields.currency === "USD" ? "selected" : ""}>USD · Dólar</option></select></label>
           <button type="submit">Guardar revisión</button>
         </form>
-        <div class="next-detected-pages"><strong>Lectura por página</strong>${item.pages.map((page) => `<div><span>Página ${page.page} · ${text(page.method)}</span><b>${Math.round(page.confidence)}%</b></div>`).join("")}</div>
+        <div class="next-detected-pages"><strong>Lectura por página</strong>${item.pages.map((page) => `<div><span>Página ${page.page} · ${text(page.method)}</span><b>${Math.round(page.confidence)}%</b><i><em style="width:${Math.max(0, Math.min(100, Number(page.confidence || 0)))}%"></em></i></div>`).join("")}</div>
       </div>
       <div class="next-lines"><div class="next-lines-head"><div><h3>Líneas sugeridas</h3><p>Edita los datos detectados y decide qué líneas pasarán al gasto borrador.</p></div><div class="next-lines-balance"><span>Suma líneas <strong>${currencyFormat(data.lines.reduce((sum, line) => sum + number(line.line_total), 0), fields.currency || "EUR")}</strong></span><span>Total factura <strong>${currencyFormat(fields.total, fields.currency || "EUR")}</strong></span></div></div>${data.lines.length ? data.lines.map(lineMarkup).join("") : `<div class="empty-state">No se detectaron líneas fiables. Puedes crear el gasto y completarlas después.</div>`}</div>
       <div class="row-actions"><button type="button" class="ghost" data-discard-import="${item.id}">Descartar</button><button type="button" ${data.duplicates.exact ? "disabled" : ""} data-confirm-import="${item.id}">Confirmar y crear factura borrador</button></div>`;
