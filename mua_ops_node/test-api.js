@@ -4,6 +4,7 @@ const http = require("http");
 const path = require("path");
 const initSqlJs = require("sql.js");
 const { amount: parsedAmount, detectFields, detectedInvoiceLines, parseInvoiceLine, inferExpenseCategory } = require("./lib/services/document-extraction");
+const { cleanOriginalName } = require("./lib/routes/expense-imports");
 
 const ROOT = path.resolve(__dirname, "..");
 const SERVER = path.join(__dirname, "server.js");
@@ -265,6 +266,27 @@ async function run() {
   assert(detectedInvoiceLines(["TOTAL €17.25 EUR", "Mua Kit Apps (1 item) €17.25 EUR", "Globo Product Options $19.90 USD", "Payment status paid"]).length === 1, "Only plausible product lines should become suggestions");
   const convertedLine = parseInvoiceLine("Globo Product Options $19.90 USD", { currency: "EUR", exchange_rate: { from: "USD", rate: 0.8669, to: "EUR" } });
   assert(convertedLine.description === "Globo Product Options" && convertedLine.converted_amount === 17.2513, "Suggested lines should keep a clean description and convert to invoice currency");
+  const metaText = `Fecha de la factura/pago
+4 abr. 2026, 6:31
+Número de referencia: QHKDZJMEH2
+18,51 €
+26890650683955507-26464807553206484 Se te ha emitido una factura porque has alcanzado tu umbral de pago de 18,51 €.
+Meta anuncios
+Campañas
+Campaña estreno / TESTEO
+18,51 €
+Mascotas 1630 Impresiones 5,27 €
+Maternidad 2596 Impresiones 13,24 €
+Factura número FBADS-394-105737940`;
+  const metaFields = detectFields(metaText);
+  assert(metaFields.invoice_number === "FBADS-394-105737940", "Meta invoice numbers should be detected");
+  assert(metaFields.invoice_date === "2026-04-04", "Spanish Meta invoice dates should be normalized");
+  assert(metaFields.total === 18.51 && metaFields.currency === "EUR", "Standalone Meta invoice totals should be detected as EUR");
+  const metaLines = detectedInvoiceLines(metaText.split("\n"));
+  assert(metaLines.length === 2, "Meta campaign breakdown lines should become suggestions");
+  const metaLine = parseInvoiceLine(metaLines[0], metaFields);
+  assert(metaLine.description === "Mascotas" && metaLine.converted_amount === 5.27 && metaLine.original_currency === "EUR", "Meta campaign lines should have clean descriptions and EUR amounts");
+  assert(cleanOriginalName("TransacciÃ³n n.Âº 123.pdf") === "Transacción n.º 123.pdf", "Mojibake document names should be repaired");
   assert(inferExpenseCategory("Globo Product Options subscription", "materiales", ["materiales"]) === "software", "Strong document signals should override supplier defaults");
   assert(inferExpenseCategory("Pedido mixto", "materiales", ["software", "software", "materiales"]) === "software", "Mixed suppliers should use historical invoice context");
   cleanTestDir();

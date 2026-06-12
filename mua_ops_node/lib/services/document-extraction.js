@@ -17,6 +17,13 @@ function amount(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function isoDate(day, monthName, year) {
+  const months = { ene: 1, jan: 1, feb: 2, mar: 3, abr: 4, apr: 4, may: 5, jun: 6, jul: 7, ago: 8, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dic: 12, dec: 12 };
+  const normalizedMonth = normalize(monthName);
+  const month = months[normalizedMonth.slice(0, 4)] || months[normalizedMonth.slice(0, 3)];
+  return month ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}` : "";
+}
+
 function nativePageText(items) {
   const rows = new Map();
   for (const item of items) {
@@ -35,9 +42,11 @@ function detectFields(text) {
   const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const numericDate = text.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/)?.[1] || "";
   const namedDate = text.match(/\b(?:paid on|bill created|fecha)\s+([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{4})/i);
+  const spanishDate = text.match(/(?:fecha de la factura\/pago|fecha)\s*\n\s*(\d{1,2})\s+([a-záéíóú]{3,5})\.?\s+(\d{4})/i);
   const month = namedDate ? ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(namedDate[1].slice(0, 3).toLowerCase()) + 1 : 0;
-  const date = namedDate && month ? `${namedDate[3]}-${String(month).padStart(2, "0")}-${String(namedDate[2]).padStart(2, "0")}` : numericDate;
+  const date = spanishDate ? isoDate(spanishDate[1], spanishDate[2], spanishDate[3]) : namedDate && month ? `${namedDate[3]}-${String(month).padStart(2, "0")}-${String(namedDate[2]).padStart(2, "0")}` : numericDate;
   const invoiceNumber = text.match(/\bbill\s*#\s*([A-Z0-9][A-Z0-9/_-]{2,})/i)?.[1]
+    || text.match(/factura\s+n[uú]mero\s+([A-Z0-9][A-Z0-9/_-]{2,})/i)?.[1]
     || text.match(/(?:factura|invoice|n[oº.]|numero|number)\s*[:#-]\s*([A-Z0-9][A-Z0-9/_-]{2,})/i)?.[1] || "";
   const totalCandidates = [];
   for (const line of lines) {
@@ -47,6 +56,10 @@ function detectFields(text) {
       totalCandidates.push({ value: amount(raw), currency: match[1] || String(match[3] || "").toUpperCase() === "EUR" ? "EUR" : "USD" });
     }
   }
+  if (/Meta Platforms|Meta anuncios|Gastos de Anuncios/i.test(text) && !totalCandidates.length) {
+    const standalone = lines.map((line) => line.match(/^([0-9][0-9.,]*)\s*€$/)?.[1]).filter(Boolean);
+    if (standalone.length) totalCandidates.push({ value: amount(standalone[0]), currency: "EUR" });
+  }
   const selectedTotal = totalCandidates.at(-1) || null;
   const rateMatch = text.match(/\b1\s+(USD|EUR)\s*=\s*([0-9][0-9.,]*)\s+(EUR|USD)\b/i);
   const exchangeRate = rateMatch ? { from: rateMatch[1].toUpperCase(), rate: amount(rateMatch[2]), to: rateMatch[3].toUpperCase() } : null;
@@ -54,21 +67,21 @@ function detectFields(text) {
 }
 
 function detectedInvoiceLines(lines) {
-  const excluded = /\b(total|subtotal|vat|iva|tax|payment|paid|billing|bill|address|overview|page \d|learn more|recipient|credit|discount|shipping|mastercard|floor|dublin|spain)\b|=|\(\d+\s+items?\)/i;
+  const excluded = /\b(total|subtotal|vat|iva|tax|payment|paid|billing|bill|address|overview|page \d|learn more|recipient|credit|discount|shipping|mastercard|floor|dublin|spain|transacci[oó]n|umbral de pago|emitido una factura)\b|=|\(\d+\s+items?\)/i;
   return lines.filter((line) => {
     if (line.length > 220 || excluded.test(line)) return false;
-    const hasMoney = /(?:€|\$)\s*[0-9][0-9.,]*|[0-9][0-9.,]*\s*(?:EUR|USD)\b/i.test(line);
+    const hasMoney = /(?:€|\$)\s*[0-9][0-9.,]*|[0-9][0-9.,]*\s*(?:€|EUR\b|USD\b)/i.test(line);
     const description = line.replace(/(?:€|\$|EUR|USD|[0-9][0-9.,]*)/gi, " ");
     return hasMoney && /[a-záéíóúñ]{3,}/i.test(description);
   }).slice(0, 100);
 }
 
 function parseInvoiceLine(line, fields) {
-  const moneyMatches = [...line.matchAll(/(?:€\s*([0-9][0-9.,]*)|\$\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(EUR|USD)\b)/gi)];
+  const moneyMatches = [...line.matchAll(/(?:€\s*([0-9][0-9.,]*)|\$\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(€|EUR\b|USD\b))/gi)];
   const match = moneyMatches.at(-1);
   if (!match) return null;
   const originalAmount = amount(match[1] || match[2] || match[3]);
-  const originalCurrency = match[1] ? "EUR" : match[2] ? "USD" : String(match[4] || fields.currency || "EUR").toUpperCase();
+  const originalCurrency = match[1] || match[4] === "€" ? "EUR" : match[2] ? "USD" : String(match[4] || fields.currency || "EUR").toUpperCase();
   const targetCurrency = fields.currency || originalCurrency;
   let convertedAmount = originalAmount;
   if (originalCurrency !== targetCurrency && fields.exchange_rate?.rate) {
@@ -77,7 +90,8 @@ function parseInvoiceLine(line, fields) {
   }
   const description = line
     .replace(match[0], "")
-    .replace(/\b(?:EUR|USD)\b/gi, "")
+    .replace(/(?:€|\bEUR\b|\bUSD\b)/gi, "")
+    .replace(/\s+\d+\s+impresiones\b/gi, "")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[·,:;-]+$/, "")

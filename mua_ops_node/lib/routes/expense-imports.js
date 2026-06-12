@@ -5,6 +5,13 @@ function json(value, fallback) {
   try { return JSON.parse(value || ""); } catch { return fallback; }
 }
 
+function cleanOriginalName(value) {
+  const original = String(value || "").trim();
+  if (!/[ÃÂâ]/.test(original)) return original;
+  const decoded = Buffer.from(original, "latin1").toString("utf8");
+  return (decoded.match(/[ÃÂâ�]/g) || []).length < (original.match(/[ÃÂâ�]/g) || []).length ? decoded : original;
+}
+
 function registerExpenseImportRoutes(app, ctx) {
   const { query, one, exec, insert, saveDb, audit, badRequest, notFound, upload, fs, path, UPLOAD_DIR, documentExtraction } = ctx;
 
@@ -51,30 +58,31 @@ function registerExpenseImportRoutes(app, ctx) {
     const accepted = [];
     const rejected = [];
     for (const file of files) {
-      const normalizedName = String(file.originalname || "").trim().toLowerCase();
+      const originalName = cleanOriginalName(file.originalname);
+      const normalizedName = originalName.toLowerCase();
       if (!ALLOWED_TYPES.has(file.mimetype)) {
         fs.unlinkSync(file.path);
-        rejected.push({ name: file.originalname, code: "DOCUMENT_TYPE_UNSUPPORTED", error: "Formato no permitido." });
+        rejected.push({ name: originalName, code: "DOCUMENT_TYPE_UNSUPPORTED", error: "Formato no permitido." });
         continue;
       }
       if (existingNames.has(normalizedName) || batchNames.has(normalizedName)) {
         fs.unlinkSync(file.path);
-        rejected.push({ name: file.originalname, code: "EXPENSE_IMPORT_NAME_DUPLICATE", error: "Ya existe una factura importada con este nombre." });
+        rejected.push({ name: originalName, code: "EXPENSE_IMPORT_NAME_DUPLICATE", error: "Ya existe una factura importada con este nombre." });
         continue;
       }
       batchNames.add(normalizedName);
-      const ext = path.extname(file.originalname);
+      const ext = path.extname(originalName);
       const storedName = `${Date.now()}-${file.filename}${ext}`;
       const finalPath = path.join(UPLOAD_DIR, storedName);
       fs.renameSync(file.path, finalPath);
       const documentId = insert(`INSERT INTO documents
         (original_name, stored_name, stored_path, mime_type, size, related_entity)
         VALUES ($original, $stored, $path, $mime, $size, 'expense_import')`, {
-        original: file.originalname, stored: storedName, path: finalPath, mime: file.mimetype, size: file.size
+        original: originalName, stored: storedName, path: finalPath, mime: file.mimetype, size: file.size
       });
       const importId = insert("INSERT INTO expense_imports (document_id, status) VALUES ($document, 'pending')", { document: documentId });
       exec("UPDATE documents SET related_id=$import WHERE id=$document", { import: importId, document: documentId });
-      audit("expense_import", importId, "upload", null, { document_id: documentId, original_name: file.originalname });
+      audit("expense_import", importId, "upload", null, { document_id: documentId, original_name: originalName });
       accepted.push(payload(one("SELECT * FROM expense_imports WHERE id=$id", { id: importId })));
       documentExtraction.enqueue(importId);
     }
@@ -186,6 +194,11 @@ function registerExpenseImportRoutes(app, ctx) {
 
   for (const item of query(`SELECT ei.*, d.original_name, d.stored_path FROM expense_imports ei
     JOIN documents d ON d.id=ei.document_id WHERE ei.status='discarded'`)) purgeImport(item);
+  for (const document of query("SELECT id, original_name FROM documents")) {
+    const cleaned = cleanOriginalName(document.original_name);
+    if (cleaned !== document.original_name) exec("UPDATE documents SET original_name=$name WHERE id=$id", { id: document.id, name: cleaned });
+  }
+  saveDb();
 }
 
-module.exports = { registerExpenseImportRoutes };
+module.exports = { registerExpenseImportRoutes, cleanOriginalName };
