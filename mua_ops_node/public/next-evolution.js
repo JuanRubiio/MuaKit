@@ -146,9 +146,9 @@
     $("#expenseImportUploadForm button[type=submit]").disabled = !files.length || importUploading;
   }
 
-  function evidenceAttrs(evidence, fallback = "") {
+  function evidenceButton(evidence, fallback = "") {
     const value = evidence?.text || fallback;
-    return value ? ` data-document-evidence="${text(value)}" data-evidence-page="${Number(evidence?.page || 1)}"` : "";
+    return value ? `<button type="button" class="next-evidence-button" data-show-document-evidence="${text(value)}" data-evidence-page="${Number(evidence?.page || 1)}" title="Ver evidencia en el documento"><svg><use href="#icon-eye"></use></svg></button>` : "";
   }
 
   async function openImport(id) {
@@ -166,9 +166,9 @@
     const materialOptionsMarkup = (selected) => `<option value="">${isMaterialExpense ? "Sin material sugerido" : "No aplica a este gasto"}</option>${isMaterialExpense ? (state.materials || []).filter((material) => !material.is_deleted).map((material) => `<option value="${material.id}" ${String(material.id) === String(selected) ? "selected" : ""}>${text(material.name)}</option>`).join("") : ""}`;
     const lineMarkup = (line) => {
       const original = (() => { try { return JSON.parse(line.original_data_json || "{}"); } catch { return {}; } })();
-      return `<article class="next-editable-line" data-import-line-row="${line.id}"${evidenceAttrs(original.evidence, line.original_text)}>
+      return `<article class="next-editable-line" data-import-line-row="${line.id}">
         <input class="next-line-select" type="checkbox" data-select-import-line="${line.id}" aria-label="Seleccionar línea para combinar">
-        <label>Concepto<input data-line-field="description" value="${text(line.description)}"${evidenceAttrs(original.evidence, line.original_text)}></label>
+        <label><span class="next-field-label">Concepto ${evidenceButton(original.evidence, line.original_text)}</span><input data-line-field="description" value="${text(line.description)}"></label>
         <label>Cantidad<input data-line-field="quantity" type="number" min="0" step="0.01" value="${number(line.quantity || 1)}"></label>
         <label>Material<select data-line-field="suggested_material_id" ${isMaterialExpense ? "" : "disabled"}>${materialOptionsMarkup(line.suggested_material_id)}</select></label>
         <label>Precio ud. ${text(fields.currency || "EUR")}<input data-line-field="unit_price" type="number" min="0" step="0.01" value="${number(line.unit_price ?? line.line_total).toFixed(2)}"></label>
@@ -185,11 +185,11 @@
       ${documentViewerMarkup({ stored_name: item.stored_name, original_name: item.original_name, mime_type: item.mime_type }, { context: "original" })}
       <div class="next-validation-grid">
         <form id="expenseImportReviewForm" data-import-id="${item.id}" class="form-grid three">
-          <label${evidenceAttrs(fields.evidence?.supplier)}>Proveedor sugerido<select name="suggested_supplier_id"${evidenceAttrs(fields.evidence?.supplier)}><option value="">Sin proveedor</option>${(state.suppliers || []).filter((supplier) => !supplier.is_deleted).map((supplier) => `<option value="${supplier.id}" ${String(supplier.id) === String(fields.suggested_supplier_id) ? "selected" : ""}>${text(supplier.name)}</option>`).join("")}</select></label>
-          <label${evidenceAttrs(fields.evidence?.category)}>Tipo de gasto<select name="category"${evidenceAttrs(fields.evidence?.category)}>${INVOICE_CATEGORIES.map((category) => `<option value="${category}" ${category === fields.category ? "selected" : ""}>${text(category.charAt(0).toUpperCase() + category.slice(1))}</option>`).join("")}</select></label>
-          <label${evidenceAttrs(fields.evidence?.invoice_number)}>Número de factura<input name="invoice_number" value="${text(fields.invoice_number || "")}"${evidenceAttrs(fields.evidence?.invoice_number)}></label>
-          <label${evidenceAttrs(fields.evidence?.invoice_date)}>Fecha<input name="invoice_date" value="${text(fields.invoice_date || "")}"${evidenceAttrs(fields.evidence?.invoice_date)}></label>
-          <label${evidenceAttrs(fields.evidence?.total)}>Total<input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"${evidenceAttrs(fields.evidence?.total)}></label>
+          <label><span class="next-field-label">Proveedor sugerido ${evidenceButton(fields.evidence?.supplier)}</span><select name="suggested_supplier_id"><option value="">Sin proveedor</option>${(state.suppliers || []).filter((supplier) => !supplier.is_deleted).map((supplier) => `<option value="${supplier.id}" ${String(supplier.id) === String(fields.suggested_supplier_id) ? "selected" : ""}>${text(supplier.name)}</option>`).join("")}</select></label>
+          <label><span class="next-field-label">Tipo de gasto ${evidenceButton(fields.evidence?.category)}</span><select name="category">${INVOICE_CATEGORIES.map((category) => `<option value="${category}" ${category === fields.category ? "selected" : ""}>${text(category.charAt(0).toUpperCase() + category.slice(1))}</option>`).join("")}</select></label>
+          <label><span class="next-field-label">Número de factura ${evidenceButton(fields.evidence?.invoice_number)}</span><input name="invoice_number" value="${text(fields.invoice_number || "")}"></label>
+          <label><span class="next-field-label">Fecha ${evidenceButton(fields.evidence?.invoice_date)}</span><input name="invoice_date" value="${text(fields.invoice_date || "")}"></label>
+          <label><span class="next-field-label">Total ${evidenceButton(fields.evidence?.total)}</span><input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"></label>
           <label>Moneda<select name="currency"><option value="EUR" ${(fields.currency || "EUR") === "EUR" ? "selected" : ""}>EUR · Euro</option><option value="USD" ${fields.currency === "USD" ? "selected" : ""}>USD · Dólar</option></select></label>
           <button type="submit">Guardar revisión</button>
         </form>
@@ -233,6 +233,22 @@
     try {
       if (button.dataset.expenseSection) switchExpense(button.dataset.expenseSection);
       if (button.dataset.materialsSection) switchMaterials(button.dataset.materialsSection);
+      if (button.dataset.showDocumentEvidence) {
+        const viewer = $("#expenseImportDetail .document-viewer");
+        if (viewer) {
+          viewer.open = true;
+          const evidence = button.dataset.showDocumentEvidence;
+          const page = button.dataset.evidencePage || "1";
+          const banner = viewer.querySelector("[data-document-viewer-evidence]");
+          if (banner) {
+            banner.classList.remove("hidden");
+            banner.innerHTML = `<strong>Evidencia detectada · página ${text(page)}</strong><span>${text(evidence)}</span>`;
+          }
+          const frame = viewer.querySelector("iframe[data-document-preview]");
+          if (frame) frame.src = `${frame.dataset.documentSource}#page=${page}&search=${encodeURIComponent(evidence)}&view=FitH`;
+          viewer.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
       if (Object.prototype.hasOwnProperty.call(button.dataset, "closeExpenseImport")) showImportList();
       if (button.dataset.openExpenseImport) await openImport(button.dataset.openExpenseImport);
       if (button.dataset.reprocessImport) { await api(`/api/expense-imports/${button.dataset.reprocessImport}/reprocess`, { method: "POST" }); await loadImports(); }
@@ -345,23 +361,6 @@
     const quantity = number(row.querySelector('[data-line-field="quantity"]').value);
     const unitPrice = number(row.querySelector('[data-line-field="unit_price"]').value);
     row.querySelector('[data-line-field="line_total"]').value = (quantity * unitPrice).toFixed(2);
-  });
-
-  document.body.addEventListener("focusin", (event) => {
-    const target = event.target.closest("[data-document-evidence]");
-    if (!target) return;
-    const viewer = $("#expenseImportDetail .document-viewer");
-    if (!viewer) return;
-    viewer.open = true;
-    const evidence = target.dataset.documentEvidence;
-    const page = target.dataset.evidencePage || "1";
-    const banner = viewer.querySelector("[data-document-viewer-evidence]");
-    if (banner) {
-      banner.classList.remove("hidden");
-      banner.innerHTML = `<strong>Evidencia detectada · página ${text(page)}</strong><span>${text(evidence)}</span>`;
-    }
-    const frame = viewer.querySelector("iframe[data-document-preview]");
-    if (frame) frame.src = `${frame.dataset.documentSource}#page=${page}&search=${encodeURIComponent(evidence)}&view=FitH`;
   });
 
   $("#expenseImportUploadForm")?.addEventListener("submit", async (event) => {
