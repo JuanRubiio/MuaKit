@@ -1448,6 +1448,21 @@ function resetAuditFilters() {
   return viewModules.audit?.resetAuditFilters();
 }
 
+async function refreshAfterShopifySync(result = {}) {
+  const completed = (name) => result?.[name]?.status === "ok";
+  const loaders = [
+    loadShopifyConnection,
+    loadSystemHealth,
+    loadSummary,
+    loadDashboardFinance
+  ];
+  if (completed("products") || completed("inventory")) loaders.push(loadMaterials, loadCosts);
+  if (completed("orders")) loaders.push(loadKits);
+  if (completed("payouts")) loaders.push(loadIncome);
+  await Promise.all([...new Set(loaders)].map((loader) => loader()));
+  window.dispatchEvent(new CustomEvent("mua:shopify-synced", { detail: result }));
+}
+
 async function maybeRunShopifyAutoSync() {
   if (!state.shopifySyncStatus?.sync_enabled) return;
   if (document.visibilityState !== "visible") return;
@@ -1455,8 +1470,8 @@ async function maybeRunShopifyAutoSync() {
   state.shopifySyncStatus = status;
   renderShopifyConnection();
   if (!status.due || status.running) return;
-  await api("/api/shopify/sync", { method: "POST", body: "{}" });
-  await Promise.all([loadShopifyConnection(), loadSystemHealth(), loadMaterials(), loadIncome(), loadSummary(), loadDashboardFinance()]);
+  const result = await api("/api/shopify/sync", { method: "POST", body: "{}" });
+  await refreshAfterShopifySync(result);
   toast("Shopify sincronizado automáticamente");
 }
 
@@ -1660,8 +1675,8 @@ async function testShopifyConnectionAction() {
 }
 
 async function syncShopifyNow() {
-  await api("/api/shopify/sync", { method: "POST", body: "{}" });
-  await Promise.all([loadShopifyConnection(), loadSystemHealth(), loadMaterials(), loadIncome(), loadSummary(), loadDashboardFinance()]);
+  const result = await api("/api/shopify/sync", { method: "POST", body: "{}" });
+  await refreshAfterShopifySync(result);
   toast("Shopify sincronizado");
 }
 
@@ -2064,8 +2079,8 @@ function bindEvents() {
       }
       if (t.dataset.syncOrderLines !== undefined) {
         t.disabled = true;
-        await api("/api/shopify/sync/orders", { method: "POST", body: JSON.stringify({ full: true }) });
-        await Promise.all([loadKits(), loadDashboardFinance(), loadShopifyConnection()]);
+        const result = await api("/api/shopify/sync/orders", { method: "POST", body: JSON.stringify({ full: true }) });
+        await refreshAfterShopifySync(result);
         toast("Desglose de pedidos actualizado");
       }
       if (t.dataset.openOrder) openOrderDetail(t.dataset.openOrder);

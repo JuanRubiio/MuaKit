@@ -264,6 +264,11 @@
     renderSelectedFiles();
   });
 
+  window.addEventListener("mua:shopify-synced", () => {
+    if (!$("#replenishmentPanel")?.classList.contains("hidden")) loadReplenishment().catch((error) => toast(error.message));
+    if (!$("#purchasePlannerPanel")?.classList.contains("hidden")) loadPurchasePlans().catch((error) => toast(error.message));
+  });
+
   document.body.addEventListener("submit", async (event) => {
     if (event.target.id !== "expenseImportReviewForm") return;
     event.preventDefault();

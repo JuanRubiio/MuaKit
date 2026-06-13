@@ -51,6 +51,36 @@ async function run() {
     await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(2200);
 
+    const refreshRequests = [];
+    page.on("request", (request) => {
+      const url = request.url();
+      if (url.includes("/api/orders/profitability") || url.includes("/api/materials") || url.includes("/api/income/summary")) refreshRequests.push(url);
+    });
+    await page.route("**/api/shopify/sync", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "ok",
+          products: { status: "ok" },
+          inventory: { status: "ok" },
+          orders: { status: "ok" },
+          payouts: { status: "ok" }
+        })
+      });
+    });
+    await page.locator('button[data-view="settings"]').click();
+    await page.locator('[data-settings-section="shopify"]').click();
+    refreshRequests.length = 0;
+    await page.locator("[data-sync-shopify-now]").click();
+    await page.waitForTimeout(1200);
+    if (!refreshRequests.some((url) => url.includes("/api/orders/profitability"))) {
+      throw new Error("La sincronizacion Shopify no refresca la lista de pedidos");
+    }
+    if (!refreshRequests.some((url) => url.includes("/api/materials")) || !refreshRequests.some((url) => url.includes("/api/income/summary"))) {
+      throw new Error("La sincronizacion Shopify no refresca todos los dominios afectados");
+    }
+
     await page.locator('button[data-view="invoices"]').click();
     await page.waitForTimeout(350);
     if ((await page.locator("#pageTitle").innerText()) !== "Gastos") {
