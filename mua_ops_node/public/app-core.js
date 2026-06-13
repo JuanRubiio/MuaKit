@@ -38,6 +38,38 @@ function text(value, fallback = "") {
   return escapeHtml(raw === "" ? fallback : raw);
 }
 
+function documentViewerMarkup(document = {}, options = {}) {
+  const storedName = String(document.stored_name || document.document_stored_name || "");
+  if (!storedName) return "";
+  const originalName = String(document.original_name || document.document_name || storedName);
+  const mimeType = String(document.mime_type || "");
+  const extension = originalName.includes(".") ? originalName.split(".").pop().toLowerCase() : "";
+  const isPdf = mimeType === "application/pdf" || extension === "pdf";
+  const isImage = mimeType.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(extension);
+  const source = `/uploads/${encodeURIComponent(storedName)}`;
+  const label = isPdf ? "PDF" : isImage ? "Imagen" : "Documento";
+  const context = options.context ? ` ${text(options.context)}` : "";
+  const preview = isPdf
+    ? `<iframe src="${source}#view=FitH" title="Vista previa de ${text(originalName)}"></iframe>`
+    : isImage
+      ? `<img src="${source}" alt="Vista previa de ${text(originalName)}">`
+      : `<div class="document-viewer-unsupported"><strong>Vista previa no disponible</strong><span>Abre el archivo original para consultarlo.</span></div>`;
+  return `<details class="document-viewer"${options.open ? " open" : ""}>
+    <summary>
+      <span class="document-viewer-icon"><svg><use href="#icon-eye"></use></svg></span>
+      <span><strong>Ver documento${context}</strong><small>${text(originalName)} · ${label}</small></span>
+      <span class="document-viewer-toggle">Mostrar</span>
+    </summary>
+    <div class="document-viewer-body">
+      <div class="document-viewer-toolbar">
+        <span>Referencia visual para contrastar los datos extraídos.</span>
+        <a class="ghost document-viewer-link" href="${source}" target="_blank" rel="noreferrer">Abrir original</a>
+      </div>
+      <div class="document-viewer-frame">${preview}</div>
+    </div>
+  </details>`;
+}
+
 function lower(value) {
   return String(value ?? "").toLocaleLowerCase("es");
 }

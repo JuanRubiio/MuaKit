@@ -67,6 +67,20 @@ async function run() {
     if (await page.locator('#expenseImportUploadForm button[type="submit"]').isEnabled()) {
       throw new Error("El boton de importacion debe permanecer deshabilitado sin archivos");
     }
+    const importReview = page.locator("[data-open-expense-import]:visible").first();
+    if (await importReview.count()) {
+      await importReview.click();
+      await page.waitForTimeout(350);
+      const importViewer = page.locator("#expenseImportDetail .document-viewer");
+      if (!(await importViewer.count()) || await importViewer.getAttribute("open") !== null) {
+        throw new Error("La validacion OCR no ofrece el visor documental cerrado por defecto");
+      }
+      await importViewer.locator("summary").click();
+      if (await importViewer.getAttribute("open") === null || !(await importViewer.locator(".document-viewer-frame").count())) {
+        throw new Error("El visor documental OCR no se despliega correctamente");
+      }
+      await page.locator("[data-close-expense-import]").click();
+    }
     await page.locator('[data-expense-section="registered"]').click();
     const firstInvoice = page.locator("[data-view-invoice]:visible").first();
     if (await firstInvoice.count()) {
@@ -75,6 +89,13 @@ async function run() {
       const invoicePanelVisible = await page.locator("#invoiceDetailPanel:not(.hidden)").count();
       if (!invoicePanelVisible) {
         throw new Error("No se abrio el detalle de factura");
+      }
+      const invoiceAttachment = page.locator("#invoiceDetailPanel .invoice-document-card .invoice-doc-file");
+      if (await invoiceAttachment.count()) {
+        const invoiceViewer = page.locator("#invoiceDetailPanel .document-viewer");
+        if (!(await invoiceViewer.count()) || await invoiceViewer.getAttribute("open") !== null) {
+          throw new Error("El detalle de factura no ofrece el visor documental cerrado por defecto");
+        }
       }
     }
 

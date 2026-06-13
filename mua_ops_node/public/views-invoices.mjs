@@ -224,6 +224,8 @@ export function createInvoiceViews(ctx) {
         </div>
       </div>
 
+      ${documentViewerMarkup(detail.invoice, { context: "adjunto" })}
+
       <div class="invoice-detail-grid">
         <section class="panel invoice-detail-data">
           <div class="panel-head compact-head">
