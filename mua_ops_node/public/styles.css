@@ -9663,44 +9663,73 @@ textarea {
   color: #b43b54;
 }
 
-.next-field-label {
+.document-evidence-legend {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-
-.next-evidence-button {
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
-  min-height: 24px;
-  padding: 0;
-  border-color: #d6e5e1;
-  color: #087e70;
-  background: #f3faf8;
-}
-
-.next-evidence-button svg {
-  width: 13px;
-  height: 13px;
-}
-
-.document-viewer-evidence {
-  display: grid;
-  gap: 2px;
-  padding: 9px 12px;
-  border: 1px solid #d5c195;
-  border-radius: 6px;
-  color: #6d5423;
-  background: #fff9ec;
-}
-
-.document-viewer-evidence span {
+  gap: 14px;
+  padding: 8px 0 10px;
   color: var(--muted);
   font-size: 11px;
+}
+
+.document-evidence-legend span::before {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border: 2px solid #168b7a;
+  border-radius: 2px;
+  background: rgba(22, 139, 122, 0.16);
+  content: "";
+  vertical-align: -1px;
+}
+
+.document-evidence-legend .is-review::before {
+  border-color: #c18a3a;
+  background: rgba(193, 138, 58, 0.18);
+}
+
+.annotated-document-viewer {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  min-width: 100%;
+  padding: 16px;
+}
+
+.annotated-document-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 28px;
+  color: var(--muted);
+}
+
+.annotated-document-page {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 7px 24px rgba(37, 31, 27, 0.14);
+}
+
+.annotated-document-page canvas,
+.annotated-document-image {
+  display: block;
+}
+
+.document-evidence-zone {
+  position: absolute;
+  z-index: 2;
+  border: 2px solid #168b7a;
+  border-radius: 3px;
+  background: rgba(22, 139, 122, 0.18);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+}
+
+.document-evidence-zone.is-review {
+  border-color: #c18a3a;
+  background: rgba(193, 138, 58, 0.2);
 }
 
 .next-order {

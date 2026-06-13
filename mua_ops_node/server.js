@@ -2775,6 +2775,7 @@ function createApp() {
   app.use("/img", express.static(path.join(ROOT, "img")));
   app.use("/uploads", express.static(UPLOAD_DIR));
   app.use("/vendor/echarts", express.static(path.join(ROOT, "node_modules", "echarts", "dist")));
+  app.use("/vendor/pdfjs", express.static(path.join(ROOT, "node_modules", "pdfjs-dist", "build")));
   app.use(express.static(PUBLIC_DIR));
 
   registerSystemRoutes(app, {

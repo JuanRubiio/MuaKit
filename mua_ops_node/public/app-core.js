@@ -49,11 +49,13 @@ function documentViewerMarkup(document = {}, options = {}) {
   const source = `/uploads/${encodeURIComponent(storedName)}`;
   const label = isPdf ? "PDF" : isImage ? "Imagen" : "Documento";
   const context = options.context ? ` ${text(options.context)}` : "";
-  const preview = isPdf
-    ? `<iframe data-document-preview data-document-source="${source}" src="${source}#view=FitH" title="Vista previa de ${text(originalName)}"></iframe>`
-    : isImage
-      ? `<img data-document-preview data-document-source="${source}" src="${source}" alt="Vista previa de ${text(originalName)}">`
-      : `<div class="document-viewer-unsupported"><strong>Vista previa no disponible</strong><span>Abre el archivo original para consultarlo.</span></div>`;
+  const preview = options.annotated && (isPdf || isImage)
+    ? `<div class="annotated-document-viewer" data-annotated-document-viewer data-document-source="${source}" data-document-kind="${isPdf ? "pdf" : "image"}"><div class="annotated-document-loading"><span class="next-spinner"></span><span>Preparando documento y zonas detectadas...</span></div></div>`
+    : isPdf
+      ? `<iframe data-document-preview data-document-source="${source}" src="${source}#view=FitH" title="Vista previa de ${text(originalName)}"></iframe>`
+      : isImage
+        ? `<img data-document-preview data-document-source="${source}" src="${source}" alt="Vista previa de ${text(originalName)}">`
+        : `<div class="document-viewer-unsupported"><strong>Vista previa no disponible</strong><span>Abre el archivo original para consultarlo.</span></div>`;
   return `<details class="document-viewer"${options.open ? " open" : ""}>
     <summary>
       <span class="document-viewer-icon"><svg><use href="#icon-eye"></use></svg></span>
@@ -65,7 +67,7 @@ function documentViewerMarkup(document = {}, options = {}) {
         <span>Referencia visual para contrastar los datos extraídos.</span>
         <a class="ghost document-viewer-link" href="${source}" target="_blank" rel="noreferrer">Abrir original</a>
       </div>
-      <div class="document-viewer-evidence hidden" data-document-viewer-evidence></div>
+      ${options.annotated ? `<div class="document-evidence-legend"><span class="is-reliable">Detección fiable</span><span class="is-review">Revisar detección</span></div>` : ""}
       <div class="document-viewer-frame">${preview}</div>
     </div>
   </details>`;

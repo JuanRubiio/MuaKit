@@ -146,9 +146,111 @@
     $("#expenseImportUploadForm button[type=submit]").disabled = !files.length || importUploading;
   }
 
-  function evidenceButton(evidence, fallback = "") {
-    const value = evidence?.text || fallback;
-    return value ? `<button type="button" class="next-evidence-button" data-show-document-evidence="${text(value)}" data-evidence-page="${Number(evidence?.page || 1)}" title="Ver evidencia en el documento"><svg><use href="#icon-eye"></use></svg></button>` : "";
+  function normalizeEvidence(value) {
+    return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  function evidenceTexts(fields, lines) {
+    const values = Object.values(fields.evidence || {}).map((item) => item?.text).filter(Boolean);
+    values.push(fields.suggested_supplier_name, fields.invoice_number, fields.invoice_date, fields.total);
+    lines.forEach((line) => {
+      values.push(line.original_text, line.description);
+      try {
+        const evidence = JSON.parse(line.original_data_json || "{}").evidence?.text;
+        if (evidence) values.push(evidence);
+      } catch {}
+    });
+    return [...new Set(values.map(normalizeEvidence).filter(Boolean))];
+  }
+
+  function coordinateMatchesEvidence(coordinate, evidence) {
+    const token = normalizeEvidence(coordinate.text || coordinate.symbol || "");
+    return token.length > 2 && evidence.some((line) => line.includes(token));
+  }
+
+  async function renderAnnotatedImportViewer(item, lines) {
+    const host = $("#expenseImportDetail [data-annotated-document-viewer]");
+    const details = host?.closest(".document-viewer");
+    if (!host || !details || host.dataset.ready === "true") return;
+    host.dataset.ready = "true";
+    const evidence = evidenceTexts(item.detected_fields || {}, lines);
+    const source = host.dataset.documentSource;
+    const renderOverlay = (stage, coordinates, page, widthRatio, heightRatio, nativeViewport = null) => {
+      coordinates.filter((coordinate) => coordinateMatchesEvidence(coordinate, evidence)).forEach((coordinate) => {
+        let left;
+        let top;
+        let width;
+        let height;
+        if (page.method === "native" && coordinate.transform && nativeViewport) {
+          const x = Number(coordinate.transform[4] || 0);
+          const y = Number(coordinate.transform[5] || 0);
+          const first = nativeViewport.convertToViewportPoint(x, y);
+          const second = nativeViewport.convertToViewportPoint(x + Number(coordinate.width || 0), y + Number(coordinate.height || coordinate.transform[3] || 10));
+          left = Math.min(first[0], second[0]);
+          top = Math.min(first[1], second[1]);
+          width = Math.max(8, Math.abs(second[0] - first[0]));
+          height = Math.max(12, Math.abs(second[1] - first[1]));
+        } else {
+          const box = coordinate.bbox || coordinate;
+          left = Number(box.x0 || box.left || 0) * widthRatio;
+          top = Number(box.y0 || box.top || 0) * heightRatio;
+          width = Math.max(8, Number((box.x1 ?? box.right ?? 0) - (box.x0 ?? box.left ?? 0)) * widthRatio);
+          height = Math.max(12, Number((box.y1 ?? box.bottom ?? 0) - (box.y0 ?? box.top ?? 0)) * heightRatio);
+        }
+        const marker = document.createElement("span");
+        marker.className = `document-evidence-zone ${Number(page.confidence || 0) >= 85 ? "is-reliable" : "is-review"}`;
+        marker.style.cssText = `left:${left}px;top:${top}px;width:${width}px;height:${height}px`;
+        marker.title = coordinate.text || "Zona detectada";
+        stage.appendChild(marker);
+      });
+    };
+    const renderImage = async () => {
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+      const stage = document.createElement("div");
+      stage.className = "annotated-document-page";
+      stage.style.width = `${image.naturalWidth}px`;
+      stage.style.height = `${image.naturalHeight}px`;
+      image.className = "annotated-document-image";
+      stage.appendChild(image);
+      host.replaceChildren(stage);
+      const page = item.pages[0] || {};
+      const maxX = Math.max(image.naturalWidth, ...((page.coordinates || []).map((word) => Number(word.bbox?.x1 || word.x1 || 0))));
+      const maxY = Math.max(image.naturalHeight, ...((page.coordinates || []).map((word) => Number(word.bbox?.y1 || word.y1 || 0))));
+      renderOverlay(stage, page.coordinates || [], page, image.naturalWidth / maxX, image.naturalHeight / maxY);
+    };
+    const renderPdf = async () => {
+      if (!window.pdfjsLib) throw new Error("El motor de vista previa PDF no está disponible.");
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.js";
+      const pdf = await window.pdfjsLib.getDocument(source).promise;
+      host.replaceChildren();
+      for (const pageData of item.pages) {
+        const pdfPage = await pdf.getPage(pageData.page);
+        const viewport = pdfPage.getViewport({ scale: 1.35 });
+        const stage = document.createElement("div");
+        stage.className = "annotated-document-page";
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        stage.style.width = `${canvas.width}px`;
+        stage.style.height = `${canvas.height}px`;
+        stage.appendChild(canvas);
+        host.appendChild(stage);
+        await pdfPage.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+        const sourceViewport = pdfPage.getViewport({ scale: 1.5 });
+        renderOverlay(stage, pageData.coordinates || [], pageData, viewport.width / sourceViewport.width, viewport.height / sourceViewport.height, viewport);
+      }
+    };
+    details.addEventListener("toggle", async () => {
+      if (!details.open || host.dataset.rendered === "true") return;
+      try {
+        if (host.dataset.documentKind === "pdf") await renderPdf(); else await renderImage();
+        host.dataset.rendered = "true";
+      } catch (error) {
+        host.innerHTML = `<div class="document-viewer-unsupported"><strong>No se pudo preparar el resaltado</strong><span>${text(error.message)}</span></div>`;
+      }
+    });
   }
 
   async function openImport(id) {
@@ -168,7 +270,7 @@
       const original = (() => { try { return JSON.parse(line.original_data_json || "{}"); } catch { return {}; } })();
       return `<article class="next-editable-line" data-import-line-row="${line.id}">
         <input class="next-line-select" type="checkbox" data-select-import-line="${line.id}" aria-label="Seleccionar línea para combinar">
-        <label><span class="next-field-label">Concepto ${evidenceButton(original.evidence, line.original_text)}</span><input data-line-field="description" value="${text(line.description)}"></label>
+        <label>Concepto<input data-line-field="description" value="${text(line.description)}"></label>
         <label>Cantidad<input data-line-field="quantity" type="number" min="0" step="0.01" value="${number(line.quantity || 1)}"></label>
         <label>Material<select data-line-field="suggested_material_id" ${isMaterialExpense ? "" : "disabled"}>${materialOptionsMarkup(line.suggested_material_id)}</select></label>
         <label>Precio ud. ${text(fields.currency || "EUR")}<input data-line-field="unit_price" type="number" min="0" step="0.01" value="${number(line.unit_price ?? line.line_total).toFixed(2)}"></label>
@@ -182,14 +284,14 @@
     $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · ${text(expenseCategoryLabel(fields.category))}</p></div><div class="next-import-navigation"><span>${position + 1} de ${reviewRows.length}</span><button class="ghost" data-open-expense-import="${previous?.id || ""}" ${previous ? "" : "disabled"}>Anterior</button><button class="ghost" data-open-expense-import="${next?.id || ""}" ${next ? "" : "disabled"}>Siguiente</button><button class="ghost button-with-icon" data-close-expense-import><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar revisión</span></button><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div></div>
       <div class="next-review-quality quality-${quality.tone}">${confidenceMarkup(item)}${accountingMarkup(accounting)}<div><strong>${accounting.batch_eligible ? "Lista para confirmación segura" : "Aún necesita supervisión"}</strong><span>La lectura OCR mide lo entendido; el control contable comprueba campos, líneas, decisiones y duplicados.</span></div></div>
       ${data.duplicates.exact ? `<div class="inline-alert danger">Duplicado bloqueante: factura #${data.duplicates.exact.id}</div>` : data.duplicates.warning ? `<div class="inline-alert warn">Posible duplicado: factura #${data.duplicates.warning.id}</div>` : ""}
-      ${documentViewerMarkup({ stored_name: item.stored_name, original_name: item.original_name, mime_type: item.mime_type }, { context: "original" })}
+      ${documentViewerMarkup({ stored_name: item.stored_name, original_name: item.original_name, mime_type: item.mime_type }, { context: "original", annotated: true })}
       <div class="next-validation-grid">
         <form id="expenseImportReviewForm" data-import-id="${item.id}" class="form-grid three">
-          <label><span class="next-field-label">Proveedor sugerido ${evidenceButton(fields.evidence?.supplier)}</span><select name="suggested_supplier_id"><option value="">Sin proveedor</option>${(state.suppliers || []).filter((supplier) => !supplier.is_deleted).map((supplier) => `<option value="${supplier.id}" ${String(supplier.id) === String(fields.suggested_supplier_id) ? "selected" : ""}>${text(supplier.name)}</option>`).join("")}</select></label>
-          <label><span class="next-field-label">Tipo de gasto ${evidenceButton(fields.evidence?.category)}</span><select name="category">${INVOICE_CATEGORIES.map((category) => `<option value="${category}" ${category === fields.category ? "selected" : ""}>${text(category.charAt(0).toUpperCase() + category.slice(1))}</option>`).join("")}</select></label>
-          <label><span class="next-field-label">Número de factura ${evidenceButton(fields.evidence?.invoice_number)}</span><input name="invoice_number" value="${text(fields.invoice_number || "")}"></label>
-          <label><span class="next-field-label">Fecha ${evidenceButton(fields.evidence?.invoice_date)}</span><input name="invoice_date" value="${text(fields.invoice_date || "")}"></label>
-          <label><span class="next-field-label">Total ${evidenceButton(fields.evidence?.total)}</span><input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"></label>
+          <label>Proveedor sugerido<select name="suggested_supplier_id"><option value="">Sin proveedor</option>${(state.suppliers || []).filter((supplier) => !supplier.is_deleted).map((supplier) => `<option value="${supplier.id}" ${String(supplier.id) === String(fields.suggested_supplier_id) ? "selected" : ""}>${text(supplier.name)}</option>`).join("")}</select></label>
+          <label>Tipo de gasto<select name="category">${INVOICE_CATEGORIES.map((category) => `<option value="${category}" ${category === fields.category ? "selected" : ""}>${text(category.charAt(0).toUpperCase() + category.slice(1))}</option>`).join("")}</select></label>
+          <label>Número de factura<input name="invoice_number" value="${text(fields.invoice_number || "")}"></label>
+          <label>Fecha<input name="invoice_date" value="${text(fields.invoice_date || "")}"></label>
+          <label>Total<input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"></label>
           <label>Moneda<select name="currency"><option value="EUR" ${(fields.currency || "EUR") === "EUR" ? "selected" : ""}>EUR · Euro</option><option value="USD" ${fields.currency === "USD" ? "selected" : ""}>USD · Dólar</option></select></label>
           <button type="submit">Guardar revisión</button>
         </form>
@@ -198,6 +300,7 @@
       <div class="next-lines"><div class="next-lines-head"><div><h3>Líneas sugeridas</h3><p>Edita los datos detectados y decide qué líneas pasarán al gasto borrador.</p></div><div class="next-lines-head-actions"><div class="next-lines-balance"><span>Suma líneas <strong>${currencyFormat(accounting.line_total, fields.currency || "EUR")}</strong></span><span>Diferencia <strong>${currencyFormat(accounting.difference, fields.currency || "EUR")}</strong></span></div><button type="button" class="ghost" data-merge-import-lines="${item.id}">Combinar seleccionadas</button><button type="button" class="ghost" data-add-import-line="${item.id}">Añadir línea</button></div></div>${data.lines.length ? data.lines.map(lineMarkup).join("") : `<div class="empty-state">No se detectaron líneas fiables. Añade las necesarias antes de confirmar.</div>`}</div>
       <div class="row-actions next-import-final-actions"><div class="next-discard-action"><button type="button" class="ghost" data-request-discard-import="${item.id}">Eliminar importación</button><span>El archivo y su lectura se borrarán definitivamente.</span></div><button type="button" ${data.duplicates.exact ? "disabled" : ""} data-confirm-import="${item.id}">Confirmar y crear factura borrador</button></div>`;
     $("#expenseImportDetail").scrollIntoView({ behavior: "smooth", block: "start" });
+    renderAnnotatedImportViewer(item, data.lines);
   }
 
   async function loadReplenishment() {
@@ -233,22 +336,6 @@
     try {
       if (button.dataset.expenseSection) switchExpense(button.dataset.expenseSection);
       if (button.dataset.materialsSection) switchMaterials(button.dataset.materialsSection);
-      if (button.dataset.showDocumentEvidence) {
-        const viewer = $("#expenseImportDetail .document-viewer");
-        if (viewer) {
-          viewer.open = true;
-          const evidence = button.dataset.showDocumentEvidence;
-          const page = button.dataset.evidencePage || "1";
-          const banner = viewer.querySelector("[data-document-viewer-evidence]");
-          if (banner) {
-            banner.classList.remove("hidden");
-            banner.innerHTML = `<strong>Evidencia detectada · página ${text(page)}</strong><span>${text(evidence)}</span>`;
-          }
-          const frame = viewer.querySelector("iframe[data-document-preview]");
-          if (frame) frame.src = `${frame.dataset.documentSource}#page=${page}&search=${encodeURIComponent(evidence)}&view=FitH`;
-          viewer.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-      }
       if (Object.prototype.hasOwnProperty.call(button.dataset, "closeExpenseImport")) showImportList();
       if (button.dataset.openExpenseImport) await openImport(button.dataset.openExpenseImport);
       if (button.dataset.reprocessImport) { await api(`/api/expense-imports/${button.dataset.reprocessImport}/reprocess`, { method: "POST" }); await loadImports(); }

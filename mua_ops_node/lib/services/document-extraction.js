@@ -153,7 +153,8 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
     const worker = await createWorker("spa+eng", 1, { langPath, cachePath: langPath, gzip: true });
     try {
       const result = await worker.recognize(filePath);
-      return { text: result.data.text || "", confidence: Number(result.data.confidence || 0), words: result.data.words || [] };
+      const blockWords = (result.data.blocks || []).flatMap((block) => (block.paragraphs || []).flatMap((paragraph) => (paragraph.lines || []).flatMap((line) => line.words || [])));
+      return { text: result.data.text || "", confidence: Number(result.data.confidence || 0), words: result.data.words || blockWords };
     } finally {
       await worker.terminate();
     }
