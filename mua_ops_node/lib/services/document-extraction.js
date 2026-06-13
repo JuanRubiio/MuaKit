@@ -122,6 +122,22 @@ function inferExpenseCategory(text, supplierCategory = "", historicalCategories 
   return historical || supplierCategory || "otros";
 }
 
+function fieldEvidence(fields, pages) {
+  const pageLines = pages.flatMap((page) => String(page.text || "").split(/\r?\n/).map((line) => ({ page: page.page, text: line.trim() })).filter((line) => line.text));
+  const find = (...needles) => {
+    const normalizedNeedles = needles.filter((value) => value !== null && value !== undefined && value !== "").map(normalize);
+    const match = pageLines.find((line) => normalizedNeedles.some((needle) => needle && normalize(line.text).includes(needle)));
+    return match || null;
+  };
+  return {
+    supplier: find(fields.suggested_supplier_name),
+    invoice_number: find(fields.invoice_number),
+    invoice_date: find(fields.invoice_date) || pageLines.find((line) => /\b(fecha|date|paid on|bill created)\b/i.test(line.text)) || null,
+    total: pageLines.find((line) => fields.total !== null && amount(line.text) === Number(fields.total) && /\b(total|importe|due)\b|€|\bEUR\b|\bUSD\b|\$/i.test(line.text)) || null,
+    category: find(fields.suggested_supplier_name) || pageLines.find((line) => /\b(meta anuncios|apps?|software|marketing|env[ií]o|material)\b/i.test(line.text)) || null
+  };
+}
+
 function createDocumentExtractionService({ query, one, exec, insert, saveDb, audit, UPLOAD_DIR }) {
   const queue = [];
   let running = false;
@@ -175,11 +191,18 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
 
   function suggest(fields) {
     const suppliers = query("SELECT id, name, category FROM suppliers WHERE is_deleted=0");
-    const normalizedText = normalize(fields.lines.slice(0, 20).join(" "));
-    const supplier = suppliers.find((item) => normalizedText.includes(normalize(item.name))) || null;
-    const historicalCategories = supplier ? query("SELECT category FROM invoices WHERE supplier_id=$supplier AND is_deleted=0 ORDER BY invoice_date DESC LIMIT 20", { supplier: supplier.id }).map((row) => row.category).filter(Boolean) : [];
-    const category = inferExpenseCategory(fields.lines.join(" "), supplier?.category, historicalCategories);
-    return { ...fields, category, suggested_supplier_id: supplier?.id || null, suggested_supplier_name: supplier?.name || "" };
+    const normalizedText = normalize(fields.lines.slice(0, 30).join(" "));
+    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy"], shein: ["shein"], aliexpress: ["aliexpress"], canva: ["canva"], capcut: ["capcut"] };
+    const supplier = suppliers
+      .map((item) => {
+        const names = [normalize(item.name), ...(aliases[normalize(item.name)] || []).map(normalize)];
+        return { item, score: names.reduce((score, name) => score + (name && normalizedText.includes(name) ? name.length : 0), 0) };
+      })
+      .sort((a, b) => b.score - a.score)[0];
+    const matchedSupplier = supplier?.score ? supplier.item : null;
+    const historicalCategories = matchedSupplier ? query("SELECT category FROM invoices WHERE supplier_id=$supplier AND is_deleted=0 ORDER BY invoice_date DESC LIMIT 30", { supplier: matchedSupplier.id }).map((row) => row.category).filter(Boolean) : [];
+    const category = inferExpenseCategory(fields.lines.join(" "), matchedSupplier?.category, historicalCategories);
+    return { ...fields, category, suggested_supplier_id: matchedSupplier?.id || null, suggested_supplier_name: matchedSupplier?.name || "", rule_source: historicalCategories.length ? "historical_supplier" : matchedSupplier ? "supplier_profile" : "document_signals" };
   }
 
   async function process(importId) {
@@ -191,6 +214,7 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
       const pages = item.mime_type === "application/pdf" ? await extractPdf(item.stored_path) : [{ page: 1, method: "ocr", ...(await ocrImage(item.stored_path)), duration_ms: 0 }];
       const fullText = pages.map((page) => page.text).join("\n");
       const fields = suggest(detectFields(fullText));
+      fields.evidence = fieldEvidence(fields, pages);
       const confidence = pages.length ? pages.reduce((sum, page) => sum + Number(page.confidence || 0), 0) / pages.length : 0;
       const status = confidence >= 90 && fields.total !== null ? "ready" : "review";
       if (one("SELECT status FROM expense_imports WHERE id=$id", { id: importId })?.status === "confirmed") return;
@@ -200,18 +224,30 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
         fields: JSON.stringify(fields), pages: JSON.stringify(pages), warnings: JSON.stringify(fields.total === null ? ["No se ha detectado un total fiable."] : [])
       });
       exec("DELETE FROM expense_import_lines WHERE expense_import_id=$id", { id: importId });
+      const historicalMaterialLines = fields.category === "materiales" && fields.suggested_supplier_id
+        ? query(`SELECT il.description, m.id, m.name FROM invoice_lines il
+          JOIN invoices i ON i.id=il.invoice_id
+          JOIN materials m ON m.id=il.material_id
+          WHERE i.supplier_id=$supplier AND i.is_deleted=0 AND m.is_deleted=0
+          ORDER BY i.invoice_date DESC LIMIT 250`, { supplier: fields.suggested_supplier_id })
+        : [];
       [...new Set(detectedInvoiceLines(fields.lines))].forEach((line, index) => {
         const parsedLine = parseInvoiceLine(line, fields);
         if (!parsedLine) return;
         const normalizedLine = normalize(parsedLine.description);
-        const material = fields.category === "materiales"
+        const directMaterial = fields.category === "materiales"
           ? query("SELECT id, name FROM materials WHERE is_deleted=0 ORDER BY LENGTH(name) DESC").find((candidate) => normalizedLine.includes(normalize(candidate.name)))
           : null;
+        const historicalMaterial = historicalMaterialLines.find((candidate) => {
+          const historical = normalize(candidate.description);
+          return historical && (normalizedLine.includes(historical) || historical.includes(normalizedLine));
+        });
+        const material = directMaterial || historicalMaterial || null;
         insert(`INSERT INTO expense_import_lines
           (expense_import_id, position, original_text, description, quantity, unit_price, line_total, suggested_material_id, confidence, human_decision, original_data_json)
           VALUES ($import, $position, $original, $description, 1, $total, $total, $material, $confidence, 'pending', $originalData)`, {
           import: importId, position: index + 1, original: line, description: parsedLine.description, total: parsedLine.converted_amount,
-          material: material?.id || null, confidence: material ? 85 : Math.min(confidence, 69), originalData: JSON.stringify(parsedLine)
+          material: material?.id || null, confidence: material ? (directMaterial ? 85 : 78) : Math.min(confidence, 69), originalData: JSON.stringify({ ...parsedLine, material_rule_source: directMaterial ? "material_name" : historicalMaterial ? "historical_invoice_line" : null, evidence: pages.map((page) => ({ page: page.page, text: String(page.text || "").split(/\r?\n/).find((candidate) => candidate.includes(line)) || "" })).find((entry) => entry.text) || null })
         });
       });
       audit("expense_import", importId, "process", null, { status, confidence });
@@ -240,4 +276,4 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   return { enqueue, process, status: () => ({ available: true, languages: ["spa", "eng"], model_path: langPath, pending: queue.length, running }) };
 }
 
-module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, parseInvoiceLine, inferExpenseCategory, nativePageText, normalize, amount };
+module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, parseInvoiceLine, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };

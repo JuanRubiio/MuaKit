@@ -7,6 +7,11 @@
   let currentPurchasePlan = null;
   let expensePoll = null;
   let importUploading = false;
+  let importFilterTimer = null;
+  let expenseImportRows = [];
+  let currentImportId = null;
+  let importFilters = { query: "", status: "pending_review", supplier: "", category: "", quality: "", issue: "" };
+  const selectedImportIds = new Set();
 
   const fmt = (value) => euro.format(Number(value || 0));
   const metric = (label, value, hint) => `<article class="next-kpi"><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></article>`;
@@ -32,7 +37,36 @@
       <small>${text(quality.hint)}</small>
     </div>`;
   };
+  const accountingMarkup = (quality = {}, compact = false) => {
+    const checks = [
+      ["Campos", !(quality.missing || []).length],
+      ["Totales", quality.lines_match],
+      ["Decisiones", quality.decisions_complete],
+      ["Duplicado", !quality.duplicate]
+    ];
+    return `<div class="next-accounting-quality quality-${quality.tone || "low"} ${compact ? "is-compact" : ""}">
+      <div class="next-accounting-head"><span>Control contable</span><strong>${Number(quality.score || 0)}/4</strong></div>
+      <div class="next-quality-checks">${checks.map(([label, ok]) => `<span class="${ok ? "is-ok" : "is-pending"}">${ok ? "✓" : "!"} ${label}</span>`).join("")}</div>
+    </div>`;
+  };
+  const reviewableRows = () => expenseImportRows.filter((row) => ["ready", "review", "error"].includes(row.status));
+  const filteredImportRows = () => {
+    const query = importFilters.query.toLocaleLowerCase("es");
+    return expenseImportRows.filter((row) => {
+      const fields = row.detected_fields || {};
+      const accounting = row.accounting_quality || {};
+      const haystack = [row.original_name, fields.suggested_supplier_name, fields.invoice_number].join(" ").toLocaleLowerCase("es");
+      return row.status !== "discarded"
+        && (!query || haystack.includes(query))
+        && (!importFilters.status || (importFilters.status === "pending_review" ? ["pending", "processing", "ready", "review", "error"].includes(row.status) : row.status === importFilters.status))
+        && (!importFilters.supplier || String(fields.suggested_supplier_id || "") === importFilters.supplier)
+        && (!importFilters.category || fields.category === importFilters.category)
+        && (!importFilters.quality || importQuality(row).tone === importFilters.quality)
+        && (!importFilters.issue || (importFilters.issue === "duplicate" ? row.duplicate : importFilters.issue === "totals" ? !accounting.lines_match : importFilters.issue === "fields" ? accounting.missing?.length : importFilters.issue === "decisions" ? !accounting.decisions_complete : false));
+    });
+  };
   function showImportList() {
+    currentImportId = null;
     $("#expenseImportListView").classList.remove("hidden");
     $("#expenseImportDetail").classList.add("hidden");
     $("#expenseImportDetail").innerHTML = "";
@@ -55,25 +89,40 @@
     if (section === "purchases") loadPurchasePlans();
   }
 
-  async function loadImports() {
-    const rows = await api("/api/expense-imports");
+  function renderImportList() {
     const qualityOrder = { low: 0, medium: 1, processing: 2, high: 3 };
-    const visibleRows = rows
-      .filter((row) => row.status !== "discarded")
-      .sort((a, b) => (qualityOrder[importQuality(a).tone] ?? 4) - (qualityOrder[importQuality(b).tone] ?? 4) || Number(b.id) - Number(a.id));
-    const pending = rows.filter((row) => ["pending", "processing"].includes(row.status)).length;
-    const review = rows.filter((row) => ["ready", "review"].includes(row.status)).length;
+    const visibleRows = filteredImportRows().sort((a, b) => (qualityOrder[importQuality(a).tone] ?? 4) - (qualityOrder[importQuality(b).tone] ?? 4) || Number(b.id) - Number(a.id));
+    const pending = expenseImportRows.filter((row) => ["pending", "processing"].includes(row.status)).length;
     const reliable = visibleRows.filter((row) => ["ready", "review"].includes(row.status) && importQuality(row).tone === "high").length;
     const attention = visibleRows.filter((row) => ["ready", "review", "error"].includes(row.status) && importQuality(row).tone !== "high").length;
     $("#expenseImportMetrics").innerHTML = metric("En proceso", pending, "Cola local secuencial") + metric("Lectura fiable", reliable, "Listas para validar") + metric("Requieren atención", attention, "Revisar datos detectados");
+    const suppliers = [...new Map(expenseImportRows.filter((row) => row.detected_fields?.suggested_supplier_id).map((row) => [row.detected_fields.suggested_supplier_id, row.detected_fields.suggested_supplier_name])).entries()];
+    $("#expenseImportTools").innerHTML = `<div class="next-import-filters">
+      <label>Buscar<input type="search" data-import-filter="query" value="${text(importFilters.query)}" placeholder="Documento, proveedor, número"></label>
+      <label>Estado<select data-import-filter="status"><option value="pending_review" ${importFilters.status === "pending_review" ? "selected" : ""}>Pendientes</option><option value="">Todos</option><option value="confirmed" ${importFilters.status === "confirmed" ? "selected" : ""}>Confirmadas</option><option value="error" ${importFilters.status === "error" ? "selected" : ""}>Con error</option></select></label>
+      <label>Proveedor<select data-import-filter="supplier"><option value="">Todos</option>${suppliers.map(([id, name]) => `<option value="${id}" ${String(id) === importFilters.supplier ? "selected" : ""}>${text(name)}</option>`).join("")}</select></label>
+      <label>Tipo<select data-import-filter="category"><option value="">Todos</option>${INVOICE_CATEGORIES.map((value) => `<option value="${value}" ${value === importFilters.category ? "selected" : ""}>${expenseCategoryLabel(value)}</option>`).join("")}</select></label>
+      <label>Lectura<select data-import-filter="quality"><option value="">Todas</option><option value="high" ${importFilters.quality === "high" ? "selected" : ""}>Fiable</option><option value="medium" ${importFilters.quality === "medium" ? "selected" : ""}>Revisable</option><option value="low" ${importFilters.quality === "low" ? "selected" : ""}>Atención</option></select></label>
+      <label>Incidencia<select data-import-filter="issue"><option value="">Todas</option><option value="fields" ${importFilters.issue === "fields" ? "selected" : ""}>Faltan campos</option><option value="totals" ${importFilters.issue === "totals" ? "selected" : ""}>Totales no cuadran</option><option value="decisions" ${importFilters.issue === "decisions" ? "selected" : ""}>Decisiones pendientes</option><option value="duplicate" ${importFilters.issue === "duplicate" ? "selected" : ""}>Duplicado</option></select></label>
+    </div><div class="next-batch-bar"><span><strong>${selectedImportIds.size}</strong> seleccionadas para crear borradores</span><button type="button" data-batch-confirm-imports ${selectedImportIds.size ? "" : "disabled"}>Confirmar selección</button></div>`;
     $("#expenseImportList").innerHTML = visibleRows.length ? visibleRows.map((row) => `<article class="next-import-row is-${row.status}">
+      <input class="next-import-select" type="checkbox" data-select-expense-import="${row.id}" ${selectedImportIds.has(Number(row.id)) ? "checked" : ""} ${row.accounting_quality?.batch_eligible && ["ready", "review"].includes(row.status) ? "" : "disabled"}>
       ${row.detected_fields?.suggested_supplier_name ? entityIconMarkup(row.detected_fields.suggested_supplier_name, { type: "supplier", className: "supplier-avatar compact", label: row.detected_fields.suggested_supplier_name }) : `<span class="next-file-icon"><svg><use href="#icon-file"></use></svg></span>`}
-      <div class="next-import-document"><strong>${text(row.original_name)}</strong><small>${row.detected_fields?.suggested_supplier_name ? `${text(row.detected_fields.suggested_supplier_name)} · ` : ""}${Math.round(Number(row.size || 0) / 1024)} KB</small><span class="next-import-facts"><em>${text(expenseCategoryLabel(row.detected_fields?.category))}</em>${row.detected_fields?.invoice_date ? `<em>${text(row.detected_fields.invoice_date)}</em>` : ""}${row.detected_fields?.total !== null && row.detected_fields?.total !== undefined ? `<em>${currencyFormat(row.detected_fields.total, row.detected_fields.currency || "EUR")}</em>` : ""}</span></div>
+      <div class="next-import-document"><strong>${text(row.original_name)}</strong><small>${row.detected_fields?.suggested_supplier_name ? `${text(row.detected_fields.suggested_supplier_name)} · ` : ""}${Math.round(Number(row.size || 0) / 1024)} KB</small><span class="next-import-facts"><em>${text(expenseCategoryLabel(row.detected_fields?.category))}</em>${row.detected_fields?.rule_source ? `<em>Regla aprendida</em>` : ""}${row.detected_fields?.invoice_date ? `<em>${text(row.detected_fields.invoice_date)}</em>` : ""}${row.detected_fields?.total !== null && row.detected_fields?.total !== undefined ? `<em>${currencyFormat(row.detected_fields.total, row.detected_fields.currency || "EUR")}</em>` : ""}</span></div>
       <span class="status-pill ${row.status === "error" ? "danger" : row.status === "confirmed" ? "ok" : "warn"}">${statusText(row.status)}</span>
       ${confidenceMarkup(row, true)}
+      ${accountingMarkup(row.accounting_quality, true)}
       <button type="button" class="ghost" data-open-expense-import="${row.id}" ${["pending", "processing"].includes(row.status) ? "disabled" : ""}>${row.status === "confirmed" ? "Ver" : "Revisar"}</button>
-    </article>`).join("") : `<div class="empty-state">Aún no hay documentos pendientes de validación.</div>`;
-    const active = rows.some((row) => ["pending", "processing"].includes(row.status));
+    </article>`).join("") : `<div class="empty-state">No hay documentos que coincidan con los filtros.</div>`;
+  }
+
+  async function loadImports() {
+    expenseImportRows = await api("/api/expense-imports");
+    [...selectedImportIds].forEach((id) => {
+      if (!expenseImportRows.some((row) => Number(row.id) === id && row.accounting_quality?.batch_eligible)) selectedImportIds.delete(id);
+    });
+    renderImportList();
+    const active = expenseImportRows.some((row) => ["pending", "processing"].includes(row.status));
     if (active && !expensePoll) expensePoll = setInterval(loadImports, 1200);
     if (!active && expensePoll) { clearInterval(expensePoll); expensePoll = null; }
   }
@@ -97,43 +146,56 @@
     $("#expenseImportUploadForm button[type=submit]").disabled = !files.length || importUploading;
   }
 
+  function evidenceAttrs(evidence, fallback = "") {
+    const value = evidence?.text || fallback;
+    return value ? ` data-document-evidence="${text(value)}" data-evidence-page="${Number(evidence?.page || 1)}"` : "";
+  }
+
   async function openImport(id) {
     const data = await api(`/api/expense-imports/${id}`);
+    currentImportId = Number(id);
     const item = data.import;
     const fields = item.detected_fields || {};
     const quality = importQuality(item);
+    const accounting = data.accounting_quality || {};
+    const reviewRows = reviewableRows();
+    const position = Math.max(0, reviewRows.findIndex((row) => Number(row.id) === currentImportId));
+    const previous = reviewRows[position - 1];
+    const next = reviewRows[position + 1];
     const isMaterialExpense = fields.category === "materiales";
     const materialOptionsMarkup = (selected) => `<option value="">${isMaterialExpense ? "Sin material sugerido" : "No aplica a este gasto"}</option>${isMaterialExpense ? (state.materials || []).filter((material) => !material.is_deleted).map((material) => `<option value="${material.id}" ${String(material.id) === String(selected) ? "selected" : ""}>${text(material.name)}</option>`).join("") : ""}`;
     const lineMarkup = (line) => {
-      return `<article class="next-editable-line" data-import-line-row="${line.id}">
-        <label>Concepto<input data-line-field="description" value="${text(line.description)}"></label>
+      const original = (() => { try { return JSON.parse(line.original_data_json || "{}"); } catch { return {}; } })();
+      return `<article class="next-editable-line" data-import-line-row="${line.id}"${evidenceAttrs(original.evidence, line.original_text)}>
+        <input class="next-line-select" type="checkbox" data-select-import-line="${line.id}" aria-label="Seleccionar línea para combinar">
+        <label>Concepto<input data-line-field="description" value="${text(line.description)}"${evidenceAttrs(original.evidence, line.original_text)}></label>
         <label>Cantidad<input data-line-field="quantity" type="number" min="0" step="0.01" value="${number(line.quantity || 1)}"></label>
         <label>Material<select data-line-field="suggested_material_id" ${isMaterialExpense ? "" : "disabled"}>${materialOptionsMarkup(line.suggested_material_id)}</select></label>
         <label>Precio ud. ${text(fields.currency || "EUR")}<input data-line-field="unit_price" type="number" min="0" step="0.01" value="${number(line.unit_price ?? line.line_total).toFixed(2)}"></label>
         <label>Total ${text(fields.currency || "EUR")}<input data-line-field="line_total" type="number" min="0" step="0.01" value="${number(line.line_total).toFixed(2)}"></label>
         <label>Decisión<select data-line-field="human_decision"><option value="pending" ${line.human_decision === "pending" ? "selected" : ""}>Revisar</option><option value="accepted" ${line.human_decision === "accepted" ? "selected" : ""}>Aceptar</option><option value="rejected" ${line.human_decision === "rejected" ? "selected" : ""}>Excluir</option></select></label>
-        <button type="button" class="ghost button-with-icon" data-save-import-line="${line.id}" data-import-id="${item.id}"><svg><use href="#icon-save"></use></svg><span>Guardar</span></button>
+        <div class="next-editable-line-actions"><button type="button" class="ghost button-with-icon" data-save-import-line="${line.id}" data-import-id="${item.id}"><svg><use href="#icon-save"></use></svg><span>Guardar</span></button><button type="button" class="ghost" data-split-import-line="${line.id}" data-import-id="${item.id}">Dividir</button><button type="button" class="ghost danger-text" data-delete-import-line="${line.id}" data-import-id="${item.id}">Eliminar</button></div>
       </article>`;
     };
     $("#expenseImportListView").classList.add("hidden");
     $("#expenseImportDetail").classList.remove("hidden");
-    $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · ${text(expenseCategoryLabel(fields.category))}</p></div><div class="row-actions"><button class="ghost button-with-icon" data-close-expense-import><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar revisión</span></button><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div></div>
-      <div class="next-review-quality quality-${quality.tone}">${confidenceMarkup(item)}<div><strong>${quality.tone === "high" ? "La lectura tiene buena pinta" : "Conviene revisar los datos detectados"}</strong><span>${quality.tone === "high" ? "Proveedor, referencia, fecha, tipo y total detectados." : `${text(quality.hint)}.`} La confirmación siempre requiere supervisión humana.</span></div></div>
+    $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · ${text(expenseCategoryLabel(fields.category))}</p></div><div class="next-import-navigation"><span>${position + 1} de ${reviewRows.length}</span><button class="ghost" data-open-expense-import="${previous?.id || ""}" ${previous ? "" : "disabled"}>Anterior</button><button class="ghost" data-open-expense-import="${next?.id || ""}" ${next ? "" : "disabled"}>Siguiente</button><button class="ghost button-with-icon" data-close-expense-import><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar revisión</span></button><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div></div>
+      <div class="next-review-quality quality-${quality.tone}">${confidenceMarkup(item)}${accountingMarkup(accounting)}<div><strong>${accounting.batch_eligible ? "Lista para confirmación segura" : "Aún necesita supervisión"}</strong><span>La lectura OCR mide lo entendido; el control contable comprueba campos, líneas, decisiones y duplicados.</span></div></div>
       ${data.duplicates.exact ? `<div class="inline-alert danger">Duplicado bloqueante: factura #${data.duplicates.exact.id}</div>` : data.duplicates.warning ? `<div class="inline-alert warn">Posible duplicado: factura #${data.duplicates.warning.id}</div>` : ""}
       ${documentViewerMarkup({ stored_name: item.stored_name, original_name: item.original_name, mime_type: item.mime_type }, { context: "original" })}
       <div class="next-validation-grid">
         <form id="expenseImportReviewForm" data-import-id="${item.id}" class="form-grid three">
-          <label>Proveedor sugerido<select name="suggested_supplier_id"><option value="">Sin proveedor</option>${(state.suppliers || []).filter((supplier) => !supplier.is_deleted).map((supplier) => `<option value="${supplier.id}" ${String(supplier.id) === String(fields.suggested_supplier_id) ? "selected" : ""}>${text(supplier.name)}</option>`).join("")}</select></label>
-          <label>Tipo de gasto<select name="category">${INVOICE_CATEGORIES.map((category) => `<option value="${category}" ${category === fields.category ? "selected" : ""}>${text(category.charAt(0).toUpperCase() + category.slice(1))}</option>`).join("")}</select></label>
-          <label>Número de factura<input name="invoice_number" value="${text(fields.invoice_number || "")}"></label>
-          <label>Fecha<input name="invoice_date" value="${text(fields.invoice_date || "")}"></label>
-          <label>Total<input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"></label>
+          <label${evidenceAttrs(fields.evidence?.supplier)}>Proveedor sugerido<select name="suggested_supplier_id"${evidenceAttrs(fields.evidence?.supplier)}><option value="">Sin proveedor</option>${(state.suppliers || []).filter((supplier) => !supplier.is_deleted).map((supplier) => `<option value="${supplier.id}" ${String(supplier.id) === String(fields.suggested_supplier_id) ? "selected" : ""}>${text(supplier.name)}</option>`).join("")}</select></label>
+          <label${evidenceAttrs(fields.evidence?.category)}>Tipo de gasto<select name="category"${evidenceAttrs(fields.evidence?.category)}>${INVOICE_CATEGORIES.map((category) => `<option value="${category}" ${category === fields.category ? "selected" : ""}>${text(category.charAt(0).toUpperCase() + category.slice(1))}</option>`).join("")}</select></label>
+          <label${evidenceAttrs(fields.evidence?.invoice_number)}>Número de factura<input name="invoice_number" value="${text(fields.invoice_number || "")}"${evidenceAttrs(fields.evidence?.invoice_number)}></label>
+          <label${evidenceAttrs(fields.evidence?.invoice_date)}>Fecha<input name="invoice_date" value="${text(fields.invoice_date || "")}"${evidenceAttrs(fields.evidence?.invoice_date)}></label>
+          <label${evidenceAttrs(fields.evidence?.total)}>Total<input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"${evidenceAttrs(fields.evidence?.total)}></label>
           <label>Moneda<select name="currency"><option value="EUR" ${(fields.currency || "EUR") === "EUR" ? "selected" : ""}>EUR · Euro</option><option value="USD" ${fields.currency === "USD" ? "selected" : ""}>USD · Dólar</option></select></label>
           <button type="submit">Guardar revisión</button>
         </form>
         <div class="next-detected-pages"><strong>Lectura por página</strong>${item.pages.map((page) => `<div><span>Página ${page.page} · ${text(page.method)}</span><b>${Math.round(page.confidence)}%</b><i><em style="width:${Math.max(0, Math.min(100, Number(page.confidence || 0)))}%"></em></i></div>`).join("")}</div>
       </div>
-      <div class="next-lines"><div class="next-lines-head"><div><h3>Líneas sugeridas</h3><p>Edita los datos detectados y decide qué líneas pasarán al gasto borrador.</p></div><div class="next-lines-balance"><span>Suma líneas <strong>${currencyFormat(data.lines.reduce((sum, line) => sum + number(line.line_total), 0), fields.currency || "EUR")}</strong></span><span>Total factura <strong>${currencyFormat(fields.total, fields.currency || "EUR")}</strong></span></div></div>${data.lines.length ? data.lines.map(lineMarkup).join("") : `<div class="empty-state">No se detectaron líneas fiables. Puedes crear el gasto y completarlas después.</div>`}</div>
+      <div class="next-lines"><div class="next-lines-head"><div><h3>Líneas sugeridas</h3><p>Edita los datos detectados y decide qué líneas pasarán al gasto borrador.</p></div><div class="next-lines-head-actions"><div class="next-lines-balance"><span>Suma líneas <strong>${currencyFormat(accounting.line_total, fields.currency || "EUR")}</strong></span><span>Diferencia <strong>${currencyFormat(accounting.difference, fields.currency || "EUR")}</strong></span></div><button type="button" class="ghost" data-merge-import-lines="${item.id}">Combinar seleccionadas</button><button type="button" class="ghost" data-add-import-line="${item.id}">Añadir línea</button></div></div>${data.lines.length ? data.lines.map(lineMarkup).join("") : `<div class="empty-state">No se detectaron líneas fiables. Añade las necesarias antes de confirmar.</div>`}</div>
       <div class="row-actions next-import-final-actions"><div class="next-discard-action"><button type="button" class="ghost" data-request-discard-import="${item.id}">Eliminar importación</button><span>El archivo y su lectura se borrarán definitivamente.</span></div><button type="button" ${data.duplicates.exact ? "disabled" : ""} data-confirm-import="${item.id}">Confirmar y crear factura borrador</button></div>`;
     $("#expenseImportDetail").scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -174,6 +236,12 @@
       if (Object.prototype.hasOwnProperty.call(button.dataset, "closeExpenseImport")) showImportList();
       if (button.dataset.openExpenseImport) await openImport(button.dataset.openExpenseImport);
       if (button.dataset.reprocessImport) { await api(`/api/expense-imports/${button.dataset.reprocessImport}/reprocess`, { method: "POST" }); await loadImports(); }
+      if (Object.prototype.hasOwnProperty.call(button.dataset, "batchConfirmImports")) {
+        const result = await api("/api/expense-imports/batch-confirm", { method: "POST", body: JSON.stringify({ ids: [...selectedImportIds] }) });
+        selectedImportIds.clear();
+        toast(`${result.confirmed.length} borradores creados${result.rejected.length ? ` · ${result.rejected.length} requieren revisión` : ""}`);
+        await loadImports();
+      }
       if (button.dataset.requestDiscardImport) {
         const action = button.closest(".next-discard-action");
         action.classList.add("is-confirming");
@@ -181,7 +249,44 @@
       }
       if (button.dataset.cancelDiscardImport) await openImport(button.dataset.cancelDiscardImport);
       if (button.dataset.discardImport) { await api(`/api/expense-imports/${button.dataset.discardImport}/discard`, { method: "POST" }); showImportList(); }
-      if (button.dataset.confirmImport) { const result = await api(`/api/expense-imports/${button.dataset.confirmImport}/confirm`, { method: "POST", body: JSON.stringify({}) }); toast(`Factura borrador #${result.invoice_id} creada`); switchExpense("registered"); await loadInvoices(); }
+      if (button.dataset.confirmImport) {
+        const nextId = reviewableRows().find((row) => Number(row.id) !== Number(button.dataset.confirmImport))?.id;
+        const result = await api(`/api/expense-imports/${button.dataset.confirmImport}/confirm`, { method: "POST", body: JSON.stringify({}) });
+        toast(`Factura borrador #${result.invoice_id} creada`);
+        await loadImports();
+        if (nextId && expenseImportRows.some((row) => Number(row.id) === Number(nextId))) await openImport(nextId); else showImportList();
+      }
+      if (button.dataset.addImportLine) {
+        await api(`/api/expense-imports/${button.dataset.addImportLine}/lines`, { method: "POST", body: JSON.stringify({ description: "Nueva línea", quantity: 1, line_total: 0, human_decision: "pending" }) });
+        await openImport(button.dataset.addImportLine);
+      }
+      if (button.dataset.deleteImportLine) {
+        await api(`/api/expense-imports/${button.dataset.importId}/lines/${button.dataset.deleteImportLine}`, { method: "DELETE" });
+        await openImport(button.dataset.importId);
+      }
+      if (button.dataset.splitImportLine) {
+        const row = button.closest("[data-import-line-row]");
+        const quantityInput = row.querySelector('[data-line-field="quantity"]');
+        const totalInput = row.querySelector('[data-line-field="line_total"]');
+        const quantity = number(quantityInput.value);
+        const total = number(totalInput.value);
+        const firstQuantity = quantity > 1 ? quantity / 2 : quantity;
+        const firstTotal = total / 2;
+        await api(`/api/expense-imports/${button.dataset.importId}/lines/${button.dataset.splitImportLine}`, { method: "PATCH", body: JSON.stringify({ quantity: firstQuantity, line_total: firstTotal, unit_price: firstQuantity ? firstTotal / firstQuantity : firstTotal }) });
+        await api(`/api/expense-imports/${button.dataset.importId}/lines`, { method: "POST", body: JSON.stringify({ description: row.querySelector('[data-line-field="description"]').value, quantity: quantity > 1 ? quantity - firstQuantity : quantity, line_total: firstTotal, unit_price: firstQuantity ? firstTotal / firstQuantity : firstTotal, suggested_material_id: row.querySelector('[data-line-field="suggested_material_id"]').value || null, human_decision: "pending" }) });
+        await openImport(button.dataset.importId);
+      }
+      if (button.dataset.mergeImportLines) {
+        const rows = Array.from($("#expenseImportDetail").querySelectorAll("[data-select-import-line]:checked")).map((input) => input.closest("[data-import-line-row]"));
+        if (rows.length < 2) throw new Error("Selecciona al menos dos líneas para combinarlas.");
+        const first = rows[0];
+        const total = rows.reduce((sum, row) => sum + number(row.querySelector('[data-line-field="line_total"]').value), 0);
+        const quantity = rows.reduce((sum, row) => sum + number(row.querySelector('[data-line-field="quantity"]').value), 0);
+        const description = rows.map((row) => row.querySelector('[data-line-field="description"]').value).filter(Boolean).join(" + ");
+        await api(`/api/expense-imports/${button.dataset.mergeImportLines}/lines/${first.dataset.importLineRow}`, { method: "PATCH", body: JSON.stringify({ description, quantity, line_total: total, unit_price: quantity ? total / quantity : total, human_decision: "pending" }) });
+        for (const row of rows.slice(1)) await api(`/api/expense-imports/${button.dataset.mergeImportLines}/lines/${row.dataset.importLineRow}`, { method: "DELETE" });
+        await openImport(button.dataset.mergeImportLines);
+      }
       if (button.dataset.saveImportLine) {
         const row = button.closest("[data-import-line-row]");
         const body = Object.fromEntries(Array.from(row.querySelectorAll("[data-line-field]")).map((input) => [input.dataset.lineField, input.value]));
@@ -212,17 +317,51 @@
   });
 
   document.body.addEventListener("change", async (event) => {
+    if (event.target.matches("[data-import-filter]")) {
+      importFilters[event.target.dataset.importFilter] = event.target.value;
+      renderImportList();
+      return;
+    }
+    if (event.target.matches("[data-select-expense-import]")) {
+      const id = Number(event.target.dataset.selectExpenseImport);
+      if (event.target.checked) selectedImportIds.add(id); else selectedImportIds.delete(id);
+      renderImportList();
+      return;
+    }
     const select = event.target.closest("[data-import-line]");
     if (!select) return;
     await api(`/api/expense-imports/${select.dataset.importId}/lines/${select.dataset.importLine}`, { method: "PATCH", body: JSON.stringify({ human_decision: select.value }) }).catch((error) => toast(error.message));
   });
 
   document.body.addEventListener("input", (event) => {
+    if (event.target.matches('[data-import-filter="query"]')) {
+      importFilters.query = event.target.value;
+      clearTimeout(importFilterTimer);
+      importFilterTimer = setTimeout(renderImportList, 180);
+      return;
+    }
     if (!event.target.matches('[data-line-field="quantity"],[data-line-field="unit_price"]')) return;
     const row = event.target.closest("[data-import-line-row]");
     const quantity = number(row.querySelector('[data-line-field="quantity"]').value);
     const unitPrice = number(row.querySelector('[data-line-field="unit_price"]').value);
     row.querySelector('[data-line-field="line_total"]').value = (quantity * unitPrice).toFixed(2);
+  });
+
+  document.body.addEventListener("focusin", (event) => {
+    const target = event.target.closest("[data-document-evidence]");
+    if (!target) return;
+    const viewer = $("#expenseImportDetail .document-viewer");
+    if (!viewer) return;
+    viewer.open = true;
+    const evidence = target.dataset.documentEvidence;
+    const page = target.dataset.evidencePage || "1";
+    const banner = viewer.querySelector("[data-document-viewer-evidence]");
+    if (banner) {
+      banner.classList.remove("hidden");
+      banner.innerHTML = `<strong>Evidencia detectada · página ${text(page)}</strong><span>${text(evidence)}</span>`;
+    }
+    const frame = viewer.querySelector("iframe[data-document-preview]");
+    if (frame) frame.src = `${frame.dataset.documentSource}#page=${page}&search=${encodeURIComponent(evidence)}&view=FitH`;
   });
 
   $("#expenseImportUploadForm")?.addEventListener("submit", async (event) => {

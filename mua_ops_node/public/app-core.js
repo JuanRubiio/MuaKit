@@ -50,9 +50,9 @@ function documentViewerMarkup(document = {}, options = {}) {
   const label = isPdf ? "PDF" : isImage ? "Imagen" : "Documento";
   const context = options.context ? ` ${text(options.context)}` : "";
   const preview = isPdf
-    ? `<iframe src="${source}#view=FitH" title="Vista previa de ${text(originalName)}"></iframe>`
+    ? `<iframe data-document-preview data-document-source="${source}" src="${source}#view=FitH" title="Vista previa de ${text(originalName)}"></iframe>`
     : isImage
-      ? `<img src="${source}" alt="Vista previa de ${text(originalName)}">`
+      ? `<img data-document-preview data-document-source="${source}" src="${source}" alt="Vista previa de ${text(originalName)}">`
       : `<div class="document-viewer-unsupported"><strong>Vista previa no disponible</strong><span>Abre el archivo original para consultarlo.</span></div>`;
   return `<details class="document-viewer"${options.open ? " open" : ""}>
     <summary>
@@ -65,6 +65,7 @@ function documentViewerMarkup(document = {}, options = {}) {
         <span>Referencia visual para contrastar los datos extraídos.</span>
         <a class="ghost document-viewer-link" href="${source}" target="_blank" rel="noreferrer">Abrir original</a>
       </div>
+      <div class="document-viewer-evidence hidden" data-document-viewer-evidence></div>
       <div class="document-viewer-frame">${preview}</div>
     </div>
   </details>`;

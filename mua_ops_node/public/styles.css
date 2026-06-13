@@ -9177,6 +9177,52 @@ textarea {
   gap: 16px;
 }
 
+.next-import-tools {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.next-import-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.next-import-filters label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.next-batch-bar,
+.next-import-navigation,
+.next-lines-head-actions,
+.next-editable-line-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.next-batch-bar {
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.next-import-navigation {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.next-import-navigation > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .next-import-list,
 .next-replenishment-list,
 .next-plan-list,
@@ -9201,7 +9247,12 @@ textarea {
 }
 
 .next-import-row {
-  grid-template-columns: auto minmax(260px, 1fr) auto 190px auto;
+  grid-template-columns: auto auto minmax(240px, 1fr) auto minmax(135px, 0.55fr) minmax(170px, 0.7fr) auto;
+}
+
+.next-import-select {
+  width: 16px;
+  height: 16px;
 }
 
 .next-import-row.is-processing,
@@ -9240,6 +9291,54 @@ textarea {
   display: grid;
   gap: 5px;
   min-width: 0;
+}
+
+.next-accounting-quality {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.next-accounting-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.next-quality-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.next-quality-checks span {
+  padding: 3px 5px;
+  border-radius: 999px;
+  background: #f4f1ec;
+  color: #7a7168;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.next-quality-checks .is-ok {
+  color: #087e70;
+  background: #e9f7f3;
+}
+
+.next-quality-checks .is-pending {
+  color: #a36d1e;
+  background: #fff5e6;
+}
+
+.next-accounting-quality.quality-high .next-accounting-head {
+  color: #087e70;
+}
+
+.next-accounting-quality.quality-low .next-accounting-head {
+  color: #b43b54;
 }
 
 .next-confidence-head {
@@ -9308,7 +9407,7 @@ textarea {
 
 .next-review-quality {
   display: grid;
-  grid-template-columns: minmax(190px, 250px) minmax(0, 1fr);
+  grid-template-columns: minmax(180px, 230px) minmax(250px, 330px) minmax(0, 1fr);
   align-items: center;
   gap: 22px;
   margin: 14px 0 2px;
@@ -9491,6 +9590,11 @@ textarea {
   padding: 4px 0 6px;
 }
 
+.next-lines-head-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .next-lines-balance {
   display: flex;
   align-items: center;
@@ -9515,7 +9619,7 @@ textarea {
 }
 
 .next-lines .next-editable-line {
-  grid-template-columns: minmax(220px, 1.7fr) 78px minmax(180px, 1.2fr) 112px 112px 120px auto;
+  grid-template-columns: auto minmax(210px, 1.6fr) 72px minmax(170px, 1.1fr) 105px 105px 110px minmax(120px, auto);
   align-items: end;
   gap: 10px;
 }
@@ -9537,6 +9641,45 @@ textarea {
 
 .next-editable-line .button-with-icon {
   min-height: 39px;
+}
+
+.next-editable-line-actions {
+  flex-wrap: wrap;
+}
+
+.next-line-select {
+  align-self: center;
+  width: 16px;
+  height: 16px;
+  margin-bottom: 10px;
+}
+
+.next-editable-line-actions button {
+  min-height: 36px;
+  padding: 7px 9px;
+}
+
+.danger-text {
+  color: #b43b54;
+}
+
+[data-document-evidence] {
+  cursor: help;
+}
+
+.document-viewer-evidence {
+  display: grid;
+  gap: 2px;
+  padding: 9px 12px;
+  border: 1px solid #d5c195;
+  border-radius: 6px;
+  color: #6d5423;
+  background: #fff9ec;
+}
+
+.document-viewer-evidence span {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .next-order {
@@ -9583,12 +9726,16 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .next-import-filters,
   .next-review-quality {
     grid-template-columns: 1fr;
   }
 
   .next-import-final-actions,
-  .next-discard-action {
+  .next-discard-action,
+  .next-batch-bar,
+  .next-lines-head,
+  .next-lines-head-actions {
     align-items: stretch;
     flex-direction: column;
   }

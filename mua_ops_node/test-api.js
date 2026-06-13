@@ -3,8 +3,8 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const initSqlJs = require("sql.js");
-const { amount: parsedAmount, detectFields, detectedInvoiceLines, parseInvoiceLine, inferExpenseCategory } = require("./lib/services/document-extraction");
-const { cleanOriginalName } = require("./lib/routes/expense-imports");
+const { amount: parsedAmount, detectFields, detectedInvoiceLines, parseInvoiceLine, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
+const { cleanOriginalName, accountingQuality } = require("./lib/routes/expense-imports");
 
 const ROOT = path.resolve(__dirname, "..");
 const SERVER = path.join(__dirname, "server.js");
@@ -289,6 +289,10 @@ Factura número FBADS-394-105737940`;
   assert(cleanOriginalName("TransacciÃ³n n.Âº 123.pdf") === "Transacción n.º 123.pdf", "Mojibake document names should be repaired");
   assert(inferExpenseCategory("Globo Product Options subscription", "materiales", ["materiales"]) === "software", "Strong document signals should override supplier defaults");
   assert(inferExpenseCategory("Pedido mixto", "materiales", ["software", "software", "materiales"]) === "software", "Mixed suppliers should use historical invoice context");
+  const evidence = fieldEvidence({ suggested_supplier_name: "Meta", invoice_number: "FBADS-394", invoice_date: "2026-04-04", total: 18.51 }, [{ page: 1, text: "Meta Platforms\nFactura FBADS-394\nTotal 18,51 EUR" }]);
+  assert(evidence.supplier?.page === 1 && evidence.invoice_number?.text.includes("FBADS-394"), "Detected fields should retain document evidence");
+  const safeAccounting = accountingQuality({ suggested_supplier_id: 1, invoice_number: "A-1", invoice_date: "2026-01-01", total: 10, category: "software" }, [{ line_total: 10, human_decision: "accepted" }], {});
+  assert(safeAccounting.batch_eligible && safeAccounting.score === 4, "Accounting quality should be independent from OCR confidence");
   cleanTestDir();
   const mockShopifyServer = await createMockShopifyServer();
   let serverOutput = "";
@@ -816,6 +820,23 @@ Factura número FBADS-394-105737940`;
     });
     const duplicateConfirm = await requestRaw("POST", `/api/expense-imports/${duplicateImport.id}/confirm`, {});
     assert(duplicateConfirm.response.status === 400 && duplicateConfirm.payload.code === "EXPENSE_IMPORT_DUPLICATE", "Exact supplier and invoice number should still block duplicate confirmation");
+
+    const batchImportForm = new FormData();
+    batchImportForm.append("documents", new Blob([tinyPng], { type: "image/png" }), "invoice-batch-safe.png");
+    const batchUpload = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: batchImportForm });
+    const batchUploadResult = await batchUpload.json();
+    const batchImport = batchUploadResult.accepted[0];
+    await request("PATCH", `/api/expense-imports/${batchImport.id}`, {
+      status: "review",
+      detected_fields: { suggested_supplier_id: supplier.id, invoice_number: "OCR-BATCH-001", invoice_date: "2026-06-03", total: 12.5, currency: "EUR", category: "software" }
+    });
+    const removableLine = await request("POST", `/api/expense-imports/${batchImport.id}/lines`, { description: "Temporary line", quantity: 1, line_total: 1, human_decision: "pending" });
+    await request("DELETE", `/api/expense-imports/${batchImport.id}/lines/${removableLine.id}`);
+    await request("POST", `/api/expense-imports/${batchImport.id}/lines`, { description: "Software subscription", quantity: 1, unit_price: 12.5, line_total: 12.5, human_decision: "accepted" });
+    const batchDetail = await request("GET", `/api/expense-imports/${batchImport.id}`);
+    assert(batchDetail.accounting_quality.batch_eligible && batchDetail.accounting_quality.lines_match, "Import detail should expose safe accounting quality");
+    const batchConfirmation = await request("POST", "/api/expense-imports/batch-confirm", { ids: [batchImport.id, duplicateImport.id] });
+    assert(batchConfirmation.confirmed.length === 1 && batchConfirmation.rejected.length === 1, "Batch confirmation should only create safe draft invoices");
 
     const dashboard = await request("GET", "/api/dashboard/finance");
     assert(dashboard.kpis.period_expense > 0, "Dashboard finance should aggregate invoice totals");

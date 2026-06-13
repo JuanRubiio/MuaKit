@@ -12,6 +12,30 @@ function cleanOriginalName(value) {
   return (decoded.match(/[ÃÂâ�]/g) || []).length < (original.match(/[ÃÂâ�]/g) || []).length ? decoded : original;
 }
 
+function accountingQuality(fields, lines, duplicates = {}) {
+  const required = ["suggested_supplier_id", "invoice_number", "invoice_date", "total", "category"];
+  const missing = required.filter((key) => fields[key] === null || fields[key] === undefined || fields[key] === "");
+  const activeLines = lines.filter((line) => line.human_decision !== "rejected");
+  const acceptedLines = lines.filter((line) => line.human_decision === "accepted");
+  const lineTotal = activeLines.reduce((sum, line) => sum + Number(line.line_total || 0), 0);
+  const difference = Number((lineTotal - Number(fields.total || 0)).toFixed(2));
+  const linesMatch = activeLines.length > 0 && Math.abs(difference) <= 0.02;
+  const decisionsComplete = activeLines.length > 0 && acceptedLines.length === activeLines.length;
+  const duplicate = Boolean(duplicates.exact || duplicates.warning);
+  const score = [!missing.length, linesMatch, decisionsComplete, !duplicate].filter(Boolean).length;
+  return {
+    score,
+    tone: score === 4 ? "high" : score >= 2 ? "medium" : "low",
+    missing,
+    line_total: Number(lineTotal.toFixed(2)),
+    difference,
+    lines_match: linesMatch,
+    decisions_complete: decisionsComplete,
+    duplicate,
+    batch_eligible: score === 4
+  };
+}
+
 function registerExpenseImportRoutes(app, ctx) {
   const { query, one, exec, insert, saveDb, audit, badRequest, notFound, upload, fs, path, UPLOAD_DIR, documentExtraction } = ctx;
 
@@ -41,11 +65,54 @@ function registerExpenseImportRoutes(app, ctx) {
     };
   }
 
+  function detailFor(item) {
+    const fields = json(item.detected_fields_json, {});
+    const lines = query(`SELECT eil.*, m.name suggested_material_name FROM expense_import_lines eil LEFT JOIN materials m ON m.id=eil.suggested_material_id WHERE expense_import_id=$id ORDER BY position,id`, { id: item.id });
+    const exact = fields.suggested_supplier_id && fields.invoice_number
+      ? one("SELECT id, invoice_number, invoice_date, total FROM invoices WHERE supplier_id=$supplier AND invoice_number=$number AND id!=$invoice AND is_deleted=0", { supplier: fields.suggested_supplier_id, number: fields.invoice_number, invoice: Number(item.invoice_id || 0) })
+      : null;
+    const warning = fields.suggested_supplier_id && fields.invoice_date && fields.total !== null
+      ? one("SELECT id, invoice_number, invoice_date, total FROM invoices WHERE supplier_id=$supplier AND invoice_date=$date AND ABS(total-$total)<0.01 AND id!=$invoice AND is_deleted=0", { supplier: fields.suggested_supplier_id, date: fields.invoice_date, total: fields.total, invoice: Number(item.invoice_id || 0) })
+      : null;
+    const duplicates = { exact, warning };
+    return { import: payload(item), lines, duplicates, accounting_quality: accountingQuality(fields, lines, duplicates) };
+  }
+
+  function confirmImport(item, overrideFields = {}) {
+    if (item.status === "confirmed") throw Object.assign(new Error("La importacion ya fue confirmada."), { code: "EXPENSE_IMPORT_ALREADY_CONFIRMED" });
+    const fields = { ...json(item.detected_fields_json, {}), ...overrideFields };
+    if (!fields.invoice_date || fields.total === null || fields.total === undefined) throw Object.assign(new Error("Fecha y total son obligatorios."), { code: "EXPENSE_IMPORT_FIELDS_REQUIRED" });
+    const exact = fields.suggested_supplier_id && fields.invoice_number
+      ? one("SELECT id FROM invoices WHERE supplier_id=$supplier AND invoice_number=$number AND is_deleted=0", { supplier: fields.suggested_supplier_id, number: fields.invoice_number })
+      : null;
+    if (exact) throw Object.assign(new Error("Ya existe una factura con ese proveedor y numero."), { code: "EXPENSE_IMPORT_DUPLICATE" });
+    const invoiceId = insert(`INSERT INTO invoices
+      (supplier_id, document_id, invoice_number, invoice_date, category, subtotal, discount, shipping, tax, total, currency, status, notes)
+      VALUES ($supplier,$document,$number,$date,$category,$subtotal,$discount,$shipping,$tax,$total,$currency,'draft',$notes)`, {
+      supplier: fields.suggested_supplier_id || null, document: item.document_id, number: fields.invoice_number || "", date: fields.invoice_date,
+      category: fields.category || "materiales", subtotal: Number(fields.subtotal || fields.total || 0), discount: Number(fields.discount || 0),
+      shipping: Number(fields.shipping || 0), tax: Number(fields.tax || 0), total: Number(fields.total || 0), currency: fields.currency || "EUR",
+      notes: `Creada desde importacion supervisada #${item.id}`
+    });
+    const accepted = query("SELECT * FROM expense_import_lines WHERE expense_import_id=$id AND human_decision='accepted' ORDER BY position", { id: item.id });
+    accepted.forEach((line) => insert(`INSERT INTO invoice_lines
+      (invoice_id, material_id, description, package_count, units_per_package, total_units, unit_price, line_total, affects_stock, notes)
+      VALUES ($invoice,$material,$description,1,$quantity,$quantity,$unitPrice,$total,1,'Importada con validacion humana')`, {
+      invoice: invoiceId, material: line.suggested_material_id, description: line.description, quantity: Number(line.quantity || 1), unitPrice: line.unit_price, total: Number(line.line_total || 0)
+    }));
+    exec("UPDATE expense_imports SET status='confirmed', invoice_id=$invoice, detected_fields_json=$fields, updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: item.id, invoice: invoiceId, fields: JSON.stringify(fields) });
+    audit("expense_import", item.id, "confirm", item, { invoice_id: invoiceId, accepted_lines: accepted.length });
+    return invoiceId;
+  }
+
   app.get("/api/expense-imports", (req, res) => {
     const status = req.query.status || "";
     res.json(query(`SELECT ei.*, d.original_name, d.stored_name, d.mime_type, d.size
       FROM expense_imports ei JOIN documents d ON d.id=ei.document_id
-      WHERE ($status='' OR ei.status=$status) ORDER BY ei.created_at DESC, ei.id DESC`, { status }).map(payload));
+      WHERE ($status='' OR ei.status=$status) ORDER BY ei.created_at DESC, ei.id DESC`, { status }).map((row) => {
+        const detail = detailFor(row);
+        return { ...detail.import, accounting_quality: detail.accounting_quality, duplicate: Boolean(detail.duplicates.exact || detail.duplicates.warning) };
+      }));
   });
 
   app.post("/api/expense-imports", upload.fields([{ name: "documents", maxCount: 20 }, { name: "document", maxCount: 1 }]), (req, res) => {
@@ -100,14 +167,7 @@ function registerExpenseImportRoutes(app, ctx) {
     const item = one(`SELECT ei.*, d.original_name, d.stored_name, d.mime_type, d.size
       FROM expense_imports ei JOIN documents d ON d.id=ei.document_id WHERE ei.id=$id`, { id: req.params.id });
     if (!item) return notFound(res, "Importacion no encontrada", "EXPENSE_IMPORT_NOT_FOUND");
-    const fields = json(item.detected_fields_json, {});
-    const exactDuplicate = fields.suggested_supplier_id && fields.invoice_number
-      ? one("SELECT id, invoice_number, invoice_date, total FROM invoices WHERE supplier_id=$supplier AND invoice_number=$number AND is_deleted=0", { supplier: fields.suggested_supplier_id, number: fields.invoice_number })
-      : null;
-    const warningDuplicate = fields.suggested_supplier_id && fields.invoice_date && fields.total !== null
-      ? one("SELECT id, invoice_number, invoice_date, total FROM invoices WHERE supplier_id=$supplier AND invoice_date=$date AND ABS(total-$total)<0.01 AND is_deleted=0", { supplier: fields.suggested_supplier_id, date: fields.invoice_date, total: fields.total })
-      : null;
-    res.json({ import: payload(item), lines: query(`SELECT eil.*, m.name suggested_material_name FROM expense_import_lines eil LEFT JOIN materials m ON m.id=eil.suggested_material_id WHERE expense_import_id=$id ORDER BY position,id`, { id: req.params.id }), duplicates: { exact: exactDuplicate, warning: warningDuplicate } });
+    res.json(detailFor(item));
   });
 
   app.patch("/api/expense-imports/:id", (req, res) => {
@@ -136,6 +196,31 @@ function registerExpenseImportRoutes(app, ctx) {
     res.json(one("SELECT * FROM expense_import_lines WHERE id=$id", { id: req.params.lineId }));
   });
 
+  app.post("/api/expense-imports/:id/lines", (req, res) => {
+    const item = one("SELECT * FROM expense_imports WHERE id=$id", { id: req.params.id });
+    if (!item) return notFound(res, "Importacion no encontrada", "EXPENSE_IMPORT_NOT_FOUND");
+    const position = Number(one("SELECT COALESCE(MAX(position),0)+1 position FROM expense_import_lines WHERE expense_import_id=$id", { id: item.id })?.position || 1);
+    const id = insert(`INSERT INTO expense_import_lines
+      (expense_import_id, position, original_text, description, quantity, unit_price, line_total, suggested_material_id, confidence, human_decision, original_data_json)
+      VALUES ($import,$position,'',$description,$quantity,$unitPrice,$total,$material,100,$decision,'{"manual":true}')`, {
+      import: item.id, position, description: req.body.description || "Nueva linea", quantity: Number(req.body.quantity || 1),
+      unitPrice: Number(req.body.unit_price || req.body.line_total || 0), total: Number(req.body.line_total || 0),
+      material: req.body.suggested_material_id || null, decision: req.body.human_decision || "pending"
+    });
+    audit("expense_import_line", id, "create_manual", null, req.body);
+    saveDb();
+    res.json(one("SELECT * FROM expense_import_lines WHERE id=$id", { id }));
+  });
+
+  app.delete("/api/expense-imports/:importId/lines/:lineId", (req, res) => {
+    const before = one("SELECT * FROM expense_import_lines WHERE id=$id AND expense_import_id=$import", { id: req.params.lineId, import: req.params.importId });
+    if (!before) return notFound(res, "Linea no encontrada", "EXPENSE_IMPORT_LINE_NOT_FOUND");
+    exec("DELETE FROM expense_import_lines WHERE id=$id", { id: before.id });
+    audit("expense_import_line", before.id, "delete", before, null);
+    saveDb();
+    res.json({ ok: true });
+  });
+
   app.post("/api/expense-imports/:id/reprocess", (req, res) => {
     const item = one("SELECT * FROM expense_imports WHERE id=$id", { id: req.params.id });
     if (!item) return notFound(res, "Importacion no encontrada", "EXPENSE_IMPORT_NOT_FOUND");
@@ -158,38 +243,43 @@ function registerExpenseImportRoutes(app, ctx) {
   app.post("/api/expense-imports/:id/confirm", (req, res) => {
     const item = one("SELECT * FROM expense_imports WHERE id=$id", { id: req.params.id });
     if (!item) return notFound(res, "Importacion no encontrada", "EXPENSE_IMPORT_NOT_FOUND");
-    if (item.status === "confirmed") return badRequest(res, "La importacion ya fue confirmada.", "EXPENSE_IMPORT_ALREADY_CONFIRMED");
-    const fields = { ...json(item.detected_fields_json, {}), ...(req.body.detected_fields || {}) };
-    if (!fields.invoice_date || fields.total === null || fields.total === undefined) return badRequest(res, "Fecha y total son obligatorios.", "EXPENSE_IMPORT_FIELDS_REQUIRED");
-    const exact = fields.suggested_supplier_id && fields.invoice_number
-      ? one("SELECT id FROM invoices WHERE supplier_id=$supplier AND invoice_number=$number AND is_deleted=0", { supplier: fields.suggested_supplier_id, number: fields.invoice_number })
-      : null;
-    if (exact) return badRequest(res, "Ya existe una factura con ese proveedor y numero.", "EXPENSE_IMPORT_DUPLICATE");
     exec("BEGIN TRANSACTION");
     try {
-      const invoiceId = insert(`INSERT INTO invoices
-        (supplier_id, document_id, invoice_number, invoice_date, category, subtotal, discount, shipping, tax, total, currency, status, notes)
-        VALUES ($supplier,$document,$number,$date,$category,$subtotal,$discount,$shipping,$tax,$total,$currency,'draft',$notes)`, {
-        supplier: fields.suggested_supplier_id || null, document: item.document_id, number: fields.invoice_number || "", date: fields.invoice_date,
-        category: fields.category || "materiales", subtotal: Number(fields.subtotal || fields.total || 0), discount: Number(fields.discount || 0),
-        shipping: Number(fields.shipping || 0), tax: Number(fields.tax || 0), total: Number(fields.total || 0), currency: fields.currency || "EUR",
-        notes: `Creada desde importacion supervisada #${item.id}`
-      });
-      const accepted = query("SELECT * FROM expense_import_lines WHERE expense_import_id=$id AND human_decision='accepted' ORDER BY position", { id: item.id });
-      accepted.forEach((line) => insert(`INSERT INTO invoice_lines
-        (invoice_id, material_id, description, package_count, units_per_package, total_units, unit_price, line_total, affects_stock, notes)
-        VALUES ($invoice,$material,$description,1,$quantity,$quantity,$unitPrice,$total,1,'Importada con validacion humana')`, {
-        invoice: invoiceId, material: line.suggested_material_id, description: line.description, quantity: Number(line.quantity || 1), unitPrice: line.unit_price, total: Number(line.line_total || 0)
-      }));
-      exec("UPDATE expense_imports SET status='confirmed', invoice_id=$invoice, detected_fields_json=$fields, updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: item.id, invoice: invoiceId, fields: JSON.stringify(fields) });
-      audit("expense_import", item.id, "confirm", item, { invoice_id: invoiceId, accepted_lines: accepted.length });
+      const invoiceId = confirmImport(item, req.body.detected_fields || {});
       exec("COMMIT");
       saveDb();
       res.json({ ok: true, invoice_id: invoiceId });
     } catch (error) {
       exec("ROLLBACK");
-      throw error;
+      badRequest(res, error, error.code || "EXPENSE_IMPORT_CONFIRM_FAILED");
     }
+  });
+
+  app.post("/api/expense-imports/batch-confirm", (req, res) => {
+    const ids = [...new Set((req.body.ids || []).map(Number).filter(Boolean))];
+    if (!ids.length) return badRequest(res, "Selecciona al menos una importacion.", "EXPENSE_IMPORT_BATCH_REQUIRED");
+    const confirmed = [];
+    const rejected = [];
+    for (const id of ids) {
+      const item = one("SELECT * FROM expense_imports WHERE id=$id", { id });
+      if (!item) { rejected.push({ id, error: "No encontrada" }); continue; }
+      const detail = detailFor(item);
+      if (!["ready", "review"].includes(item.status) || !detail.accounting_quality.batch_eligible) {
+        rejected.push({ id, error: "No cumple los criterios de confirmacion segura" });
+        continue;
+      }
+      exec("BEGIN TRANSACTION");
+      try {
+        const invoiceId = confirmImport(item);
+        exec("COMMIT");
+        confirmed.push({ id, invoice_id: invoiceId });
+      } catch (error) {
+        exec("ROLLBACK");
+        rejected.push({ id, error: error.message });
+      }
+    }
+    saveDb();
+    res.json({ confirmed, rejected });
   });
 
   for (const item of query(`SELECT ei.*, d.original_name, d.stored_path FROM expense_imports ei
@@ -201,4 +291,4 @@ function registerExpenseImportRoutes(app, ctx) {
   saveDb();
 }
 
-module.exports = { registerExpenseImportRoutes, cleanOriginalName };
+module.exports = { registerExpenseImportRoutes, cleanOriginalName, accountingQuality };
