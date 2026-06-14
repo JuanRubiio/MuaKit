@@ -5518,6 +5518,23 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.invoice-marketing-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.invoice-marketing-metrics span {
+  padding: 3px 7px;
+  border: 1px solid #b9ddd6;
+  border-radius: 6px;
+  background: #edf8f5;
+  color: #0d6c60;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .deleted {
   opacity: .58;
   background: #f3eee8;

@@ -17,6 +17,13 @@ function amount(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseImpressions(value) {
+  const match = String(value || "").match(/\b(\d{1,3}(?:[ .]\d{3})+|\d+)\s+impresi[oó]n(?:es)?\b/i);
+  if (!match) return null;
+  const parsed = Number(match[1].replace(/[ .]/g, ""));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function isoDate(day, monthName, year) {
   const months = { ene: 1, jan: 1, feb: 2, mar: 3, abr: 4, apr: 4, may: 5, jun: 6, jul: 7, ago: 8, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dic: 12, dec: 12 };
   const normalizedMonth = normalize(monthName);
@@ -91,13 +98,14 @@ function parseInvoiceLine(line, fields) {
   const description = line
     .replace(match[0], "")
     .replace(/(?:€|\bEUR\b|\bUSD\b)/gi, "")
-    .replace(/\s+(?:\d{1,3}(?:[ .]\d{3})+|\d+)\s+impresiones\b/gi, "")
+    .replace(/\s+(?:\d{1,3}(?:[ .]\d{3})+|\d+)\s+impresi[oó]n(?:es)?\b/gi, "")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[·,:;-]+$/, "")
     .trim();
   return {
     description: description || line,
+    impressions: parseImpressions(line),
     original_amount: originalAmount,
     original_currency: originalCurrency,
     converted_amount: Number(convertedAmount.toFixed(4)),
@@ -245,10 +253,10 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
         });
         const material = directMaterial || historicalMaterial || null;
         insert(`INSERT INTO expense_import_lines
-          (expense_import_id, position, original_text, description, quantity, unit_price, line_total, suggested_material_id, confidence, human_decision, original_data_json)
-          VALUES ($import, $position, $original, $description, 1, $total, $total, $material, $confidence, 'pending', $originalData)`, {
+          (expense_import_id, position, original_text, description, quantity, unit_price, line_total, impressions, suggested_material_id, confidence, human_decision, original_data_json)
+          VALUES ($import, $position, $original, $description, 1, $total, $total, $impressions, $material, $confidence, 'pending', $originalData)`, {
           import: importId, position: index + 1, original: line, description: parsedLine.description, total: parsedLine.converted_amount,
-          material: material?.id || null, confidence: material ? (directMaterial ? 85 : 78) : Math.min(confidence, 69), originalData: JSON.stringify({ ...parsedLine, material_rule_source: directMaterial ? "material_name" : historicalMaterial ? "historical_invoice_line" : null, evidence: pages.map((page) => ({ page: page.page, text: String(page.text || "").split(/\r?\n/).find((candidate) => candidate.includes(line)) || "" })).find((entry) => entry.text) || null })
+          impressions: parsedLine.impressions, material: material?.id || null, confidence: material ? (directMaterial ? 85 : 78) : Math.min(confidence, 69), originalData: JSON.stringify({ ...parsedLine, material_rule_source: directMaterial ? "material_name" : historicalMaterial ? "historical_invoice_line" : null, evidence: pages.map((page) => ({ page: page.page, text: String(page.text || "").split(/\r?\n/).find((candidate) => candidate.includes(line)) || "" })).find((entry) => entry.text) || null })
         });
       });
       audit("expense_import", importId, "process", null, { status, confidence });
@@ -284,4 +292,4 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   return { enqueue, process, status: () => ({ available: true, languages: ["spa", "eng"], model_path: langPath, pending: queue.length, running }) };
 }
 
-module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, parseInvoiceLine, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };
+module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };

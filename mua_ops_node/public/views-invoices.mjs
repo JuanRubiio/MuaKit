@@ -170,6 +170,7 @@ export function createInvoiceViews(ctx) {
     const activeLineCount = detail.lines.filter((line) => !line.is_deleted).length;
     renderInvoices();
     const panel = $("#invoiceDetailPanel");
+    $("#invoiceForm")?.classList.add("hidden");
     $("#invoices .invoice-page")?.classList.add("invoice-focus-mode");
     document.body.classList.add("invoice-focus-active");
     panel.classList.remove("hidden");
@@ -314,6 +315,7 @@ export function createInvoiceViews(ctx) {
           <label>Paquetes<input name="package_count" inputmode="decimal" value="1"></label>
           <label>Ud/paquete<input name="units_per_package" inputmode="decimal" value="1"></label>
           <label>Precio/paquete<input name="price_per_package" inputmode="decimal"></label>
+          ${detail.invoice.category === "marketing" ? `<label>Impresiones<input name="impressions" type="number" min="0" step="1" placeholder="Ej. 18764"></label>` : ""}
         </div>
         <input type="hidden" name="affects_stock" value="0">
         <label>Notas<textarea name="notes" rows="2"></textarea></label>
@@ -321,6 +323,7 @@ export function createInvoiceViews(ctx) {
           <span><small>Unidades</small><strong data-preview-units>1</strong></span>
           <span><small>Total línea</small><strong data-preview-line-total>0,00 EUR</strong></span>
           <span><small>Coste unitario</small><strong data-preview-unit>0,00 EUR</strong></span>
+          ${detail.invoice.category === "marketing" ? `<span><small>Coste / impresión</small><strong data-preview-impression>-</strong></span>` : ""}
         </div>
         <div class="row-actions">
           <button type="button" data-save-line>Guardar línea</button>
@@ -362,6 +365,7 @@ export function createInvoiceViews(ctx) {
             <div class="meta">${line.package_count} paquetes · ${line.units_per_package} ud/paquete · ${line.total_units} ud totales</div>
             ${summary ? `<div class="meta">${text(summary)}</div>` : ""}
             ${line.description ? `<p>${text(line.description)}</p>` : ""}
+            ${number(line.impressions) > 0 ? `<div class="invoice-marketing-metrics"><span>${number(line.impressions).toLocaleString("es-ES")} impresiones</span><span>${new Intl.NumberFormat("es-ES", { minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(number(line.line_total) / number(line.impressions))} € / imp.</span><span>${euro.format((number(line.line_total) / number(line.impressions)) * 1000)} CPM</span></div>` : ""}
           </div>
         </div>
         <span class="amount">${euro.format(number(line.unit_price))} / ud</span>

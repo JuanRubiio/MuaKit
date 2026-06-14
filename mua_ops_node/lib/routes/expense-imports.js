@@ -100,9 +100,9 @@ function registerExpenseImportRoutes(app, ctx) {
     });
     const accepted = query("SELECT * FROM expense_import_lines WHERE expense_import_id=$id AND human_decision='accepted' ORDER BY position", { id: item.id });
     accepted.forEach((line) => insert(`INSERT INTO invoice_lines
-      (invoice_id, material_id, description, package_count, units_per_package, total_units, unit_price, line_total, affects_stock, notes)
-      VALUES ($invoice,$material,$description,1,$quantity,$quantity,$unitPrice,$total,1,'Importada con validacion humana')`, {
-      invoice: invoiceId, material: line.suggested_material_id, description: line.description, quantity: Number(line.quantity || 1), unitPrice: line.unit_price, total: Number(line.line_total || 0)
+      (invoice_id, material_id, description, package_count, units_per_package, total_units, unit_price, line_total, affects_stock, impressions, notes)
+      VALUES ($invoice,$material,$description,1,$quantity,$quantity,$unitPrice,$total,1,$impressions,'Importada con validacion humana')`, {
+      invoice: invoiceId, material: line.suggested_material_id, description: line.description, quantity: Number(line.quantity || 1), unitPrice: line.unit_price, total: Number(line.line_total || 0), impressions: line.impressions
     }));
     exec("UPDATE expense_imports SET status='confirmed', invoice_id=$invoice, detected_fields_json=$fields, updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: item.id, invoice: invoiceId, fields: JSON.stringify(fields) });
     audit("expense_import", item.id, "confirm", item, { invoice_id: invoiceId, accepted_lines: accepted.length });
@@ -188,7 +188,7 @@ function registerExpenseImportRoutes(app, ctx) {
   app.patch("/api/expense-imports/:importId/lines/:lineId", (req, res) => {
     const before = one("SELECT * FROM expense_import_lines WHERE id=$id AND expense_import_id=$import", { id: req.params.lineId, import: req.params.importId });
     if (!before) return notFound(res, "Linea no encontrada", "EXPENSE_IMPORT_LINE_NOT_FOUND");
-    const fields = ["description", "quantity", "unit_price", "line_total", "suggested_material_id", "human_decision"];
+    const fields = ["description", "quantity", "unit_price", "line_total", "impressions", "suggested_material_id", "human_decision"];
     const params = { id: req.params.lineId };
     const updates = [];
     fields.forEach((field) => {
@@ -205,11 +205,11 @@ function registerExpenseImportRoutes(app, ctx) {
     if (!item) return notFound(res, "Importacion no encontrada", "EXPENSE_IMPORT_NOT_FOUND");
     const position = Number(one("SELECT COALESCE(MAX(position),0)+1 position FROM expense_import_lines WHERE expense_import_id=$id", { id: item.id })?.position || 1);
     const id = insert(`INSERT INTO expense_import_lines
-      (expense_import_id, position, original_text, description, quantity, unit_price, line_total, suggested_material_id, confidence, human_decision, original_data_json)
-      VALUES ($import,$position,'',$description,$quantity,$unitPrice,$total,$material,100,$decision,'{"manual":true}')`, {
+      (expense_import_id, position, original_text, description, quantity, unit_price, line_total, impressions, suggested_material_id, confidence, human_decision, original_data_json)
+      VALUES ($import,$position,'',$description,$quantity,$unitPrice,$total,$impressions,$material,100,$decision,'{"manual":true}')`, {
       import: item.id, position, description: req.body.description || "Nueva linea", quantity: Number(req.body.quantity || 1),
       unitPrice: Number(req.body.unit_price || req.body.line_total || 0), total: Number(req.body.line_total || 0),
-      material: req.body.suggested_material_id || null, decision: req.body.human_decision || "pending"
+      impressions: req.body.impressions || null, material: req.body.suggested_material_id || null, decision: req.body.human_decision || "pending"
     });
     audit("expense_import_line", id, "create_manual", null, req.body);
     saveDb();

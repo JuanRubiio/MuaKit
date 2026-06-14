@@ -600,6 +600,7 @@ function renderInvoiceWorkspaceLines(lines = []) {
                 <div class="meta">${line.package_count} paquetes · ${line.units_per_package} ud/paquete · ${line.total_units} ud totales</div>
                 ${summary ? `<div class="meta">${text(summary)}</div>` : ""}
                 ${line.description ? `<p>${text(line.description)}</p>` : ""}
+                ${number(line.impressions) > 0 ? `<div class="invoice-marketing-metrics"><span>${number(line.impressions).toLocaleString("es-ES")} impresiones</span><span>${new Intl.NumberFormat("es-ES", { minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(number(line.line_total) / number(line.impressions))} € / imp.</span><span>${euro.format((number(line.line_total) / number(line.impressions)) * 1000)} CPM</span></div>` : ""}
               </div>
             </div>
             <span class="amount">${euro.format(number(line.unit_price))} / ud</span>
@@ -1188,6 +1189,11 @@ function updateLinePreview() {
   preview.querySelector("[data-preview-units]").textContent = totals.totalUnits.toLocaleString("es-ES");
   preview.querySelector("[data-preview-line-total]").textContent = euro.format(totals.lineTotal);
   preview.querySelector("[data-preview-unit]").textContent = euro.format(totals.unitCost);
+  const impressions = number(form.elements.impressions?.value);
+  const impressionMetric = preview.querySelector("[data-preview-impression]");
+  if (impressionMetric) impressionMetric.textContent = impressions > 0
+    ? `${new Intl.NumberFormat("es-ES", { minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(totals.lineTotal / impressions)} €`
+    : "-";
 }
 
 function applyTextSearch(rows, query, fields) {
@@ -1714,6 +1720,7 @@ async function saveInvoice(event) {
   const saved = await api(id ? `/api/invoices/${id}` : "/api/invoices", { method: id ? "PATCH" : "POST", body: JSON.stringify(data) });
   $("#documentFile").value = "";
   await Promise.all([loadInvoices(), loadSummary(), loadDashboardFinance()]);
+  $("#invoiceForm")?.classList.add("hidden");
   await openInvoice(saved.id, { openForm: Boolean(state.invoiceOpenLineAfterSave) });
   state.invoiceOpenLineAfterSave = false;
   toast("Factura guardada");

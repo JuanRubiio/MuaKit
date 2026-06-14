@@ -295,6 +295,7 @@
         <label>Material<select data-line-field="suggested_material_id" ${isMaterialExpense ? "" : "disabled"}>${materialOptionsMarkup(line.suggested_material_id)}</select></label>
         <label>Precio ud. ${text(fields.currency || "EUR")}<input data-line-field="unit_price" type="number" min="0" step="0.01" value="${number(line.unit_price ?? line.line_total).toFixed(2)}"></label>
         <label>Total ${text(fields.currency || "EUR")}<input data-line-field="line_total" type="number" min="0" step="0.01" value="${number(line.line_total).toFixed(2)}"></label>
+        ${fields.category === "marketing" ? `<label>Impresiones<input data-line-field="impressions" type="number" min="0" step="1" value="${number(line.impressions) || ""}" placeholder="Opcional"></label>` : ""}
         <label>Decisión<select data-line-field="human_decision"><option value="pending" ${line.human_decision === "pending" ? "selected" : ""}>Revisar</option><option value="accepted" ${line.human_decision === "accepted" ? "selected" : ""}>Aceptar</option><option value="rejected" ${line.human_decision === "rejected" ? "selected" : ""}>Excluir</option></select></label>
         <div class="next-editable-line-actions"><button type="button" class="ghost button-with-icon" data-save-import-line="${line.id}" data-import-id="${item.id}"><svg><use href="#icon-save"></use></svg><span>Guardar</span></button><button type="button" class="ghost" data-split-import-line="${line.id}" data-import-id="${item.id}">Dividir</button><button type="button" class="ghost danger-text" data-delete-import-line="${line.id}" data-import-id="${item.id}">Eliminar</button></div>
       </article>`;
@@ -409,7 +410,9 @@
         const firstQuantity = quantity > 1 ? quantity / 2 : quantity;
         const firstTotal = total / 2;
         await api(`/api/expense-imports/${button.dataset.importId}/lines/${button.dataset.splitImportLine}`, { method: "PATCH", body: JSON.stringify({ quantity: firstQuantity, line_total: firstTotal, unit_price: firstQuantity ? firstTotal / firstQuantity : firstTotal }) });
-        await api(`/api/expense-imports/${button.dataset.importId}/lines`, { method: "POST", body: JSON.stringify({ description: row.querySelector('[data-line-field="description"]').value, quantity: quantity > 1 ? quantity - firstQuantity : quantity, line_total: firstTotal, unit_price: firstQuantity ? firstTotal / firstQuantity : firstTotal, suggested_material_id: row.querySelector('[data-line-field="suggested_material_id"]').value || null, human_decision: "pending" }) });
+        const impressions = number(row.querySelector('[data-line-field="impressions"]')?.value);
+        await api(`/api/expense-imports/${button.dataset.importId}/lines`, { method: "POST", body: JSON.stringify({ description: row.querySelector('[data-line-field="description"]').value, quantity: quantity > 1 ? quantity - firstQuantity : quantity, line_total: firstTotal, unit_price: firstQuantity ? firstTotal / firstQuantity : firstTotal, impressions: impressions ? impressions / 2 : null, suggested_material_id: row.querySelector('[data-line-field="suggested_material_id"]').value || null, human_decision: "pending" }) });
+        if (impressions) await api(`/api/expense-imports/${button.dataset.importId}/lines/${button.dataset.splitImportLine}`, { method: "PATCH", body: JSON.stringify({ impressions: impressions / 2 }) });
         await openImport(button.dataset.importId);
       }
       if (button.dataset.mergeImportLines) {
@@ -418,8 +421,9 @@
         const first = rows[0];
         const total = rows.reduce((sum, row) => sum + number(row.querySelector('[data-line-field="line_total"]').value), 0);
         const quantity = rows.reduce((sum, row) => sum + number(row.querySelector('[data-line-field="quantity"]').value), 0);
+        const impressions = rows.reduce((sum, row) => sum + number(row.querySelector('[data-line-field="impressions"]')?.value), 0);
         const description = rows.map((row) => row.querySelector('[data-line-field="description"]').value).filter(Boolean).join(" + ");
-        await api(`/api/expense-imports/${button.dataset.mergeImportLines}/lines/${first.dataset.importLineRow}`, { method: "PATCH", body: JSON.stringify({ description, quantity, line_total: total, unit_price: quantity ? total / quantity : total, human_decision: "pending" }) });
+        await api(`/api/expense-imports/${button.dataset.mergeImportLines}/lines/${first.dataset.importLineRow}`, { method: "PATCH", body: JSON.stringify({ description, quantity, line_total: total, unit_price: quantity ? total / quantity : total, impressions: impressions || null, human_decision: "pending" }) });
         for (const row of rows.slice(1)) await api(`/api/expense-imports/${button.dataset.mergeImportLines}/lines/${row.dataset.importLineRow}`, { method: "DELETE" });
         await openImport(button.dataset.mergeImportLines);
       }

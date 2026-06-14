@@ -96,8 +96,8 @@ function registerInvoiceRoutes(app, ctx) {
     );
     for (const line of query("SELECT * FROM invoice_lines WHERE invoice_id=$id AND is_deleted=0", { id: req.params.id })) {
       insert(
-        `INSERT INTO invoice_lines (invoice_id, material_id, description, package_count, units_per_package, total_units, price_per_package, unit_price, line_total, allocate_shipping, tax, affects_stock, notes)
-         VALUES ($invoice, $material, $description, $packages, $unitsPackage, $totalUnits, $pricePackage, $unitPrice, $lineTotal, $shipping, $tax, $stock, $notes)`,
+        `INSERT INTO invoice_lines (invoice_id, material_id, description, package_count, units_per_package, total_units, price_per_package, unit_price, line_total, allocate_shipping, tax, affects_stock, impressions, notes)
+         VALUES ($invoice, $material, $description, $packages, $unitsPackage, $totalUnits, $pricePackage, $unitPrice, $lineTotal, $shipping, $tax, $stock, $impressions, $notes)`,
         {
           invoice: id,
           material: line.material_id,
@@ -111,6 +111,7 @@ function registerInvoiceRoutes(app, ctx) {
           shipping: line.allocate_shipping,
           tax: line.tax,
           stock: line.affects_stock,
+          impressions: line.impressions,
           notes: line.notes
         }
       );
@@ -135,7 +136,7 @@ function registerInvoiceRoutes(app, ctx) {
   app.patch("/api/invoices/:invoiceId/lines/:lineId", (req, res) => {
     const b = normalizeLine(req.body);
     updateEntity("invoice_lines", "invoice_line", req.params.lineId, b, [
-      "material_id", "description", "package_count", "units_per_package", "total_units", "price_per_package", "unit_price", "line_total", "allocate_shipping", "tax", "affects_stock", "notes"
+      "material_id", "description", "package_count", "units_per_package", "total_units", "price_per_package", "unit_price", "line_total", "allocate_shipping", "tax", "affects_stock", "impressions", "notes"
     ], res);
   });
 
@@ -143,8 +144,8 @@ function registerInvoiceRoutes(app, ctx) {
     const line = one("SELECT * FROM invoice_lines WHERE id=$id AND invoice_id=$invoice", { id: req.params.lineId, invoice: req.params.invoiceId });
     if (!line) return notFound(res, "Linea no encontrada", "INVOICE_LINE_NOT_FOUND");
     const id = insert(
-      `INSERT INTO invoice_lines (invoice_id, material_id, description, package_count, units_per_package, total_units, price_per_package, unit_price, line_total, allocate_shipping, tax, affects_stock, notes)
-       VALUES ($invoice, $material, $description, $packages, $unitsPackage, $totalUnits, $pricePackage, $unitPrice, $lineTotal, $shipping, $tax, $stock, $notes)`,
+      `INSERT INTO invoice_lines (invoice_id, material_id, description, package_count, units_per_package, total_units, price_per_package, unit_price, line_total, allocate_shipping, tax, affects_stock, impressions, notes)
+       VALUES ($invoice, $material, $description, $packages, $unitsPackage, $totalUnits, $pricePackage, $unitPrice, $lineTotal, $shipping, $tax, $stock, $impressions, $notes)`,
       {
         invoice: req.params.invoiceId,
         material: line.material_id,
@@ -158,6 +159,7 @@ function registerInvoiceRoutes(app, ctx) {
         shipping: 0,
         tax: 0,
         stock: line.affects_stock,
+        impressions: line.impressions,
         notes: line.notes
       }
     );

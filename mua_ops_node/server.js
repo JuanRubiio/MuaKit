@@ -16,7 +16,7 @@ const { registerAnalyticsRoutes } = require("./lib/routes/analytics");
 const { registerExpenseImportRoutes } = require("./lib/routes/expense-imports");
 const { registerPurchaseRoutes } = require("./lib/routes/purchasing");
 const { createReplenishmentService } = require("./lib/services/replenishment");
-const { createDocumentExtractionService } = require("./lib/services/document-extraction");
+const { createDocumentExtractionService, parseInvoiceLine, parseImpressions } = require("./lib/services/document-extraction");
 const packageInfo = require("../package.json");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -785,6 +785,67 @@ const SCHEMA_MIGRATIONS = [
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
       `);
+    }
+  },
+  {
+    id: "011_invoice_line_marketing_impressions",
+    name: "Add marketing impressions to expense lines",
+    up: ({ ensureColumn, query, exec }) => {
+      ensureColumn("expense_import_lines", "impressions", "INTEGER");
+      ensureColumn("invoice_lines", "impressions", "INTEGER");
+      const claimedInvoiceLines = new Set();
+      for (const line of query(`SELECT eil.original_text, eil.description, eil.line_total, ei.invoice_id
+        FROM expense_import_lines eil
+        JOIN expense_imports ei ON ei.id=eil.expense_import_id
+        JOIN invoices i ON i.id=ei.invoice_id
+        LEFT JOIN suppliers s ON s.id=i.supplier_id
+        WHERE ei.status='confirmed' AND ei.invoice_id IS NOT NULL AND LOWER(COALESCE(s.name,''))='meta'`)) {
+        const impressions = parseImpressions(line.original_text);
+        if (!impressions) continue;
+        exec(`UPDATE expense_import_lines SET impressions=$impressions
+          WHERE expense_import_id IN (SELECT id FROM expense_imports WHERE invoice_id=$invoice)
+            AND description=$description AND ABS(line_total-$total)<0.01`, {
+          impressions, invoice: line.invoice_id, description: line.description, total: line.line_total
+        });
+        const invoiceLine = query(`SELECT id FROM invoice_lines
+          WHERE invoice_id=$invoice AND description=$description AND ABS(line_total-$total)<0.01
+          ORDER BY id`, { invoice: line.invoice_id, description: line.description, total: line.line_total })
+          .find((candidate) => !claimedInvoiceLines.has(candidate.id));
+        if (!invoiceLine) continue;
+        claimedInvoiceLines.add(invoiceLine.id);
+        exec("UPDATE invoice_lines SET impressions=$impressions, updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: invoiceLine.id, impressions });
+      }
+    }
+  },
+  {
+    id: "012_reconcile_meta_invoice_line_impressions",
+    name: "Reconcile historical Meta campaign metrics",
+    up: ({ query, exec }) => {
+      const claimedInvoiceLines = new Set();
+      for (const line of query(`SELECT eil.id expense_line_id, eil.original_text, eil.description, eil.line_total, ei.invoice_id
+        FROM expense_import_lines eil
+        JOIN expense_imports ei ON ei.id=eil.expense_import_id
+        JOIN invoices i ON i.id=ei.invoice_id
+        LEFT JOIN suppliers s ON s.id=i.supplier_id
+        WHERE ei.status='confirmed' AND ei.invoice_id IS NOT NULL AND LOWER(COALESCE(s.name,''))='meta'
+          AND LOWER(eil.original_text) LIKE '%impresi%'`)) {
+        const parsed = parseInvoiceLine(line.original_text, { currency: "EUR" });
+        if (!parsed?.impressions || !parsed.description) continue;
+        exec("UPDATE expense_import_lines SET description=$description, impressions=$impressions, updated_at=CURRENT_TIMESTAMP WHERE id=$id", {
+          id: line.expense_line_id, description: parsed.description, impressions: parsed.impressions
+        });
+        const candidates = query(`SELECT id, description FROM invoice_lines
+          WHERE invoice_id=$invoice AND ABS(line_total-$total)<0.01
+          ORDER BY id`, { invoice: line.invoice_id, total: line.line_total });
+        const invoiceLine = candidates.find((candidate) => !claimedInvoiceLines.has(candidate.id)
+          && (candidate.description === parsed.description || candidate.description.startsWith(`${parsed.description} `)))
+          || candidates.find((candidate) => !claimedInvoiceLines.has(candidate.id));
+        if (!invoiceLine) continue;
+        claimedInvoiceLines.add(invoiceLine.id);
+        exec("UPDATE invoice_lines SET description=$description, impressions=$impressions, updated_at=CURRENT_TIMESTAMP WHERE id=$id", {
+          id: invoiceLine.id, description: parsed.description, impressions: parsed.impressions
+        });
+      }
     }
   }
 ];
@@ -2975,6 +3036,7 @@ function normalizeLine(b) {
     allocate_shipping: 0,
     tax: 0,
     affects_stock: b.affects_stock === false || b.affects_stock === 0 ? 0 : 1,
+    impressions: optionalN(b.impressions),
     notes: b.notes || ""
   };
 }
@@ -2982,8 +3044,8 @@ function normalizeLine(b) {
 function createInvoiceLine(invoiceId, body) {
   const b = normalizeLine(body);
   return insert(
-    `INSERT INTO invoice_lines (invoice_id, material_id, description, package_count, units_per_package, total_units, price_per_package, unit_price, line_total, allocate_shipping, tax, affects_stock, notes)
-     VALUES ($invoice, $material_id, $description, $package_count, $units_per_package, $total_units, $price_per_package, $unit_price, $line_total, $allocate_shipping, $tax, $affects_stock, $notes)`,
+    `INSERT INTO invoice_lines (invoice_id, material_id, description, package_count, units_per_package, total_units, price_per_package, unit_price, line_total, allocate_shipping, tax, affects_stock, impressions, notes)
+     VALUES ($invoice, $material_id, $description, $package_count, $units_per_package, $total_units, $price_per_package, $unit_price, $line_total, $allocate_shipping, $tax, $affects_stock, $impressions, $notes)`,
     { invoice: invoiceId, ...b }
   );
 }

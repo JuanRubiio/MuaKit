@@ -3,7 +3,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const initSqlJs = require("sql.js");
-const { amount: parsedAmount, detectFields, detectedInvoiceLines, parseInvoiceLine, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
+const { amount: parsedAmount, detectFields, detectedInvoiceLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
 const { cleanOriginalName, accountingQuality } = require("./lib/routes/expense-imports");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -287,6 +287,8 @@ Factura número FBADS-394-105737940`;
   const metaLine = parseInvoiceLine(metaLines[0], metaFields);
   assert(metaLine.description === "Mascotas" && metaLine.converted_amount === 5.27 && metaLine.original_currency === "EUR", "Meta campaign lines should have clean descriptions and EUR amounts");
   assert(parseInvoiceLine(metaLines[1], metaFields).description === "Maternidad", "Meta campaign concepts should remove grouped impression counts");
+  assert(parseImpressions(metaLines[1]) === 18764, "Meta campaign impressions should be extracted as a structured metric");
+  assert(parseImpressions("Campaña puntual 1 Impresión 0,01 €") === 1, "Singular Meta impressions should also be extracted");
   assert(cleanOriginalName("TransacciÃ³n n.Âº 123.pdf") === "Transacción n.º 123.pdf", "Mojibake document names should be repaired");
   assert(inferExpenseCategory("Globo Product Options subscription", "materiales", ["materiales"]) === "software", "Strong document signals should override supplier defaults");
   assert(inferExpenseCategory("Pedido mixto", "materiales", ["software", "software", "materiales"]) === "software", "Mixed suppliers should use historical invoice context");
@@ -583,10 +585,12 @@ Factura número FBADS-394-105737940`;
       package_count: 4,
       units_per_package: 5,
       price_per_package: 4.19,
+      impressions: 18764,
       affects_stock: true
     });
     assert(line.total_units === 20, "Line should calculate total units");
     assert(Math.abs(line.unit_price - 0.838) < 0.0001, "Line should calculate unit cost");
+    assert(line.impressions === 18764, "Invoice lines should preserve marketing impressions");
 
     let costs = await request("GET", "/api/costs/materials");
     let materialCost = costs.find((row) => row.material_id === material.id);
@@ -599,6 +603,7 @@ Factura número FBADS-394-105737940`;
       package_count: 4,
       units_per_package: 5,
       price_per_package: 5,
+      impressions: 18764,
       affects_stock: true
     });
     assert(Math.abs(editedLine.unit_price - 1) < 0.0001, "Edited line should recalculate unit cost");
@@ -606,6 +611,7 @@ Factura número FBADS-394-105737940`;
     const duplicatedLine = await request("POST", `/api/invoices/${invoice.id}/lines/${line.id}/duplicate`);
     assert(duplicatedLine.total_units === 20, "Duplicated line should preserve units");
     assert(Math.abs(duplicatedLine.unit_price - 1) < 0.0001, "Duplicated line should preserve unit cost without shipping allocation");
+    assert(duplicatedLine.impressions === 18764, "Duplicated invoice lines should preserve impressions");
 
     const archivedInvoice = await request("DELETE", `/api/invoices/${invoice.id}`);
     assert(archivedInvoice.is_deleted === 1, "Invoice should be archived");

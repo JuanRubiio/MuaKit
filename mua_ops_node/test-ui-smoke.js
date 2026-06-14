@@ -132,6 +132,16 @@ async function run() {
       if (!invoicePanelVisible) {
         throw new Error("No se abrio el detalle de factura");
       }
+      await page.locator("#invoiceDetailPanel [data-edit-invoice-details]").click();
+      await page.waitForTimeout(350);
+      if (!(await page.locator("#invoiceForm:not(.hidden)").count()) || await page.locator("#invoiceDetailPanel:not(.hidden)").count()) {
+        throw new Error("La edición de factura no sustituye correctamente al detalle");
+      }
+      await page.locator("#invoiceForm .invoice-form-footer [data-invoice-save-label]").click();
+      await page.waitForTimeout(500);
+      if (await page.locator("#invoiceForm:not(.hidden)").count() || !(await page.locator("#invoiceDetailPanel:not(.hidden)").count())) {
+        throw new Error("Guardar una factura deja superpuestas las vistas de edición y detalle");
+      }
       const invoiceAttachment = page.locator("#invoiceDetailPanel .invoice-document-card .invoice-doc-file");
       if (await invoiceAttachment.count()) {
         const invoiceViewer = page.locator("#invoiceDetailPanel .document-viewer");
