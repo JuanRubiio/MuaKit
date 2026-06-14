@@ -276,7 +276,7 @@ Campañas
 Campaña estreno / TESTEO
 18,51 €
 Mascotas 1630 Impresiones 5,27 €
-Maternidad 2596 Impresiones 13,24 €
+Maternidad 18 764 Impresiones 13,24 €
 Factura número FBADS-394-105737940`;
   const metaFields = detectFields(metaText);
   assert(metaFields.invoice_number === "FBADS-394-105737940", "Meta invoice numbers should be detected");
@@ -286,6 +286,7 @@ Factura número FBADS-394-105737940`;
   assert(metaLines.length === 2, "Meta campaign breakdown lines should become suggestions");
   const metaLine = parseInvoiceLine(metaLines[0], metaFields);
   assert(metaLine.description === "Mascotas" && metaLine.converted_amount === 5.27 && metaLine.original_currency === "EUR", "Meta campaign lines should have clean descriptions and EUR amounts");
+  assert(parseInvoiceLine(metaLines[1], metaFields).description === "Maternidad", "Meta campaign concepts should remove grouped impression counts");
   assert(cleanOriginalName("TransacciÃ³n n.Âº 123.pdf") === "Transacción n.º 123.pdf", "Mojibake document names should be repaired");
   assert(inferExpenseCategory("Globo Product Options subscription", "materiales", ["materiales"]) === "software", "Strong document signals should override supplier defaults");
   assert(inferExpenseCategory("Pedido mixto", "materiales", ["software", "software", "materiales"]) === "software", "Mixed suppliers should use historical invoice context");

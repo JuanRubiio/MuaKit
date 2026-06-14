@@ -91,7 +91,7 @@ function parseInvoiceLine(line, fields) {
   const description = line
     .replace(match[0], "")
     .replace(/(?:€|\bEUR\b|\bUSD\b)/gi, "")
-    .replace(/\s+\d+\s+impresiones\b/gi, "")
+    .replace(/\s+(?:\d{1,3}(?:[ .]\d{3})+|\d+)\s+impresiones\b/gi, "")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[·,:;-]+$/, "")
@@ -272,6 +272,13 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   }
 
   exec("UPDATE expense_imports SET status='pending', updated_at=CURRENT_TIMESTAMP WHERE status='processing'");
+  for (const row of query("SELECT id, original_text, description FROM expense_import_lines WHERE LOWER(original_text) LIKE '%impresiones%'")) {
+    const parsed = parseInvoiceLine(row.original_text, { currency: "EUR" });
+    if (parsed?.description && /\s+\d+$/.test(row.description || "") && parsed.description !== row.description) {
+      exec("UPDATE expense_import_lines SET description=$description, updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: row.id, description: parsed.description });
+    }
+  }
+  saveDb();
   for (const row of query("SELECT id FROM expense_imports WHERE status='pending' ORDER BY id")) enqueue(row.id);
 
   return { enqueue, process, status: () => ({ available: true, languages: ["spa", "eng"], model_path: langPath, pending: queue.length, running }) };

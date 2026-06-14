@@ -97,6 +97,18 @@ async function run() {
     if (await page.locator('#expenseImportUploadForm button[type="submit"]').isEnabled()) {
       throw new Error("El boton de importacion debe permanecer deshabilitado sin archivos");
     }
+    const importStatusFilter = page.locator('[data-import-filter="status"]');
+    if (await importStatusFilter.inputValue() !== "pending_review") {
+      throw new Error("La bandeja no aplica el filtro Pendientes por defecto");
+    }
+    await importStatusFilter.selectOption("");
+    if (await importStatusFilter.locator("option:checked").innerText() !== "Todos") {
+      throw new Error("El selector de estado no refleja el filtro Todos aplicado");
+    }
+    await importStatusFilter.selectOption("pending_review");
+    if (await page.locator("#expenseImportList .next-import-row.is-confirmed").count()) {
+      throw new Error("El filtro Pendientes muestra importaciones confirmadas");
+    }
     const importReview = page.locator("[data-open-expense-import]:visible").first();
     if (await importReview.count()) {
       await importReview.click();
