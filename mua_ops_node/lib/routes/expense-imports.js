@@ -69,10 +69,14 @@ function registerExpenseImportRoutes(app, ctx) {
     const fields = json(item.detected_fields_json, {});
     const lines = query(`SELECT eil.*, m.name suggested_material_name FROM expense_import_lines eil LEFT JOIN materials m ON m.id=eil.suggested_material_id WHERE expense_import_id=$id ORDER BY position,id`, { id: item.id });
     const exact = fields.suggested_supplier_id && fields.invoice_number
-      ? one("SELECT id, invoice_number, invoice_date, total FROM invoices WHERE supplier_id=$supplier AND invoice_number=$number AND id!=$invoice AND is_deleted=0", { supplier: fields.suggested_supplier_id, number: fields.invoice_number, invoice: Number(item.invoice_id || 0) })
+      ? one(`SELECT i.id, i.invoice_number, i.invoice_date, i.total, i.currency, i.status, i.category, s.name supplier_name
+        FROM invoices i LEFT JOIN suppliers s ON s.id=i.supplier_id
+        WHERE i.supplier_id=$supplier AND i.invoice_number=$number AND i.id!=$invoice AND i.is_deleted=0`, { supplier: fields.suggested_supplier_id, number: fields.invoice_number, invoice: Number(item.invoice_id || 0) })
       : null;
     const warning = fields.suggested_supplier_id && fields.invoice_date && fields.total !== null
-      ? one("SELECT id, invoice_number, invoice_date, total FROM invoices WHERE supplier_id=$supplier AND invoice_date=$date AND ABS(total-$total)<0.01 AND id!=$invoice AND is_deleted=0", { supplier: fields.suggested_supplier_id, date: fields.invoice_date, total: fields.total, invoice: Number(item.invoice_id || 0) })
+      ? one(`SELECT i.id, i.invoice_number, i.invoice_date, i.total, i.currency, i.status, i.category, s.name supplier_name
+        FROM invoices i LEFT JOIN suppliers s ON s.id=i.supplier_id
+        WHERE i.supplier_id=$supplier AND i.invoice_date=$date AND ABS(i.total-$total)<0.01 AND i.id!=$invoice AND i.is_deleted=0`, { supplier: fields.suggested_supplier_id, date: fields.invoice_date, total: fields.total, invoice: Number(item.invoice_id || 0) })
       : null;
     const duplicates = { exact, warning };
     return { import: payload(item), lines, duplicates, accounting_quality: accountingQuality(fields, lines, duplicates) };

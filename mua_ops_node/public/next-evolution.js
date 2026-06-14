@@ -49,6 +49,22 @@
       <div class="next-quality-checks">${checks.map(([label, ok]) => `<span class="${ok ? "is-ok" : "is-pending"}">${ok ? "✓" : "!"} ${label}</span>`).join("")}</div>
     </div>`;
   };
+  const duplicateInvoiceMarkup = (duplicate, exact = false) => {
+    if (!duplicate) return "";
+    const reference = duplicate.invoice_number || `Factura #${duplicate.id}`;
+    return `<section class="next-duplicate-alert ${exact ? "is-blocking" : "is-warning"}">
+      <div class="next-duplicate-alert-icon"><svg><use href="#icon-${exact ? "alert" : "eye"}"></use></svg></div>
+      <div class="next-duplicate-alert-copy">
+        <strong>${exact ? "Factura duplicada" : "Posible factura duplicada"}</strong>
+        <span>${exact ? "Coinciden el proveedor y el número de factura." : "Coinciden el proveedor, la fecha y el total. El número de factura es diferente o no se ha podido comparar."}</span>
+      </div>
+      <div class="next-duplicate-invoice">
+        <strong>${text(duplicate.supplier_name || "Sin proveedor")} · ${text(reference)}</strong>
+        <span>${text(duplicate.invoice_date || "Sin fecha")} · ${currencyFormat(duplicate.total, duplicate.currency || "EUR")} · ${text(expenseCategoryLabel(duplicate.category))}</span>
+      </div>
+      <button type="button" class="ghost" data-open-duplicate-invoice="${duplicate.id}">Abrir factura existente</button>
+    </section>`;
+  };
   const reviewableRows = () => expenseImportRows.filter((row) => ["ready", "review", "error"].includes(row.status));
   const filteredImportRows = () => {
     const query = importFilters.query.toLocaleLowerCase("es");
@@ -283,7 +299,7 @@
     $("#expenseImportDetail").classList.remove("hidden");
     $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · ${text(expenseCategoryLabel(fields.category))}</p></div><div class="next-import-navigation"><span>${position + 1} de ${reviewRows.length}</span><button class="ghost" data-open-expense-import="${previous?.id || ""}" ${previous ? "" : "disabled"}>Anterior</button><button class="ghost" data-open-expense-import="${next?.id || ""}" ${next ? "" : "disabled"}>Siguiente</button><button class="ghost button-with-icon" data-close-expense-import><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar revisión</span></button><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div></div>
       <div class="next-review-quality quality-${quality.tone}">${confidenceMarkup(item)}${accountingMarkup(accounting)}<div><strong>${accounting.batch_eligible ? "Lista para confirmación segura" : "Aún necesita supervisión"}</strong><span>La lectura OCR mide lo entendido; el control contable comprueba campos, líneas, decisiones y duplicados.</span></div></div>
-      ${data.duplicates.exact ? `<div class="inline-alert danger">Duplicado bloqueante: factura #${data.duplicates.exact.id}</div>` : data.duplicates.warning ? `<div class="inline-alert warn">Posible duplicado: factura #${data.duplicates.warning.id}</div>` : ""}
+      ${duplicateInvoiceMarkup(data.duplicates.exact || data.duplicates.warning, Boolean(data.duplicates.exact))}
       ${documentViewerMarkup({ stored_name: item.stored_name, original_name: item.original_name, mime_type: item.mime_type }, { context: "original", annotated: true })}
       <div class="next-validation-grid">
         <form id="expenseImportReviewForm" data-import-id="${item.id}" class="form-grid three">
@@ -336,6 +352,10 @@
     try {
       if (button.dataset.expenseSection) switchExpense(button.dataset.expenseSection);
       if (button.dataset.materialsSection) switchMaterials(button.dataset.materialsSection);
+      if (button.dataset.openDuplicateInvoice) {
+        switchExpense("registered");
+        await openInvoice(button.dataset.openDuplicateInvoice);
+      }
       if (Object.prototype.hasOwnProperty.call(button.dataset, "closeExpenseImport")) showImportList();
       if (button.dataset.openExpenseImport) await openImport(button.dataset.openExpenseImport);
       if (button.dataset.reprocessImport) { await api(`/api/expense-imports/${button.dataset.reprocessImport}/reprocess`, { method: "POST" }); await loadImports(); }

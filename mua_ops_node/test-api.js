@@ -818,6 +818,8 @@ Factura número FBADS-394-105737940`;
     await request("PATCH", `/api/expense-imports/${duplicateImport.id}`, {
       detected_fields: { suggested_supplier_id: supplier.id, invoice_number: "OCR-QA-001", invoice_date: "2026-06-01", total: 17.25 }
     });
+    const duplicateDetail = await request("GET", `/api/expense-imports/${duplicateImport.id}`);
+    assert(duplicateDetail.duplicates.exact?.supplier_name === "Test Supplier" && duplicateDetail.duplicates.exact?.invoice_number === "OCR-QA-001", "Duplicate candidates should include human-readable invoice context");
     const duplicateConfirm = await requestRaw("POST", `/api/expense-imports/${duplicateImport.id}/confirm`, {});
     assert(duplicateConfirm.response.status === 400 && duplicateConfirm.payload.code === "EXPENSE_IMPORT_DUPLICATE", "Exact supplier and invoice number should still block duplicate confirmation");
 
