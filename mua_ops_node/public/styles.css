@@ -9212,6 +9212,12 @@ textarea {
   border-top: 1px solid var(--line);
 }
 
+.next-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .next-import-navigation {
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -9842,6 +9848,7 @@ textarea {
   .next-import-final-actions,
   .next-discard-action,
   .next-batch-bar,
+  .next-batch-actions,
   .next-lines-head,
   .next-lines-head-actions {
     align-items: stretch;

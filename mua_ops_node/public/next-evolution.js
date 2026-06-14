@@ -1,7 +1,7 @@
 (() => {
   const expensePage = document.querySelector("#invoices .invoice-page");
   const materialPage = document.querySelector("#materials .materials-page");
-  const expenseDefault = expensePage ? Array.from(expensePage.children).filter((node) => !node.matches(".next-domain-tabs,#expenseImportPanel,.invoice-overview-head")) : [];
+  const expenseDefault = expensePage ? Array.from(expensePage.children).filter((node) => !node.matches(".next-domain-tabs,#expenseImportPanel,.invoice-overview-head,#invoiceForm,#invoiceDetailPanel")) : [];
   const materialDefault = materialPage ? Array.from(materialPage.children).filter((node) => !node.matches(".next-domain-tabs,#replenishmentPanel,#purchasePlannerPanel,.materials-overview-head")) : [];
   let replenishmentRows = [];
   let currentPurchasePlan = null;
@@ -66,6 +66,7 @@
     </section>`;
   };
   const reviewableRows = () => expenseImportRows.filter((row) => ["ready", "review", "error"].includes(row.status));
+  const eligibleImportRows = (rows = filteredImportRows()) => rows.filter((row) => row.accounting_quality?.batch_eligible && ["ready", "review"].includes(row.status));
   const filteredImportRows = () => {
     const query = importFilters.query.toLocaleLowerCase("es");
     return expenseImportRows.filter((row) => {
@@ -90,6 +91,7 @@
   }
 
   function switchExpense(section) {
+    if (section === "imports") closeInvoicePanels();
     document.querySelectorAll("[data-expense-section]").forEach((button) => button.classList.toggle("is-active", button.dataset.expenseSection === section));
     expenseDefault.forEach((node) => node.classList.toggle("hidden", section !== "registered"));
     $("#expenseImportPanel").classList.toggle("hidden", section !== "imports");
@@ -111,6 +113,8 @@
     const pending = expenseImportRows.filter((row) => ["pending", "processing"].includes(row.status)).length;
     const reliable = visibleRows.filter((row) => ["ready", "review"].includes(row.status) && importQuality(row).tone === "high").length;
     const attention = visibleRows.filter((row) => ["ready", "review", "error"].includes(row.status) && importQuality(row).tone !== "high").length;
+    const eligibleRows = eligibleImportRows(visibleRows);
+    const allEligibleSelected = eligibleRows.length > 0 && eligibleRows.every((row) => selectedImportIds.has(Number(row.id)));
     $("#expenseImportMetrics").innerHTML = metric("En proceso", pending, "Cola local secuencial") + metric("Lectura fiable", reliable, "Listas para validar") + metric("Requieren atención", attention, "Revisar datos detectados");
     const suppliers = [...new Map(expenseImportRows.filter((row) => row.detected_fields?.suggested_supplier_id).map((row) => [row.detected_fields.suggested_supplier_id, row.detected_fields.suggested_supplier_name])).entries()];
     $("#expenseImportTools").innerHTML = `<div class="next-import-filters">
@@ -120,7 +124,7 @@
       <label>Tipo<select data-import-filter="category"><option value="">Todos</option>${INVOICE_CATEGORIES.map((value) => `<option value="${value}" ${value === importFilters.category ? "selected" : ""}>${expenseCategoryLabel(value)}</option>`).join("")}</select></label>
       <label>Lectura<select data-import-filter="quality"><option value="">Todas</option><option value="high" ${importFilters.quality === "high" ? "selected" : ""}>Fiable</option><option value="medium" ${importFilters.quality === "medium" ? "selected" : ""}>Revisable</option><option value="low" ${importFilters.quality === "low" ? "selected" : ""}>Atención</option></select></label>
       <label>Incidencia<select data-import-filter="issue"><option value="">Todas</option><option value="fields" ${importFilters.issue === "fields" ? "selected" : ""}>Faltan campos</option><option value="totals" ${importFilters.issue === "totals" ? "selected" : ""}>Totales no cuadran</option><option value="decisions" ${importFilters.issue === "decisions" ? "selected" : ""}>Decisiones pendientes</option><option value="duplicate" ${importFilters.issue === "duplicate" ? "selected" : ""}>Duplicado</option></select></label>
-    </div><div class="next-batch-bar"><span><strong>${selectedImportIds.size}</strong> seleccionadas para crear borradores</span><button type="button" data-batch-confirm-imports ${selectedImportIds.size ? "" : "disabled"}>Confirmar selección</button></div>`;
+    </div><div class="next-batch-bar"><span><strong>${selectedImportIds.size}</strong> seleccionadas para crear borradores · ${eligibleRows.length} candidatas visibles</span><div class="next-batch-actions"><button type="button" class="ghost" data-select-all-eligible-imports ${eligibleRows.length ? "" : "disabled"}>${allEligibleSelected ? "Limpiar candidatas" : "Seleccionar candidatas"}</button><button type="button" data-batch-confirm-imports ${selectedImportIds.size ? "" : "disabled"}>Confirmar selección</button></div></div>`;
     $("#expenseImportList").innerHTML = visibleRows.length ? visibleRows.map((row) => `<article class="next-import-row is-${row.status}">
       <input class="next-import-select" type="checkbox" data-select-expense-import="${row.id}" ${selectedImportIds.has(Number(row.id)) ? "checked" : ""} ${row.accounting_quality?.batch_eligible && ["ready", "review"].includes(row.status) ? "" : "disabled"}>
       ${row.detected_fields?.suggested_supplier_name ? entityIconMarkup(row.detected_fields.suggested_supplier_name, { type: "supplier", className: "supplier-avatar compact", label: row.detected_fields.suggested_supplier_name }) : `<span class="next-file-icon"><svg><use href="#icon-file"></use></svg></span>`}
@@ -354,6 +358,7 @@
       if (button.dataset.materialsSection) switchMaterials(button.dataset.materialsSection);
       if (button.dataset.openDuplicateInvoice) {
         switchExpense("registered");
+        closeInvoicePanels();
         await openInvoice(button.dataset.openDuplicateInvoice);
       }
       if (Object.prototype.hasOwnProperty.call(button.dataset, "closeExpenseImport")) showImportList();
@@ -364,6 +369,14 @@
         selectedImportIds.clear();
         toast(`${result.confirmed.length} borradores creados${result.rejected.length ? ` · ${result.rejected.length} requieren revisión` : ""}`);
         await loadImports();
+      }
+      if (Object.prototype.hasOwnProperty.call(button.dataset, "selectAllEligibleImports")) {
+        const eligibleRows = eligibleImportRows();
+        const allSelected = eligibleRows.length > 0 && eligibleRows.every((row) => selectedImportIds.has(Number(row.id)));
+        eligibleRows.forEach((row) => {
+          if (allSelected) selectedImportIds.delete(Number(row.id)); else selectedImportIds.add(Number(row.id));
+        });
+        renderImportList();
       }
       if (button.dataset.requestDiscardImport) {
         const action = button.closest(".next-discard-action");
