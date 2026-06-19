@@ -225,7 +225,7 @@ export function createInvoiceViews(ctx) {
         </div>
       </div>
 
-      ${documentViewerMarkup(detail.invoice, { context: "adjunto" })}
+      ${documentViewerMarkup(detail.invoice, { context: "adjunto", annotated: true })}
 
       <div class="invoice-detail-grid">
         <section class="panel invoice-detail-data">
@@ -341,6 +341,8 @@ export function createInvoiceViews(ctx) {
         </div>
       </div>
     `;
+    const annotatedViewer = panel.querySelector("[data-annotated-document-viewer]");
+    if (annotatedViewer) window.renderAnnotatedDocumentViewer?.(annotatedViewer, detail.invoice, detail.lines);
     bindLineForm();
     if (state.invoiceLineFormOpen) updateLinePreview();
     panel.scrollIntoView({ behavior: "smooth", block: "start" });

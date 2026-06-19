@@ -46,10 +46,90 @@ async function run() {
     if (text.includes("ERR_NETWORK_ACCESS_DENIED")) return;
     errors.push(text);
   });
+  const goToDashboard = async () => {
+    await page.locator('button.tab[data-view="dashboard"]').evaluate((node) => node.click());
+    await page.locator("#dashboard.active").waitFor({ state: "visible" });
+  };
 
   try {
     await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(2200);
+    if ((await page.locator("#dashboardCards .dashboard-kpi-card").count()) !== 5) {
+      throw new Error("El Dashboard operativo no muestra los cinco KPIs de decisión");
+    }
+    const configuredDashboardColors = [
+      "dashboard_color_total", "dashboard_color_materiales", "dashboard_color_marketing", "dashboard_color_envios",
+      "dashboard_color_servicios", "dashboard_color_software", "dashboard_color_otros", "dashboard_color_balance",
+      "dashboard_color_cobros", "dashboard_color_fees", "dashboard_color_shopify", "dashboard_color_etsy", "dashboard_color_bizum",
+      "dashboard_color_profit_sales", "dashboard_color_profit_cost", "dashboard_color_profit_margin",
+      "dashboard_color_margin_critical", "dashboard_color_margin_pressure", "dashboard_color_margin_healthy",
+      "dashboard_color_cost_content", "dashboard_color_cost_fixed"
+    ];
+    for (const name of configuredDashboardColors) {
+      if ((await page.locator(`#settingsForm input[name="${name}"][type="color"]`).count()) !== 1) {
+        throw new Error(`Configuración no expone el color ${name}`);
+      }
+    }
+    const marginPanelText = await page.locator(".dashboard-margin-panel").innerText();
+    if (!marginPanelText.includes("Crítico") || !marginPanelText.includes("En presión") || !marginPanelText.includes("Saludable")) {
+      throw new Error("El Dashboard no traduce los tramos de margen");
+    }
+    if (await page.locator(".dashboard-driver-head button").filter({ hasText: "->" }).count()) {
+      throw new Error("El Dashboard mantiene flechas de texto en sus acciones");
+    }
+    await page.locator('[data-dashboard-mode="profitability"]').click();
+    await page.waitForTimeout(250);
+    if (!(await page.locator('[data-dashboard-mode="profitability"].is-active').count())
+      || !(await page.locator("#dashboardPrimaryTitle").innerText()).includes("rentabilidad")) {
+      throw new Error("El Dashboard no cambia correctamente al modo Rentabilidad");
+    }
+    await page.locator('[data-dashboard-mode="operation"]').click();
+    await page.locator("#dashboardFilterTrigger").click();
+    if (await page.locator("#dashboardFilterPopover").evaluate((node) => node.classList.contains("hidden"))) {
+      throw new Error("El selector temporal visual del Dashboard no se abre");
+    }
+    await page.locator('[data-dashboard-period-option="last_30_days"]').click();
+    await page.locator('[data-dashboard-granularity-option="day"]').click();
+    await page.locator("#dashboardFilterApply").click();
+    await page.waitForTimeout(300);
+    if (!(await page.locator("#dashboardFilterSummary").innerText()).includes("Diaria")) {
+      throw new Error("El selector temporal visual no refleja la granularidad elegida");
+    }
+    if (await page.locator("#dashboardWindowPreset").inputValue() !== "last_30_days"
+      || await page.locator("#dashboardGranularity").inputValue() !== "day") {
+      throw new Error("Los filtros temporales del Dashboard no conservan la selección");
+    }
+
+    await page.locator('#dashboardOpsList [data-jump-context="replenishment"]').click();
+    await page.waitForTimeout(250);
+    if (!(await page.locator("#materials.active").count()) || await page.locator("#replenishmentPanel").evaluate((node) => node.classList.contains("hidden"))) {
+      throw new Error("Compras urgentes no abre Reposición inteligente");
+    }
+    await goToDashboard();
+    await page.locator('#dashboardOpsList [data-jump-context="draft"]').click();
+    await page.waitForTimeout(250);
+    if (!(await page.locator("#invoices.active").count()) || await page.locator("#invoiceStatusFilter").inputValue() !== "draft") {
+      throw new Error("Gastos por cerrar no abre Gastos filtrados por borrador");
+    }
+    await goToDashboard();
+    await page.locator('#dashboardOpsList [data-jump-context="imports"]').click();
+    await page.waitForTimeout(250);
+    if (!(await page.locator("#invoices.active").count()) || await page.locator("#expenseImportPanel").evaluate((node) => node.classList.contains("hidden"))) {
+      throw new Error("Importaciones por validar no abre la Bandeja de importación");
+    }
+    await goToDashboard();
+    await page.locator('#dashboardOpsList [data-jump-context="low_margin"]').click();
+    await page.waitForTimeout(250);
+    if (!(await page.locator("#kits.active").count()) || await page.locator("#orderStatusFilter").inputValue() !== "low_margin") {
+      throw new Error("Margen en presión no abre Pedidos con el filtro correcto");
+    }
+    await goToDashboard();
+    await page.locator('#dashboardOpsList [data-jump-context="pending"]').click();
+    await page.waitForTimeout(250);
+    if (!(await page.locator("#income.active").count()) || !(await page.locator('#incomeStatusTabs [data-income-lane="pending"].is-active').count())) {
+      throw new Error("Ingresos pendientes no abre el listado pendiente");
+    }
+    await goToDashboard();
 
     const refreshRequests = [];
     page.on("request", (request) => {
@@ -121,6 +201,29 @@ async function run() {
       if (await importViewer.getAttribute("open") === null || !(await importViewer.locator(".document-viewer-frame").count())) {
         throw new Error("El visor documental OCR no se despliega correctamente");
       }
+      const zoomIn = importViewer.locator('[data-document-zoom="in"]');
+      if (!(await zoomIn.count())) throw new Error("El visor documental OCR no ofrece controles de zoom");
+      await page.waitForTimeout(250);
+      const annotatedViewer = importViewer.locator("[data-annotated-document-viewer]");
+      const initialZoom = Number(await annotatedViewer.getAttribute("data-zoom") || 1);
+      if ((await importViewer.locator("summary").innerText()).includes("OrderSummary") && initialZoom !== 1.5) {
+        throw new Error("El visor de imagen AliExpress no comienza al 150% de zoom");
+      }
+      await zoomIn.click();
+      if (Number(await annotatedViewer.getAttribute("data-zoom") || 1) <= initialZoom) {
+        throw new Error("El control de zoom del visor no amplía el documento");
+      }
+      if ((await importViewer.locator("summary").innerText()).includes("OrderSummary")
+        && await annotatedViewer.getAttribute("data-document-kind") === "image"
+        && !(await importViewer.locator(".document-evidence-zone").count())) {
+        throw new Error("El visor de imagen no resalta las zonas detectadas por OCR");
+      }
+      if (!(await page.locator('#expenseImportReviewForm input[name="subtotal"]').count())
+        || !(await page.locator('#expenseImportReviewForm input[name="discount"]').count())
+        || !(await page.locator('#expenseImportReviewForm input[name="shipping"]').count())
+        || !(await page.locator('#expenseImportReviewForm input[name="tax"]').count())) {
+        throw new Error("La validación OCR no permite revisar los ajustes contables de la factura");
+      }
       await page.locator("[data-close-expense-import]").click();
     }
     await page.locator('[data-expense-section="registered"]').click();
@@ -138,7 +241,7 @@ async function run() {
         throw new Error("La edición de factura no sustituye correctamente al detalle");
       }
       await page.locator("#invoiceForm .invoice-form-footer [data-invoice-save-label]").click();
-      await page.waitForTimeout(500);
+      await page.locator("#invoiceDetailPanel:not(.hidden)").waitFor({ state: "visible", timeout: 2500 });
       if (await page.locator("#invoiceForm:not(.hidden)").count() || !(await page.locator("#invoiceDetailPanel:not(.hidden)").count())) {
         throw new Error("Guardar una factura deja superpuestas las vistas de edición y detalle");
       }
@@ -157,6 +260,18 @@ async function run() {
     await page.waitForTimeout(300);
     if (!(await page.locator("#replenishmentPanel:not(.hidden)").count()) || !(await page.locator(".next-replenishment-row").count())) {
       throw new Error("No cargo la vista de reposicion inteligente");
+    }
+    if ((await page.locator("#replenishmentMetrics .next-kpi").count()) !== 4 || !(await page.locator("[data-replenishment-decision]").count())) {
+      throw new Error("La reposicion inteligente no muestra sus decisiones y KPIs operativos");
+    }
+    await page.locator('[data-replenishment-decision="monitor"]').click();
+    await page.waitForTimeout(100);
+    if (!(await page.locator('[data-replenishment-decision="monitor"].is-active').count())) {
+      throw new Error("El filtro de decisiones de reposicion no responde");
+    }
+    await page.locator('[data-replenishment-decision="buy"]').click();
+    if (!(await page.locator("#createPurchasePlan").count()) || !(await page.locator("[data-replenishment-quantity]").count())) {
+      throw new Error("La reposicion no permite supervisar cantidades antes de crear el plan");
     }
     await page.locator('[data-materials-section="purchases"]').click();
     await page.waitForTimeout(200);

@@ -47,17 +47,31 @@ const DEFAULT_SETTINGS = {
   dashboard_color_materiales: "#9f7234",
   dashboard_color_marketing: "#b85d72",
   dashboard_color_envios: "#4f6d93",
+  dashboard_color_servicios: "#8a8178",
+  dashboard_color_software: "#7b6f85",
+  dashboard_color_otros: "#b7a992",
   dashboard_color_cobros: "#166b5e",
   dashboard_color_fees: "#b85d72",
+  dashboard_color_balance: "#c18a3a",
   dashboard_color_shopify: "#166b5e",
   dashboard_color_etsy: "#9f7234",
   dashboard_color_bizum: "#c18a3a",
+  dashboard_color_profit_sales: "#087c6d",
+  dashboard_color_profit_cost: "#bd4e68",
+  dashboard_color_profit_margin: "#cc7d13",
+  dashboard_color_margin_critical: "#b84c5f",
+  dashboard_color_margin_pressure: "#d89a3a",
+  dashboard_color_margin_healthy: "#18836f",
+  dashboard_color_cost_content: "#bd4e68",
+  dashboard_color_cost_fixed: "#d89a3a",
   reorder_alert_multiplier: "1.25",
   replenishment_weight_30: "0.7",
   replenishment_weight_90: "0.3",
   replenishment_default_lead_days: "14",
   replenishment_safety_days: "7",
   replenishment_target_coverage_days: "30",
+  dashboard_margin_critical: "75",
+  dashboard_margin_healthy: "88",
   feature_expense_imports: "1",
   feature_replenishment: "1",
   feature_purchase_planner: "1"
@@ -844,6 +858,76 @@ const SCHEMA_MIGRATIONS = [
         claimedInvoiceLines.add(invoiceLine.id);
         exec("UPDATE invoice_lines SET description=$description, impressions=$impressions, updated_at=CURRENT_TIMESTAMP WHERE id=$id", {
           id: invoiceLine.id, description: parsed.description, impressions: parsed.impressions
+        });
+      }
+    }
+  },
+  {
+    id: "013_expense_import_line_purchase_structure",
+    name: "Preserve package and gross price structure in imported expense lines",
+    up: ({ ensureColumn, exec }) => {
+      ensureColumn("expense_import_lines", "package_count", "REAL NOT NULL DEFAULT 1");
+      ensureColumn("expense_import_lines", "units_per_package", "REAL NOT NULL DEFAULT 1");
+      ensureColumn("expense_import_lines", "total_units", "REAL NOT NULL DEFAULT 1");
+      ensureColumn("expense_import_lines", "price_per_package", "REAL");
+      exec(`UPDATE expense_import_lines
+        SET package_count=COALESCE(package_count,1),
+            units_per_package=CASE WHEN units_per_package IS NULL OR units_per_package=1 THEN COALESCE(quantity,1) ELSE units_per_package END,
+            total_units=CASE WHEN total_units IS NULL OR total_units=1 THEN COALESCE(quantity,1) ELSE total_units END,
+            price_per_package=COALESCE(price_per_package,line_total)
+        WHERE package_count IS NULL OR units_per_package IS NULL OR total_units IS NULL OR price_per_package IS NULL`);
+    }
+  },
+  {
+    id: "014_reconcile_confirmed_import_line_structure",
+    name: "Align historical confirmed import lines with their invoice lines",
+    up: ({ query, exec }) => {
+      for (const imported of query("SELECT id, invoice_id FROM expense_imports WHERE status='confirmed' AND invoice_id IS NOT NULL")) {
+        const importLines = query("SELECT id FROM expense_import_lines WHERE expense_import_id=$id ORDER BY position,id", { id: imported.id });
+        const invoiceLines = query(`SELECT package_count,units_per_package,total_units,price_per_package,unit_price,line_total
+          FROM invoice_lines WHERE invoice_id=$invoice AND is_deleted=0 ORDER BY id`, { invoice: imported.invoice_id });
+        if (importLines.length !== invoiceLines.length) continue;
+        importLines.forEach((line, index) => {
+          const invoiceLine = invoiceLines[index];
+          exec(`UPDATE expense_import_lines
+            SET package_count=$packages,units_per_package=$unitsPackage,total_units=$totalUnits,quantity=$totalUnits,
+                price_per_package=$pricePackage,unit_price=$unitPrice,line_total=$lineTotal,updated_at=CURRENT_TIMESTAMP
+            WHERE id=$id`, {
+            id: line.id, packages: invoiceLine.package_count, unitsPackage: invoiceLine.units_per_package,
+            totalUnits: invoiceLine.total_units, pricePackage: invoiceLine.price_per_package,
+            unitPrice: invoiceLine.unit_price, lineTotal: invoiceLine.line_total
+          });
+        });
+      }
+    }
+  },
+  {
+    id: "015_reconcile_historical_shein_gross_prices",
+    name: "Use VAT-inclusive prices for historical Shein import lines",
+    up: ({ query, exec }) => {
+      for (const imported of query(`SELECT ei.id,ei.invoice_id FROM expense_imports ei
+        JOIN invoices i ON i.id=ei.invoice_id LEFT JOIN suppliers s ON s.id=i.supplier_id
+        WHERE ei.status='confirmed' AND ei.invoice_id IS NOT NULL AND LOWER(COALESCE(s.name,''))='shein'`)) {
+        const importLines = query("SELECT id,description,quantity,original_data_json FROM expense_import_lines WHERE expense_import_id=$id ORDER BY position,id", { id: imported.id });
+        const invoiceLines = query("SELECT id FROM invoice_lines WHERE invoice_id=$invoice AND is_deleted=0 ORDER BY id", { invoice: imported.invoice_id });
+        importLines.forEach((line, index) => {
+          let original = {};
+          try { original = JSON.parse(line.original_data_json || "{}"); } catch {}
+          const gross = Number(original.shein_gross_total || 0);
+          if (!gross) return;
+          const totalUnits = Number(line.quantity || 1);
+          const unitsPackage = Number(String(line.description || "").match(/\b(\d+)\s+(?:piezas|bolsas)\b/i)?.[1] || totalUnits || 1);
+          const packages = totalUnits && unitsPackage ? totalUnits / unitsPackage : 1;
+          const pricePackage = packages ? gross / packages : gross;
+          const unitPrice = totalUnits ? gross / totalUnits : gross;
+          const values = { id: line.id, packages, unitsPackage, totalUnits, pricePackage, unitPrice, gross };
+          exec(`UPDATE expense_import_lines SET package_count=$packages,units_per_package=$unitsPackage,total_units=$totalUnits,
+            quantity=$totalUnits,price_per_package=$pricePackage,unit_price=$unitPrice,line_total=$gross,updated_at=CURRENT_TIMESTAMP WHERE id=$id`, values);
+          if (invoiceLines.length === importLines.length && invoiceLines[index]) {
+            exec(`UPDATE invoice_lines SET package_count=$packages,units_per_package=$unitsPackage,total_units=$totalUnits,
+              price_per_package=$pricePackage,unit_price=$unitPrice,line_total=$gross,updated_at=CURRENT_TIMESTAMP WHERE id=$id`,
+            { ...values, id: invoiceLines[index].id });
+          }
         });
       }
     }
@@ -2293,6 +2377,17 @@ function normalizeDashboardWindow(query = {}) {
     from = formatIsoDate(start);
     to = formatIsoDate(today);
     label = "Este mes";
+  } else if (preset === "last_30_days") {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 29);
+    from = formatIsoDate(start);
+    to = formatIsoDate(today);
+    label = "Últimos 30 días";
+  } else if (preset === "this_quarter") {
+    const start = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1);
+    from = formatIsoDate(start);
+    to = formatIsoDate(today);
+    label = "Este trimestre";
   } else if (preset === "last_3_months") {
     const start = startOfMonth(shiftMonths(today, -2));
     from = formatIsoDate(start);
@@ -2319,6 +2414,158 @@ function normalizeDashboardWindow(query = {}) {
   }
 
   return { preset, from, to, label };
+}
+
+function dashboardProfitability(window, granularity, settings) {
+  const fixedSets = kitRecipes();
+  const activeSet = fixedSets.find((set) => Number(set.is_default || 0)) || fixedSets[0] || null;
+  const fixedSetById = new Map(fixedSets.map((set) => [Number(set.id), set]));
+  const costMap = new Map(materialCosts().map((row) => [Number(row.material_id), row]));
+  const linesByOrder = new Map();
+  for (const line of query(
+    `SELECT l.order_id, l.material_id, l.quantity, l.include_in_cost, m.name AS material_name
+     FROM sales_order_lines l
+     LEFT JOIN materials m ON m.id=l.material_id
+     WHERE l.is_deleted=0`
+  )) {
+    const rows = linesByOrder.get(Number(line.order_id)) || [];
+    rows.push(line);
+    linesByOrder.set(Number(line.order_id), rows);
+  }
+  const criticalThreshold = n(settings.dashboard_margin_critical, 75);
+  const healthyThreshold = n(settings.dashboard_margin_healthy, 88);
+  const allOrders = query(
+    `SELECT o.*, kr.name AS selected_fixed_set_name, kr.version AS selected_fixed_set_version
+     FROM sales_orders o
+     LEFT JOIN kit_recipes kr ON kr.id=o.kit_recipe_id
+     WHERE o.is_deleted=0
+     ORDER BY o.order_date DESC, o.id DESC`
+  ).map((order) => {
+    const orderSet = fixedSetById.get(Number(order.kit_recipe_id)) || activeSet;
+    const fixedSetCost = n(orderSet?.known_cost);
+    const lines = linesByOrder.get(Number(order.id)) || [];
+    let contentCost = 0;
+    let missingMaterials = 0;
+    let missingCosts = 0;
+    const materialCostsByLine = [];
+    for (const line of lines) {
+      if (Number(line.include_in_cost ?? 1) === 0) continue;
+      if (!line.material_id) {
+        missingMaterials += 1;
+        continue;
+      }
+      const unitCost = costMap.get(Number(line.material_id))?.weighted_avg_unit_cost_inc_vat;
+      if (unitCost == null) {
+        missingCosts += 1;
+        continue;
+      }
+      const lineCost = n(unitCost) * n(line.quantity, 1);
+      contentCost += lineCost;
+      materialCostsByLine.push({ material_id: line.material_id, name: line.material_name, cost: lineCost });
+    }
+    const reliable = lines.length > 0 && missingMaterials === 0 && missingCosts === 0 && !Number(orderSet?.missing_cost_items || 0);
+    const realCost = contentCost + fixedSetCost;
+    const netAmount = n(order.net_amount);
+    const profit = netAmount - realCost;
+    const marginPercent = netAmount > 0 ? (profit / netAmount) * 100 : null;
+    const band = marginPercent == null ? "unknown" : marginPercent < criticalThreshold ? "critical" : marginPercent < healthyThreshold ? "pressure" : "healthy";
+    return {
+      ...order,
+      reliable,
+      fixed_set_name: orderSet?.name || "Sin set",
+      fixed_set_cost: fixedSetCost,
+      content_cost: contentCost,
+      real_cost: realCost,
+      profit,
+      margin_percent: marginPercent,
+      margin_band: band,
+      material_costs: materialCostsByLine
+    };
+  });
+  const orders = allOrders.filter((order) => dateInRange(order.order_date, window.from, window.to));
+  const reliableOrders = orders.filter((order) => order.reliable && order.margin_percent != null);
+  const netSales = reliableOrders.reduce((sum, order) => sum + n(order.net_amount), 0);
+  const totalProfit = reliableOrders.reduce((sum, order) => sum + n(order.profit), 0);
+  const weightedMargin = netSales > 0 ? (totalProfit / netSales) * 100 : null;
+  const averageTicket = orders.length ? orders.reduce((sum, order) => sum + n(order.net_amount), 0) / orders.length : 0;
+  const averageRealCost = reliableOrders.length ? reliableOrders.reduce((sum, order) => sum + n(order.real_cost), 0) / reliableOrders.length : null;
+  const buckets = new Map();
+  for (const order of reliableOrders) {
+    const key = dashboardBucketKey(order.order_date, granularity);
+    const bucket = buckets.get(key) || { key, sales: 0, profit: 0, cost: 0, orders: 0 };
+    bucket.sales += n(order.net_amount);
+    bucket.profit += n(order.profit);
+    bucket.cost += n(order.real_cost);
+    bucket.orders += 1;
+    buckets.set(key, bucket);
+  }
+  const baseSeriesKeys = Array.from(buckets.keys()).sort((a, b) => a.localeCompare(b));
+  const series = dashboardBucketSpan(window.from, window.to, granularity, baseSeriesKeys).map((key) => {
+    const row = buckets.get(key) || { key, sales: 0, profit: 0, cost: 0, orders: 0 };
+    return { ...row, weighted_margin_percent: row.sales > 0 ? (row.profit / row.sales) * 100 : null };
+  });
+  const bandSummary = ["critical", "pressure", "healthy"].map((band) => {
+    const rows = reliableOrders.filter((order) => order.margin_band === band);
+    const sales = rows.reduce((sum, order) => sum + n(order.net_amount), 0);
+    return { band, orders: rows.length, sales, share_of_sales: netSales > 0 ? (sales / netSales) * 100 : 0 };
+  });
+  const kitsSummary = Array.from(reliableOrders.reduce((map, order) => {
+    const key = order.fixed_set_name;
+    const bucket = map.get(key) || { name: key, orders: 0, sales: 0, profit: 0 };
+    bucket.orders += 1;
+    bucket.sales += n(order.net_amount);
+    bucket.profit += n(order.profit);
+    map.set(key, bucket);
+    return map;
+  }, new Map()).values()).map((row) => ({
+    ...row,
+    weighted_margin_percent: row.sales > 0 ? (row.profit / row.sales) * 100 : null
+  })).sort((a, b) => b.sales - a.sales);
+  const materialImpact = Array.from(reliableOrders.reduce((map, order) => {
+    for (const line of order.material_costs) {
+      const bucket = map.get(Number(line.material_id)) || { material_id: line.material_id, name: line.name, total_cost: 0 };
+      bucket.total_cost += n(line.cost);
+      map.set(Number(line.material_id), bucket);
+    }
+    return map;
+  }, new Map()).values()).sort((a, b) => b.total_cost - a.total_cost).slice(0, 8);
+  const costDrivers = [
+    {
+      key: "content",
+      label: "Contenido Shopify",
+      total: reliableOrders.reduce((sum, order) => sum + n(order.content_cost), 0)
+    },
+    {
+      key: "fixed_set",
+      label: "Set fijo",
+      total: reliableOrders.reduce((sum, order) => sum + n(order.fixed_set_cost), 0)
+    }
+  ].map((row) => ({
+    ...row,
+    share_of_sales: netSales > 0 ? (row.total / netSales) * 100 : 0,
+    share_of_cost: reliableOrders.reduce((sum, order) => sum + n(order.real_cost), 0) > 0
+      ? (row.total / reliableOrders.reduce((sum, order) => sum + n(order.real_cost), 0)) * 100
+      : 0
+  })).filter((row) => row.total > 0);
+  return {
+    thresholds: { critical: criticalThreshold, healthy: healthyThreshold, source: "Configuración basada en la distribución histórica de márgenes" },
+    metrics: {
+      total_orders: orders.length,
+      reliable_orders: reliableOrders.length,
+      reliable_coverage_percent: orders.length ? (reliableOrders.length / orders.length) * 100 : 0,
+      net_sales: netSales,
+      total_profit: totalProfit,
+      weighted_margin_percent: weightedMargin,
+      average_ticket: averageTicket,
+      average_real_cost: averageRealCost
+    },
+    bands: bandSummary,
+    series,
+    low_margin_orders: reliableOrders.filter((order) => order.margin_band !== "healthy").sort((a, b) => a.margin_percent - b.margin_percent).slice(0, 8),
+    kits: kitsSummary,
+    cost_drivers: costDrivers,
+    material_cost_impact: materialImpact
+  };
 }
 
 function monthSpan(from, to, fallbackMonths = []) {
@@ -2359,12 +2606,68 @@ function daysBetween(from, to) {
 function normalizeTrendGranularity(options = {}, window = {}) {
   const requested = String(options.granularity || "auto").trim() || "auto";
   if (requested === "day") return "day";
+  if (requested === "week") return "week";
   if (requested === "month") return "month";
+  if (requested === "quarter") return "quarter";
   if (window.from && window.to) {
     const span = daysBetween(window.from, window.to);
     if (span && span <= 45) return "day";
+    if (span && span <= 183) return "week";
+    if (span && span > 730) return "quarter";
   }
   return "month";
+}
+
+function dashboardBucketKey(value, granularity) {
+  const raw = String(value || "").slice(0, 10);
+  if (!raw) return "";
+  if (granularity === "day") return raw;
+  if (granularity === "week") {
+    const date = new Date(`${raw}T00:00:00`);
+    const day = (date.getDay() + 6) % 7;
+    date.setDate(date.getDate() - day);
+    return formatIsoDate(date);
+  }
+  if (granularity === "quarter") {
+    const date = new Date(`${raw}T00:00:00`);
+    return `${date.getFullYear()}-Q${Math.floor(date.getMonth() / 3) + 1}`;
+  }
+  return raw.slice(0, 7);
+}
+
+function dashboardBucketSpan(from, to, granularity, fallback = []) {
+  if (!from || !to) return fallback;
+  if (granularity === "day") return daySpan(from, to, fallback);
+  if (granularity === "month") return monthSpan(from, to, fallback);
+  const values = [];
+  const seen = new Set();
+  let cursor = new Date(`${from}T00:00:00`);
+  const limit = new Date(`${to}T00:00:00`);
+  while (cursor <= limit) {
+    const key = dashboardBucketKey(formatIsoDate(cursor), granularity);
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      values.push(key);
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return values;
+}
+
+function previousEquivalentWindow(window = {}) {
+  if (!window.from || !window.to) return null;
+  const start = new Date(`${window.from}T00:00:00`);
+  const end = new Date(`${window.to}T00:00:00`);
+  const span = Math.round((end - start) / 86400000) + 1;
+  const previousEnd = new Date(start);
+  previousEnd.setDate(previousEnd.getDate() - 1);
+  const previousStart = new Date(previousEnd);
+  previousStart.setDate(previousStart.getDate() - span + 1);
+  return {
+    from: formatIsoDate(previousStart),
+    to: formatIsoDate(previousEnd),
+    label: "Periodo anterior equivalente"
+  };
 }
 
 function normalizePayoutBody(body = {}) {
@@ -2572,10 +2875,13 @@ function importEtsyPayouts(directory = ETSY_PAYOUTS_DIR) {
 function dashboardFinance(options = {}) {
   const window = normalizeDashboardWindow(options);
   const granularity = normalizeTrendGranularity(options, window);
+  const previousWindow = previousEquivalentWindow(window);
   const allInvoices = activeInvoicesWithMeta();
   const allPayouts = activePayouts();
   const invoices = allInvoices.filter((invoice) => dateInRange(invoice.invoice_date, window.from, window.to));
   const payouts = allPayouts.filter((payout) => dateInRange(payout.payout_date, window.from, window.to));
+  const previousInvoices = previousWindow ? allInvoices.filter((invoice) => dateInRange(invoice.invoice_date, previousWindow.from, previousWindow.to)) : [];
+  const previousPayouts = previousWindow ? allPayouts.filter((payout) => dateInRange(payout.payout_date, previousWindow.from, previousWindow.to)) : [];
   const income = incomeSummary(payouts);
   const payoutImports = payoutImportHistory();
   const costs = materialCosts();
@@ -2585,6 +2891,8 @@ function dashboardFinance(options = {}) {
   const totalExpense = invoices.reduce((sum, invoice) => sum + n(invoice.total), 0);
   const totalNetReceived = payouts.reduce((sum, payout) => sum + n(payout.net_amount), 0);
   const totalFeesReceived = payouts.reduce((sum, payout) => sum + n(payout.fees_amount), 0);
+  const previousExpense = previousInvoices.reduce((sum, invoice) => sum + n(invoice.total), 0);
+  const previousNetReceived = previousPayouts.reduce((sum, payout) => sum + n(payout.net_amount), 0);
   const draftInvoices = allInvoices.filter((invoice) => invoice.status === "draft");
 
   const categorySpend = trackedCategories.map((category) => {
@@ -2598,9 +2906,8 @@ function dashboardFinance(options = {}) {
 
   const trendTotalMap = new Map();
   const trendBreakdownMap = new Map();
-  const bucketKey = (date) => granularity === "day" ? String(date || "").slice(0, 10) : String(date || "").slice(0, 7);
   for (const invoice of invoices) {
-    const key = bucketKey(invoice.invoice_date);
+    const key = dashboardBucketKey(invoice.invoice_date, granularity);
     if (!key) continue;
     trendTotalMap.set(key, (trendTotalMap.get(key) || 0) + n(invoice.total));
     const bucket = trendBreakdownMap.get(key) || { total: 0 };
@@ -2609,7 +2916,7 @@ function dashboardFinance(options = {}) {
     trendBreakdownMap.set(key, bucket);
   }
   for (const payout of payouts) {
-    const key = bucketKey(payout.payout_date);
+    const key = dashboardBucketKey(payout.payout_date, granularity);
     if (!key) continue;
     const bucket = trendBreakdownMap.get(key) || { total: 0 };
     bucket.cobros = (bucket.cobros || 0) + n(payout.net_amount);
@@ -2620,9 +2927,10 @@ function dashboardFinance(options = {}) {
   const baseKeys = Array.from(trendBreakdownMap.keys()).sort((a, b) => a.localeCompare(b));
   const keysFromWindow = granularity === "day"
     ? daySpan(window.from, window.to, baseKeys)
-    : monthSpan(window.from, window.to, baseKeys);
+    : granularity === "month"
+      ? monthSpan(window.from, window.to, baseKeys)
+      : baseKeys;
   const trendKeys = (keysFromWindow.length ? keysFromWindow : baseKeys)
-    .slice(-12)
     .map((key) => ({ key, total: n(trendTotalMap.get(key)) }));
   const trendLabelKeys = trendKeys.map((row) => row.key);
   const trend = {
@@ -2726,6 +3034,19 @@ function dashboardFinance(options = {}) {
 
   const settings = settingsObject();
   const reorderAlertMultiplier = Math.max(1, n(settings.reorder_alert_multiplier || 1.25) || 1.25);
+  const profitability = dashboardProfitability(window, granularity, settings);
+  const replenishmentResult = createReplenishmentService({ query, one, materialCosts, settingsObject }).recommendations();
+  const purchaseCandidates = replenishmentResult.recommendations
+    .filter((row) => row.suggested_quantity > 0)
+    .sort((a, b) => {
+      const priority = { critical: 0, high: 1, medium: 2, configuration: 3, low: 4 };
+      return (priority[a.priority] ?? 9) - (priority[b.priority] ?? 9) || b.estimated_cost - a.estimated_cost;
+    });
+  const importStatus = query(
+    `SELECT status, COUNT(*) AS count
+     FROM expense_imports
+     GROUP BY status`
+  ).reduce((acc, row) => ({ ...acc, [row.status]: Number(row.count || 0) }), {});
 
   const reorderMaterials = query(
     `SELECT m.id, m.name, m.category, m.reorder_point,
@@ -2782,8 +3103,20 @@ function dashboardFinance(options = {}) {
       period_fees_received: totalFeesReceived,
       payout_count: Number(income.payout_count || 0),
       pending_payout_count: Number(income.pending_count || 0),
-      period_balance: totalNetReceived - totalExpense
+      period_balance: totalNetReceived - totalExpense,
+      weighted_margin_percent: profitability.metrics.weighted_margin_percent,
+      reliable_order_count: profitability.metrics.reliable_orders,
+      reliable_coverage_percent: profitability.metrics.reliable_coverage_percent
     },
+    comparison: previousWindow ? {
+      window: previousWindow,
+      period_expense: previousExpense,
+      period_net_received: previousNetReceived,
+      period_balance: previousNetReceived - previousExpense,
+      expense_change_percent: previousExpense ? ((totalExpense - previousExpense) / previousExpense) * 100 : null,
+      income_change_percent: previousNetReceived ? ((totalNetReceived - previousNetReceived) / previousNetReceived) * 100 : null,
+      balance_change_percent: previousNetReceived - previousExpense ? (((totalNetReceived - totalExpense) - (previousNetReceived - previousExpense)) / Math.abs(previousNetReceived - previousExpense)) * 100 : null
+    } : null,
     monthly_spend: trendKeys,
     monthly_breakdown: { months: trendLabelKeys, series: trend.series },
     trend,
@@ -2800,6 +3133,23 @@ function dashboardFinance(options = {}) {
     })),
     top_suppliers: supplierSpend,
     top_materials: topMaterials,
+    profitability,
+    replenishment: {
+      generated_at: replenishmentResult.generated_at,
+      parameters: replenishmentResult.parameters,
+      actionable_count: purchaseCandidates.length,
+      critical_count: purchaseCandidates.filter((row) => row.priority === "critical").length,
+      estimated_cost: purchaseCandidates.reduce((sum, row) => sum + n(row.estimated_cost), 0),
+      recommendations: purchaseCandidates.slice(0, 8)
+    },
+    data_quality: {
+      draft_expenses: draftInvoices.length,
+      import_pending: n(importStatus.pending) + n(importStatus.processing),
+      import_review: n(importStatus.ready) + n(importStatus.review),
+      reliable_orders: profitability.metrics.reliable_orders,
+      total_orders: profitability.metrics.total_orders,
+      reliable_coverage_percent: profitability.metrics.reliable_coverage_percent
+    },
     operational: {
       reorder_alert_multiplier: reorderAlertMultiplier,
       draft_invoices: draftInvoices.map((invoice) => ({

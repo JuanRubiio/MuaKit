@@ -17,7 +17,9 @@
   dashboardSpendView: "suppliers",
   dashboardExpenseTrendView: "total",
   dashboardIncomeTrendView: "cobros",
-  dashboardWindowPreset: "all",
+  dashboardMode: "operation",
+  dashboardComparison: true,
+  dashboardWindowPreset: "this_month",
   dashboardWindowFrom: "",
   dashboardWindowTo: "",
   dashboardGranularity: "auto",
@@ -119,6 +121,9 @@ const DASHBOARD_TREND_COLORS = {
   materiales: "#9f7234",
   marketing: "#b85d72",
   envios: "#4f6d93",
+  servicios: "#8a8178",
+  software: "#7b6f85",
+  otros: "#b7a992",
   cobros: "#166b5e",
   fees: "#b85d72",
   balance: "#c18a3a",
@@ -312,6 +317,9 @@ function chartColors() {
     materiales: settings.dashboard_color_materiales || DASHBOARD_TREND_COLORS.materiales,
     marketing: settings.dashboard_color_marketing || DASHBOARD_TREND_COLORS.marketing,
     envios: settings.dashboard_color_envios || DASHBOARD_TREND_COLORS.envios,
+    servicios: settings.dashboard_color_servicios || DASHBOARD_TREND_COLORS.servicios,
+    software: settings.dashboard_color_software || DASHBOARD_TREND_COLORS.software,
+    otros: settings.dashboard_color_otros || DASHBOARD_TREND_COLORS.otros,
     cobros: settings.dashboard_color_cobros || DASHBOARD_TREND_COLORS.cobros,
     fees: settings.dashboard_color_fees || DASHBOARD_TREND_COLORS.fees,
     balance: settings.dashboard_color_balance || DASHBOARD_TREND_COLORS.balance,
@@ -320,7 +328,15 @@ function chartColors() {
     bizum: settings.dashboard_color_bizum || "#c18a3a",
     channel_shopify: settings.dashboard_color_shopify || "#166b5e",
     channel_etsy: settings.dashboard_color_etsy || "#9f7234",
-    channel_bizum: settings.dashboard_color_bizum || "#c18a3a"
+    channel_bizum: settings.dashboard_color_bizum || "#c18a3a",
+    profit_sales: settings.dashboard_color_profit_sales || "#087c6d",
+    profit_cost: settings.dashboard_color_profit_cost || "#bd4e68",
+    profit_margin: settings.dashboard_color_profit_margin || "#cc7d13",
+    margin_critical: settings.dashboard_color_margin_critical || "#b84c5f",
+    margin_pressure: settings.dashboard_color_margin_pressure || "#d89a3a",
+    margin_healthy: settings.dashboard_color_margin_healthy || "#18836f",
+    cost_content: settings.dashboard_color_cost_content || "#bd4e68",
+    cost_fixed: settings.dashboard_color_cost_fixed || "#d89a3a"
   };
 }
 
@@ -1231,7 +1247,8 @@ async function loadSettings() {
   state.settings = await api("/api/settings");
   state.dashboardExpenseTrendView = state.settings.dashboard_monthly_view || "total";
   state.dashboardIncomeTrendView = state.settings.dashboard_income_monthly_view || "cobros";
-  state.dashboardWindowPreset = state.settings.dashboard_window_preset || "all";
+  state.dashboardWindowPreset = state.settings.dashboard_window_preset || "this_month";
+  state.dashboardGranularity = "auto";
   applyConfiguredColorVars();
   renderSettings();
 }
@@ -1294,6 +1311,13 @@ function compactTimeline(keys = [], mode = "month") {
       return `${day}/${month}`;
     });
   }
+  if (mode === "week") {
+    return keys.map((key) => {
+      const [, month, day] = String(key || "").split("-");
+      return month && day ? `sem ${day}/${month}` : key;
+    });
+  }
+  if (mode === "quarter") return keys.map((key) => String(key || "").replace("-", " "));
   return compactMonths(keys);
 }
 
@@ -1633,7 +1657,7 @@ async function saveSettings(event) {
   state.settings = await api("/api/settings", { method: "PATCH", body: JSON.stringify(data) });
   state.dashboardExpenseTrendView = state.settings.dashboard_monthly_view || "total";
   state.dashboardIncomeTrendView = state.settings.dashboard_income_monthly_view || "cobros";
-  state.dashboardWindowPreset = state.settings.dashboard_window_preset || "all";
+  state.dashboardWindowPreset = state.settings.dashboard_window_preset || "this_month";
   applyConfiguredColorVars();
   renderSettings();
   if (state.dashboardFinance) renderDashboard();
@@ -1835,13 +1859,53 @@ function setActiveView(view) {
   if (view === "kits") requestAnimationFrame(() => renderKits());
 }
 
+async function openDashboardContext(view, context = "") {
+  setActiveView(view);
+  if (!context) return;
+
+  if (view === "materials" && context === "replenishment") {
+    document.querySelector('[data-materials-section="replenishment"]')?.click();
+    return;
+  }
+  if (view === "invoices" && context === "imports") {
+    document.querySelector('[data-expense-section="imports"]')?.click();
+    return;
+  }
+  if (view === "invoices" && context === "draft") {
+    document.querySelector('[data-expense-section="registered"]')?.click();
+    state.invoiceReviewFilter = "draft";
+    if ($("#invoicesDeleted")) $("#invoicesDeleted").checked = false;
+    if ($("#invoiceStatusFilter")) $("#invoiceStatusFilter").value = "draft";
+    if ($("#invoiceLineFilter")) $("#invoiceLineFilter").value = "";
+    if ($("#invoiceSupplierFilter")) $("#invoiceSupplierFilter").value = "";
+    if ($("#invoiceSearch")) $("#invoiceSearch").value = "";
+    resetPagination("invoices");
+    await loadInvoices();
+    return;
+  }
+  if (view === "kits" && context === "low_margin") {
+    document.querySelector('[data-orders-section="orders"]')?.click();
+    if ($("#orderStatusFilter")) $("#orderStatusFilter").value = "low_margin";
+    if ($("#orderSort")) $("#orderSort").value = "margin_asc";
+    resetPagination("kits");
+    renderKits();
+    return;
+  }
+  if (view === "income" && context === "pending") {
+    state.incomeReviewFilter = "";
+    if ($("#incomeStatusTabs")) $("#incomeStatusTabs").dataset.activeLane = "pending";
+    resetPagination("payouts");
+    renderPayouts();
+  }
+}
+
 function bindEvents() {
   $$(".tab").forEach((tab) => tab.addEventListener("click", () => setActiveView(tab.dataset.view)));
   document.body.addEventListener("click", async (event) => {
     const t = event.target.closest("button");
     if (!t) return;
     try {
-      if (t.dataset.jumpView) setActiveView(t.dataset.jumpView);
+      if (t.dataset.jumpView) await openDashboardContext(t.dataset.jumpView, t.dataset.jumpContext || "");
       if (t.dataset.dashboardSpendView) {
         state.dashboardSpendView = t.dataset.dashboardSpendView;
         $$("[data-dashboard-spend-view]").forEach((button) => button.classList.toggle("is-active", button.dataset.dashboardSpendView === state.dashboardSpendView));
@@ -1857,6 +1921,10 @@ function bindEvents() {
         state.dashboardIncomeTrendView = t.dataset.dashboardIncomeTrendView;
         if (state.settings) state.settings.dashboard_income_monthly_view = state.dashboardIncomeTrendView;
         renderSettings();
+        renderDashboard();
+      }
+      if (t.dataset.dashboardMode) {
+        state.dashboardMode = t.dataset.dashboardMode;
         renderDashboard();
       }
       if (t.dataset.incomeLane) {
@@ -2126,7 +2194,8 @@ function bindEvents() {
         const detail = await api(`/api/invoices/${state.selectedInvoiceId}`);
         const line = detail.lines.find((item) => item.id == t.dataset.editLine);
         await openInvoice(state.selectedInvoiceId, { openForm: true });
-        setForm($("#lineForm"), { ...line, invoice_id: state.selectedInvoiceId });
+        const pricePerPackage = line.price_per_package ?? (number(line.package_count) ? number(line.line_total) / number(line.package_count) : line.line_total);
+        setForm($("#lineForm"), { ...line, price_per_package: pricePerPackage, invoice_id: state.selectedInvoiceId, invoice_category: detail.invoice.category });
         const material = state.materials.find((item) => item.id == line.material_id);
         if (material) {
           for (const field of MATERIAL_HIERARCHY) {
@@ -2326,7 +2395,7 @@ function bindEvents() {
     }, selector === "#technicalLogQuery" ? 180 : 0));
   });
   $("#dashboardWindowPreset")?.addEventListener("change", async (event) => {
-    state.dashboardWindowPreset = event.currentTarget.value || "all";
+    state.dashboardWindowPreset = event.currentTarget.value || "this_month";
     if (state.dashboardWindowPreset !== "custom") {
       state.dashboardWindowFrom = "";
       state.dashboardWindowTo = "";
@@ -2336,15 +2405,54 @@ function bindEvents() {
   $("#dashboardFrom")?.addEventListener("change", async (event) => {
     state.dashboardWindowFrom = event.currentTarget.value || "";
     state.dashboardWindowPreset = "custom";
-    await loadDashboardFinance();
+    renderDashboard();
   });
   $("#dashboardTo")?.addEventListener("change", async (event) => {
     state.dashboardWindowTo = event.currentTarget.value || "";
     state.dashboardWindowPreset = "custom";
-    await loadDashboardFinance();
+    renderDashboard();
   });
   $("#dashboardGranularity")?.addEventListener("change", async (event) => {
     state.dashboardGranularity = event.currentTarget.value || "auto";
+    await loadDashboardFinance();
+  });
+  $("#dashboardComparison")?.addEventListener("change", (event) => {
+    state.dashboardComparison = Boolean(event.currentTarget.checked);
+    renderDashboard();
+  });
+  $("#dashboardFilterTrigger")?.addEventListener("click", () => {
+    const popover = $("#dashboardFilterPopover");
+    const opening = popover?.classList.contains("hidden");
+    popover?.classList.toggle("hidden", !opening);
+    $("#dashboardFilterTrigger")?.setAttribute("aria-expanded", opening ? "true" : "false");
+  });
+  $("#dashboardPeriodOptions")?.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-dashboard-period-option]");
+    if (!option) return;
+    state.dashboardWindowPreset = option.dataset.dashboardPeriodOption || "this_month";
+    if (state.dashboardWindowPreset !== "custom") {
+      state.dashboardWindowFrom = "";
+      state.dashboardWindowTo = "";
+    }
+    renderDashboard();
+  });
+  $("#dashboardGranularityOptions")?.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-dashboard-granularity-option]");
+    if (!option) return;
+    state.dashboardGranularity = option.dataset.dashboardGranularityOption || "auto";
+    renderDashboard();
+  });
+  $("#dashboardFilterApply")?.addEventListener("click", async () => {
+    $("#dashboardFilterPopover")?.classList.add("hidden");
+    $("#dashboardFilterTrigger")?.setAttribute("aria-expanded", "false");
+    await loadDashboardFinance();
+  });
+  $("#dashboardFilterReset")?.addEventListener("click", async () => {
+    state.dashboardWindowPreset = "this_month";
+    state.dashboardWindowFrom = "";
+    state.dashboardWindowTo = "";
+    state.dashboardGranularity = "auto";
+    state.dashboardComparison = true;
     await loadDashboardFinance();
   });
 

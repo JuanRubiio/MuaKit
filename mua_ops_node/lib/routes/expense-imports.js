@@ -18,8 +18,20 @@ function accountingQuality(fields, lines, duplicates = {}) {
   const activeLines = lines.filter((line) => line.human_decision !== "rejected");
   const acceptedLines = lines.filter((line) => line.human_decision === "accepted");
   const lineTotal = activeLines.reduce((sum, line) => sum + Number(line.line_total || 0), 0);
-  const difference = Number((lineTotal - Number(fields.total || 0)).toFixed(2));
-  const linesMatch = activeLines.length > 0 && Math.abs(difference) <= 0.02;
+  const subtotal = Number(fields.subtotal ?? fields.total ?? 0);
+  const discount = Number(fields.discount || 0);
+  const shipping = Number(fields.shipping || 0);
+  const tax = Number(fields.tax || 0);
+  const total = Number(fields.total || 0);
+  const subtotalDifference = Number((lineTotal - subtotal).toFixed(2));
+  const grossDifference = Number((lineTotal - total).toFixed(2));
+  const totalWithoutAddedTax = Number((subtotal - discount + shipping).toFixed(2));
+  const totalWithAddedTax = Number((totalWithoutAddedTax + tax).toFixed(2));
+  const linesAreGross = activeLines.length > 0 && Math.abs(grossDifference) <= 0.02;
+  const calculatedTotal = linesAreGross ? lineTotal : Math.abs(totalWithoutAddedTax - total) <= Math.abs(totalWithAddedTax - total) ? totalWithoutAddedTax : totalWithAddedTax;
+  const totalDifference = Number((calculatedTotal - total).toFixed(2));
+  const lineDifference = linesAreGross ? grossDifference : subtotalDifference;
+  const linesMatch = activeLines.length > 0 && (linesAreGross || Math.abs(subtotalDifference) <= 0.02) && Math.abs(totalDifference) <= 0.02;
   const decisionsComplete = activeLines.length > 0 && acceptedLines.length === activeLines.length;
   const duplicate = Boolean(duplicates.exact || duplicates.warning);
   const score = [!missing.length, linesMatch, decisionsComplete, !duplicate].filter(Boolean).length;
@@ -28,7 +40,15 @@ function accountingQuality(fields, lines, duplicates = {}) {
     tone: score === 4 ? "high" : score >= 2 ? "medium" : "low",
     missing,
     line_total: Number(lineTotal.toFixed(2)),
-    difference,
+    difference: lineDifference,
+    line_difference: lineDifference,
+    total_difference: totalDifference,
+    calculated_total: calculatedTotal,
+    line_price_basis: linesAreGross ? "gross" : "net",
+    subtotal,
+    discount,
+    shipping,
+    tax,
     lines_match: linesMatch,
     decisions_complete: decisionsComplete,
     duplicate,
@@ -100,9 +120,12 @@ function registerExpenseImportRoutes(app, ctx) {
     });
     const accepted = query("SELECT * FROM expense_import_lines WHERE expense_import_id=$id AND human_decision='accepted' ORDER BY position", { id: item.id });
     accepted.forEach((line) => insert(`INSERT INTO invoice_lines
-      (invoice_id, material_id, description, package_count, units_per_package, total_units, unit_price, line_total, affects_stock, impressions, notes)
-      VALUES ($invoice,$material,$description,1,$quantity,$quantity,$unitPrice,$total,1,$impressions,'Importada con validacion humana')`, {
-      invoice: invoiceId, material: line.suggested_material_id, description: line.description, quantity: Number(line.quantity || 1), unitPrice: line.unit_price, total: Number(line.line_total || 0), impressions: line.impressions
+      (invoice_id, material_id, description, package_count, units_per_package, total_units, price_per_package, unit_price, line_total, affects_stock, impressions, notes)
+      VALUES ($invoice,$material,$description,$packages,$unitsPackage,$totalUnits,$pricePackage,$unitPrice,$total,1,$impressions,'Importada con validacion humana')`, {
+      invoice: invoiceId, material: line.suggested_material_id, description: line.description,
+      packages: Number(line.package_count || 1), unitsPackage: Number(line.units_per_package || line.quantity || 1),
+      totalUnits: Number(line.total_units || line.quantity || 1), pricePackage: Number(line.price_per_package ?? line.line_total ?? 0),
+      unitPrice: Number(line.unit_price ?? 0), total: Number(line.line_total || 0), impressions: line.impressions
     }));
     exec("UPDATE expense_imports SET status='confirmed', invoice_id=$invoice, detected_fields_json=$fields, updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: item.id, invoice: invoiceId, fields: JSON.stringify(fields) });
     audit("expense_import", item.id, "confirm", item, { invoice_id: invoiceId, accepted_lines: accepted.length });
@@ -188,14 +211,26 @@ function registerExpenseImportRoutes(app, ctx) {
   app.patch("/api/expense-imports/:importId/lines/:lineId", (req, res) => {
     const before = one("SELECT * FROM expense_import_lines WHERE id=$id AND expense_import_id=$import", { id: req.params.lineId, import: req.params.importId });
     if (!before) return notFound(res, "Linea no encontrada", "EXPENSE_IMPORT_LINE_NOT_FOUND");
-    const fields = ["description", "quantity", "unit_price", "line_total", "impressions", "suggested_material_id", "human_decision"];
+    const requested = { ...req.body };
+    if (["package_count", "units_per_package", "price_per_package"].some((field) => Object.prototype.hasOwnProperty.call(requested, field))) {
+      const packages = Number(requested.package_count ?? before.package_count ?? 1);
+      const unitsPackage = Number(requested.units_per_package ?? before.units_per_package ?? before.quantity ?? 1);
+      const pricePackage = Number(requested.price_per_package ?? before.price_per_package ?? before.line_total ?? 0);
+      const totalUnits = packages * unitsPackage;
+      const lineTotal = packages * pricePackage;
+      requested.total_units = totalUnits;
+      requested.quantity = totalUnits;
+      requested.line_total = lineTotal;
+      requested.unit_price = totalUnits ? lineTotal / totalUnits : 0;
+    }
+    const fields = ["description", "package_count", "units_per_package", "total_units", "quantity", "price_per_package", "unit_price", "line_total", "impressions", "suggested_material_id", "human_decision"];
     const params = { id: req.params.lineId };
     const updates = [];
     fields.forEach((field) => {
-      if (Object.prototype.hasOwnProperty.call(req.body, field)) { updates.push(`${field}=$${field}`); params[field] = req.body[field] === "" ? null : req.body[field]; }
+      if (Object.prototype.hasOwnProperty.call(requested, field)) { updates.push(`${field}=$${field}`); params[field] = requested[field] === "" ? null : requested[field]; }
     });
     if (updates.length) exec(`UPDATE expense_import_lines SET ${updates.join(",")}, updated_at=CURRENT_TIMESTAMP WHERE id=$id`, params);
-    audit("expense_import_line", Number(req.params.lineId), "review_update", before, req.body);
+    audit("expense_import_line", Number(req.params.lineId), "review_update", before, requested);
     saveDb();
     res.json(one("SELECT * FROM expense_import_lines WHERE id=$id", { id: req.params.lineId }));
   });
@@ -204,11 +239,16 @@ function registerExpenseImportRoutes(app, ctx) {
     const item = one("SELECT * FROM expense_imports WHERE id=$id", { id: req.params.id });
     if (!item) return notFound(res, "Importacion no encontrada", "EXPENSE_IMPORT_NOT_FOUND");
     const position = Number(one("SELECT COALESCE(MAX(position),0)+1 position FROM expense_import_lines WHERE expense_import_id=$id", { id: item.id })?.position || 1);
+    const packages = Number(req.body.package_count || 1);
+    const unitsPackage = Number(req.body.units_per_package || req.body.quantity || 1);
+    const totalUnits = Number(req.body.total_units || packages * unitsPackage);
+    const total = Number(req.body.line_total || 0);
+    const pricePackage = Number(req.body.price_per_package ?? (packages ? total / packages : total));
+    const unitPrice = Number(req.body.unit_price ?? (totalUnits ? total / totalUnits : total));
     const id = insert(`INSERT INTO expense_import_lines
-      (expense_import_id, position, original_text, description, quantity, unit_price, line_total, impressions, suggested_material_id, confidence, human_decision, original_data_json)
-      VALUES ($import,$position,'',$description,$quantity,$unitPrice,$total,$impressions,$material,100,$decision,'{"manual":true}')`, {
-      import: item.id, position, description: req.body.description || "Nueva linea", quantity: Number(req.body.quantity || 1),
-      unitPrice: Number(req.body.unit_price || req.body.line_total || 0), total: Number(req.body.line_total || 0),
+      (expense_import_id, position, original_text, description, package_count, units_per_package, total_units, quantity, price_per_package, unit_price, line_total, impressions, suggested_material_id, confidence, human_decision, original_data_json)
+      VALUES ($import,$position,'',$description,$packages,$unitsPackage,$totalUnits,$totalUnits,$pricePackage,$unitPrice,$total,$impressions,$material,100,$decision,'{"manual":true}')`, {
+      import: item.id, position, description: req.body.description || "Nueva linea", packages, unitsPackage, totalUnits, pricePackage, unitPrice, total,
       impressions: req.body.impressions || null, material: req.body.suggested_material_id || null, decision: req.body.human_decision || "pending"
     });
     audit("expense_import_line", id, "create_manual", null, req.body);

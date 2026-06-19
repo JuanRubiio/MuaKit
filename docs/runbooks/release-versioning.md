@@ -33,6 +33,10 @@ npm test
 ## Tags actuales
 
 - `mua-ops-mvp-v0.1`: MVP operativo antes de la estabilizacion tecnica.
+- `v1.1.0`: cierre de la remodelacion visual.
+- `v1.2.0`: gastos automatizados y primera version de reposicion.
+- `v1.2.1`: refuerzo de la bandeja de importacion.
+- `v1.2.2`: Dashboard de control y estabilizacion previa al rediseño de reposicion.
 
 ## Antes de cambios con datos
 

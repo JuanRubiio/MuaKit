@@ -65,7 +65,14 @@ function documentViewerMarkup(document = {}, options = {}) {
     <div class="document-viewer-body">
       <div class="document-viewer-toolbar">
         <span>Referencia visual para contrastar los datos extraídos.</span>
-        <a class="ghost document-viewer-link" href="${source}" target="_blank" rel="noreferrer">Abrir original</a>
+        <div class="document-viewer-actions">
+          ${options.annotated ? `<div class="document-zoom-controls" aria-label="Zoom del documento">
+            <button type="button" class="ghost" data-document-zoom="out" aria-label="Reducir zoom">−</button>
+            <button type="button" class="ghost document-zoom-value" data-document-zoom="fit">Ajustar</button>
+            <button type="button" class="ghost" data-document-zoom="in" aria-label="Ampliar zoom">+</button>
+          </div>` : ""}
+          <a class="ghost document-viewer-link" href="${source}" target="_blank" rel="noreferrer">Abrir original</a>
+        </div>
       </div>
       ${options.annotated ? `<div class="document-evidence-legend"><span class="is-reliable">Detección fiable</span><span class="is-review">Revisar detección</span></div>` : ""}
       <div class="document-viewer-frame">${preview}</div>

@@ -4,6 +4,11 @@
   const expenseDefault = expensePage ? Array.from(expensePage.children).filter((node) => !node.matches(".next-domain-tabs,#expenseImportPanel,.invoice-overview-head,#invoiceForm,#invoiceDetailPanel")) : [];
   const materialDefault = materialPage ? Array.from(materialPage.children).filter((node) => !node.matches(".next-domain-tabs,#replenishmentPanel,#purchasePlannerPanel,.materials-overview-head")) : [];
   let replenishmentRows = [];
+  let replenishmentParameters = {};
+  let replenishmentFilters = { decision: "buy", query: "", supplier: "" };
+  const replenishmentQuantities = new Map();
+  const selectedReplenishmentIds = new Set();
+  let replenishmentSelectionInitialized = false;
   let currentPurchasePlan = null;
   let expensePoll = null;
   let importUploading = false;
@@ -170,9 +175,9 @@
     return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   }
 
-  function evidenceTexts(fields, lines) {
+  function evidenceTokens(fields, lines) {
     const values = Object.values(fields.evidence || {}).map((item) => item?.text).filter(Boolean);
-    values.push(fields.suggested_supplier_name, fields.invoice_number, fields.invoice_date, fields.total);
+    values.push(fields.suggested_supplier_name, fields.invoice_number, fields.invoice_date, fields.subtotal, fields.discount, fields.shipping, fields.tax, fields.total);
     lines.forEach((line) => {
       values.push(line.original_text, line.description);
       try {
@@ -180,23 +185,45 @@
         if (evidence) values.push(evidence);
       } catch {}
     });
-    return [...new Set(values.map(normalizeEvidence).filter(Boolean))];
+    const stopWords = new Set(["para", "como", "este", "esta", "estos", "estas", "desde", "hasta", "todos", "todas", "pedido", "detalle", "articulo", "incluido", "incluida", "unids", "lote", "pago", "tiempo", "orden", "total", "subtotal"]);
+    const tokens = new Set(values.flatMap((value) => normalizeEvidence(value).split(" "))
+      .filter((token) => (/\d/.test(token) ? token.length >= 3 : token.length >= 5) && !stopWords.has(token)));
+    [fields.invoice_number, fields.subtotal, fields.discount, fields.shipping, fields.tax, fields.total].forEach((value) => {
+      const token = normalizeEvidence(value);
+      if (token.length >= 3) tokens.add(token);
+    });
+    return tokens;
   }
 
   function coordinateMatchesEvidence(coordinate, evidence) {
     const token = normalizeEvidence(coordinate.text || coordinate.symbol || "");
-    return token.length > 2 && evidence.some((line) => line.includes(token));
+    return evidence.has(token) || token.split(" ").some((part) => evidence.has(part));
   }
 
-  async function renderAnnotatedImportViewer(item, lines) {
-    const host = $("#expenseImportDetail [data-annotated-document-viewer]");
+  async function renderAnnotatedImportViewer(item, lines, providedHost = null) {
+    const host = providedHost || $("#expenseImportDetail [data-annotated-document-viewer]");
     const details = host?.closest(".document-viewer");
     if (!host || !details || host.dataset.ready === "true") return;
     host.dataset.ready = "true";
-    const evidence = evidenceTexts(item.detected_fields || {}, lines);
+    const evidence = evidenceTokens(item.detected_fields || {}, lines);
     const source = host.dataset.documentSource;
-    const renderOverlay = (stage, coordinates, page, widthRatio, heightRatio, nativeViewport = null) => {
-      coordinates.filter((coordinate) => coordinateMatchesEvidence(coordinate, evidence)).forEach((coordinate) => {
+    const setZoom = (value) => {
+      const zoom = Math.max(0.5, Math.min(4, Number(value) || 1));
+      host.dataset.zoom = String(zoom);
+      host.style.setProperty("--document-zoom", zoom);
+      const label = details.querySelector(".document-zoom-value");
+      if (label) label.textContent = `${Math.round(zoom * 100)}%`;
+    };
+    host.setZoom = setZoom;
+    const renderOverlay = (stage, coordinates, page, widthRatio, heightRatio, nativeViewport = null, offset = { x: 0, y: 0 }) => {
+      const zones = [];
+      const seenTokens = new Set();
+      coordinates.filter((coordinate) => {
+        const token = normalizeEvidence(coordinate.text || coordinate.symbol || "");
+        if (!coordinateMatchesEvidence(coordinate, evidence) || seenTokens.has(token)) return false;
+        seenTokens.add(token);
+        return true;
+      }).forEach((coordinate) => {
         let left;
         let top;
         let width;
@@ -212,40 +239,96 @@
           height = Math.max(12, Math.abs(second[1] - first[1]));
         } else {
           const box = coordinate.bbox || coordinate;
-          left = Number(box.x0 || box.left || 0) * widthRatio;
-          top = Number(box.y0 || box.top || 0) * heightRatio;
+          left = Number(box.x0 || box.left || 0) * widthRatio - offset.x;
+          top = Number(box.y0 || box.top || 0) * heightRatio - offset.y;
           width = Math.max(8, Number((box.x1 ?? box.right ?? 0) - (box.x0 ?? box.left ?? 0)) * widthRatio);
           height = Math.max(12, Number((box.y1 ?? box.bottom ?? 0) - (box.y0 ?? box.top ?? 0)) * heightRatio);
         }
+        if (left + width < 0 || top + height < 0) return;
+        const sameLine = zones.find((zone) => Math.abs(zone.top - top) <= Math.max(zone.height, height) * 0.75 && left <= zone.left + zone.width + 18);
+        if (sameLine) {
+          const right = Math.max(sameLine.left + sameLine.width, left + width);
+          sameLine.left = Math.min(sameLine.left, left);
+          sameLine.top = Math.min(sameLine.top, top);
+          sameLine.width = right - sameLine.left;
+          sameLine.height = Math.max(sameLine.height, height);
+          sameLine.title = `${sameLine.title} ${coordinate.text || ""}`.trim();
+        } else {
+          zones.push({ left, top, width, height, title: coordinate.text || "Zona detectada" });
+        }
+      });
+      zones.slice(0, 18).forEach((zone) => {
         const marker = document.createElement("span");
         marker.className = `document-evidence-zone ${Number(page.confidence || 0) >= 85 ? "is-reliable" : "is-review"}`;
-        marker.style.cssText = `left:${left}px;top:${top}px;width:${width}px;height:${height}px`;
-        marker.title = coordinate.text || "Zona detectada";
+        marker.style.cssText = `left:${zone.left}px;top:${zone.top}px;width:${zone.width}px;height:${zone.height}px`;
+        marker.title = zone.title;
         stage.appendChild(marker);
       });
+    };
+    const usefulImageBounds = (image) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let minX = canvas.width;
+      let minY = canvas.height;
+      let maxX = 0;
+      let maxY = 0;
+      for (let y = 0; y < canvas.height; y += 2) {
+        for (let x = 0; x < canvas.width; x += 2) {
+          const index = (y * canvas.width + x) * 4;
+          if (pixels[index + 3] > 10 && (pixels[index] < 246 || pixels[index + 1] < 246 || pixels[index + 2] < 246)) {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+          }
+        }
+      }
+      if (maxX <= minX || maxY <= minY) return { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight };
+      const padding = 14;
+      return {
+        x: Math.max(0, minX - padding),
+        y: Math.max(0, minY - padding),
+        width: Math.min(image.naturalWidth, maxX + padding) - Math.max(0, minX - padding),
+        height: Math.min(image.naturalHeight, maxY + padding) - Math.max(0, minY - padding)
+      };
     };
     const renderImage = async () => {
       const image = new Image();
       image.src = source;
       await image.decode();
+      const bounds = usefulImageBounds(image);
       const stage = document.createElement("div");
       stage.className = "annotated-document-page";
-      stage.style.width = `${image.naturalWidth}px`;
-      stage.style.height = `${image.naturalHeight}px`;
-      image.className = "annotated-document-image";
-      stage.appendChild(image);
+      stage.style.width = `${bounds.width}px`;
+      stage.style.height = `${bounds.height}px`;
+      const canvas = document.createElement("canvas");
+      canvas.className = "annotated-document-image";
+      canvas.width = bounds.width;
+      canvas.height = bounds.height;
+      canvas.getContext("2d").drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+      stage.appendChild(canvas);
       host.replaceChildren(stage);
+      host.dataset.fitZoom = String(Math.max(0.5, Math.min(3, (host.clientWidth - 44) / bounds.width)));
+      setZoom(1.5);
       const page = item.pages[0] || {};
-      const maxX = Math.max(image.naturalWidth, ...((page.coordinates || []).map((word) => Number(word.bbox?.x1 || word.x1 || 0))));
-      const maxY = Math.max(image.naturalHeight, ...((page.coordinates || []).map((word) => Number(word.bbox?.y1 || word.y1 || 0))));
-      renderOverlay(stage, page.coordinates || [], page, image.naturalWidth / maxX, image.naturalHeight / maxY);
+      const coordinates = page.coordinates || page.words || [];
+      const widthRatio = image.naturalWidth / Number(page.ocr_width || image.naturalWidth);
+      const heightRatio = image.naturalHeight / Number(page.ocr_height || image.naturalHeight);
+      renderOverlay(stage, coordinates, page, widthRatio, heightRatio, null, { x: bounds.x, y: bounds.y });
     };
     const renderPdf = async () => {
       if (!window.pdfjsLib) throw new Error("El motor de vista previa PDF no está disponible.");
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.js";
       const pdf = await window.pdfjsLib.getDocument(source).promise;
       host.replaceChildren();
-      for (const pageData of item.pages) {
+      host.dataset.fitZoom = "1";
+      setZoom(1);
+      const pages = item.pages?.length ? item.pages : Array.from({ length: pdf.numPages }, (_, index) => ({ page: index + 1, method: "native", coordinates: [], confidence: 100 }));
+      for (const pageData of pages) {
         const pdfPage = await pdf.getPage(pageData.page);
         const viewport = pdfPage.getViewport({ scale: 1.35 });
         const stage = document.createElement("div");
@@ -272,6 +355,10 @@
       }
     });
   }
+  window.renderAnnotatedDocumentViewer = (host, document, lines = []) => renderAnnotatedImportViewer({
+    pages: document.document_pages || document.pages || [],
+    detected_fields: document.document_detected_fields || document.detected_fields || {}
+  }, lines, host);
 
   async function openImport(id) {
     const data = await api(`/api/expense-imports/${id}`);
@@ -288,13 +375,16 @@
     const materialOptionsMarkup = (selected) => `<option value="">${isMaterialExpense ? "Sin material sugerido" : "No aplica a este gasto"}</option>${isMaterialExpense ? (state.materials || []).filter((material) => !material.is_deleted).map((material) => `<option value="${material.id}" ${String(material.id) === String(selected) ? "selected" : ""}>${text(material.name)}</option>`).join("") : ""}`;
     const lineMarkup = (line) => {
       const original = (() => { try { return JSON.parse(line.original_data_json || "{}"); } catch { return {}; } })();
+      const precise = (value) => Number(number(value).toFixed(6)).toString();
       return `<article class="next-editable-line" data-import-line-row="${line.id}">
         <input class="next-line-select" type="checkbox" data-select-import-line="${line.id}" aria-label="Seleccionar línea para combinar">
         <label>Concepto<input data-line-field="description" value="${text(line.description)}"></label>
-        <label>Cantidad<input data-line-field="quantity" type="number" min="0" step="0.01" value="${number(line.quantity || 1)}"></label>
+        <label>Paquetes<input data-line-field="package_count" type="number" min="0" step="0.01" value="${number(line.package_count || 1)}"></label>
+        <label>Ud/paquete<input data-line-field="units_per_package" type="number" min="0" step="0.01" value="${number(line.units_per_package || line.quantity || 1)}"></label>
         <label>Material<select data-line-field="suggested_material_id" ${isMaterialExpense ? "" : "disabled"}>${materialOptionsMarkup(line.suggested_material_id)}</select></label>
-        <label>Precio ud. ${text(fields.currency || "EUR")}<input data-line-field="unit_price" type="number" min="0" step="0.01" value="${number(line.unit_price ?? line.line_total).toFixed(2)}"></label>
-        <label>Total ${text(fields.currency || "EUR")}<input data-line-field="line_total" type="number" min="0" step="0.01" value="${number(line.line_total).toFixed(2)}"></label>
+        <label>Precio/paquete ${text(fields.currency || "EUR")}<input data-line-field="price_per_package" type="number" min="0" step="0.000001" value="${precise(line.price_per_package ?? line.line_total)}"></label>
+        <label>Precio ud. ${text(fields.currency || "EUR")}<input data-line-field="unit_price" type="number" min="0" step="0.000001" value="${precise(line.unit_price ?? line.line_total)}" readonly></label>
+        <label>Total ${text(fields.currency || "EUR")}<input data-line-field="line_total" type="number" min="0" step="0.01" value="${number(line.line_total).toFixed(2)}" readonly></label>
         ${fields.category === "marketing" ? `<label>Impresiones<input data-line-field="impressions" type="number" min="0" step="1" value="${number(line.impressions) || ""}" placeholder="Opcional"></label>` : ""}
         <label>Decisión<select data-line-field="human_decision"><option value="pending" ${line.human_decision === "pending" ? "selected" : ""}>Revisar</option><option value="accepted" ${line.human_decision === "accepted" ? "selected" : ""}>Aceptar</option><option value="rejected" ${line.human_decision === "rejected" ? "selected" : ""}>Excluir</option></select></label>
         <div class="next-editable-line-actions"><button type="button" class="ghost button-with-icon" data-save-import-line="${line.id}" data-import-id="${item.id}"><svg><use href="#icon-save"></use></svg><span>Guardar</span></button><button type="button" class="ghost" data-split-import-line="${line.id}" data-import-id="${item.id}">Dividir</button><button type="button" class="ghost danger-text" data-delete-import-line="${line.id}" data-import-id="${item.id}">Eliminar</button></div>
@@ -312,13 +402,17 @@
           <label>Tipo de gasto<select name="category">${INVOICE_CATEGORIES.map((category) => `<option value="${category}" ${category === fields.category ? "selected" : ""}>${text(category.charAt(0).toUpperCase() + category.slice(1))}</option>`).join("")}</select></label>
           <label>Número de factura<input name="invoice_number" value="${text(fields.invoice_number || "")}"></label>
           <label>Fecha<input name="invoice_date" value="${text(fields.invoice_date || "")}"></label>
-          <label>Total<input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"></label>
+          <label>Subtotal<input name="subtotal" type="number" step="0.01" value="${text(fields.subtotal ?? fields.total ?? "")}"></label>
+          <label>Descuento<input name="discount" type="number" step="0.01" value="${text(fields.discount ?? 0)}"></label>
+          <label>Envío<input name="shipping" type="number" step="0.01" value="${text(fields.shipping ?? 0)}"></label>
+          <label>IVA<input name="tax" type="number" step="0.01" value="${text(fields.tax ?? 0)}"></label>
+          <label>Total pagado<input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"></label>
           <label>Moneda<select name="currency"><option value="EUR" ${(fields.currency || "EUR") === "EUR" ? "selected" : ""}>EUR · Euro</option><option value="USD" ${fields.currency === "USD" ? "selected" : ""}>USD · Dólar</option></select></label>
           <button type="submit">Guardar revisión</button>
         </form>
         <div class="next-detected-pages"><strong>Lectura por página</strong>${item.pages.map((page) => `<div><span>Página ${page.page} · ${text(page.method)}</span><b>${Math.round(page.confidence)}%</b><i><em style="width:${Math.max(0, Math.min(100, Number(page.confidence || 0)))}%"></em></i></div>`).join("")}</div>
       </div>
-      <div class="next-lines"><div class="next-lines-head"><div><h3>Líneas sugeridas</h3><p>Edita los datos detectados y decide qué líneas pasarán al gasto borrador.</p></div><div class="next-lines-head-actions"><div class="next-lines-balance"><span>Suma líneas <strong>${currencyFormat(accounting.line_total, fields.currency || "EUR")}</strong></span><span>Diferencia <strong>${currencyFormat(accounting.difference, fields.currency || "EUR")}</strong></span></div><button type="button" class="ghost" data-merge-import-lines="${item.id}">Combinar seleccionadas</button><button type="button" class="ghost" data-add-import-line="${item.id}">Añadir línea</button></div></div>${data.lines.length ? data.lines.map(lineMarkup).join("") : `<div class="empty-state">No se detectaron líneas fiables. Añade las necesarias antes de confirmar.</div>`}</div>
+      <div class="next-lines"><div class="next-lines-head"><div><h3>Líneas sugeridas</h3><p>Los precios conservan el importe del producto con IVA incluido cuando el documento lo informa. Descuentos y envío permanecen en la cabecera.</p></div><div class="next-lines-head-actions"><div class="next-lines-balance"><span>Productos <strong>${currencyFormat(accounting.line_total, fields.currency || "EUR")}</strong></span><span>Subtotal <strong>${currencyFormat(accounting.subtotal, fields.currency || "EUR")}</strong></span><span>Descuento <strong>−${currencyFormat(accounting.discount, fields.currency || "EUR")}</strong></span><span>Envío <strong>${currencyFormat(accounting.shipping, fields.currency || "EUR")}</strong></span><span>Total pagado <strong>${currencyFormat(fields.total, fields.currency || "EUR")}</strong></span></div><button type="button" class="ghost" data-merge-import-lines="${item.id}">Combinar seleccionadas</button><button type="button" class="ghost" data-add-import-line="${item.id}">Añadir línea</button></div></div>${data.lines.length ? data.lines.map(lineMarkup).join("") : `<div class="empty-state">No se detectaron líneas fiables. Añade las necesarias antes de confirmar.</div>`}</div>
       <div class="row-actions next-import-final-actions"><div class="next-discard-action"><button type="button" class="ghost" data-request-discard-import="${item.id}">Eliminar importación</button><span>El archivo y su lectura se borrarán definitivamente.</span></div><button type="button" ${data.duplicates.exact ? "disabled" : ""} data-confirm-import="${item.id}">Confirmar y crear factura borrador</button></div>`;
     $("#expenseImportDetail").scrollIntoView({ behavior: "smooth", block: "start" });
     renderAnnotatedImportViewer(item, data.lines);
@@ -327,34 +421,91 @@
   async function loadReplenishment() {
     const data = await api("/api/replenishment/recommendations");
     replenishmentRows = data.recommendations;
-    const actionable = replenishmentRows.filter((row) => row.suggested_quantity > 0);
-    $("#replenishmentMetrics").innerHTML = metric("Compra sugerida", fmt(actionable.reduce((sum, row) => sum + row.estimated_cost, 0)), `${actionable.length} materiales`) + metric("Críticos", replenishmentRows.filter((row) => row.priority === "critical").length, "Rotura actual") + metric("Requieren configuración", replenishmentRows.filter((row) => row.priority === "configuration").length, "Stock desconocido");
-    $("#replenishmentList").innerHTML = replenishmentRows.map((row) => `<article class="next-replenishment-row priority-${row.priority}">
-      <input type="checkbox" data-replenishment-select="${row.id}" ${row.suggested_quantity > 0 ? "checked" : "disabled"}>
-      <div><strong>${text(row.name)}</strong><small>${text(row.supplier_name || "Sin proveedor")} · ${text(row.reason)}</small></div>
-      <div><small>Consumo 30/90</small><strong>${number(row.consumption_30).toFixed(0)} / ${number(row.consumption_90).toFixed(0)}</strong></div>
-      <div><small>Cobertura</small><strong>${row.coverage_days === null ? "Configurar" : `${number(row.coverage_days).toFixed(1)} días`}</strong></div>
-      <div><small>Sugerencia</small><strong>${number(row.suggested_quantity)} ${text(row.unit_label)}</strong><span>${fmt(row.estimated_cost)}</span></div>
-      <span class="status-pill">${text(row.priority)}</span>
-    </article>`).join("");
+    replenishmentParameters = data.parameters || {};
+    replenishmentRows.forEach((row) => {
+      if (!replenishmentQuantities.has(Number(row.id))) replenishmentQuantities.set(Number(row.id), Number(row.suggested_quantity || 0));
+      if (!replenishmentSelectionInitialized && row.can_plan && row.decision === "buy") selectedReplenishmentIds.add(Number(row.id));
+    });
+    replenishmentSelectionInitialized = true;
+    renderReplenishment();
+  }
+
+  function renderReplenishment() {
+    const decisionLabels = { buy: "Comprar", monitor: "Vigilar", configure: "Configurar", healthy: "Sin acción" };
+    const priorityLabels = { critical: "Rotura", high: "Urgente", medium: "Próximo", low: "Cubierto", configuration: "Configurar" };
+    const trendLabels = { accelerating: "Sube", slowing: "Baja", stable: "Estable" };
+    const actionable = replenishmentRows.filter((row) => row.decision === "buy");
+    const planReady = actionable.filter((row) => row.can_plan);
+    const estimated = planReady.reduce((sum, row) => sum + number(row.unit_cost) * number(replenishmentQuantities.get(Number(row.id))), 0);
+    const unpriced = planReady.filter((row) => !row.cost_known).length;
+    const atRisk = replenishmentRows.filter((row) => row.risk_before_arrival).length;
+    const blocked = replenishmentRows.filter((row) => row.decision === "configure" || (row.decision === "buy" && !row.can_plan)).length;
+    $("#replenishmentMetrics").innerHTML = metric("Compra propuesta", fmt(estimated), `${planReady.length} materiales${unpriced ? ` · ${unpriced} sin coste` : ""}`)
+      + metric("Riesgo antes de entrega", atRisk, "Cobertura menor que el plazo")
+      + metric("Comprar ahora", actionable.length, "Déficit hasta stock objetivo")
+      + metric("Bloqueos", blocked, "Completar antes de planificar");
+    const suppliers = [...new Set(replenishmentRows.map((row) => row.supplier_name).filter(Boolean))].sort();
+    const decisions = ["buy", "monitor", "configure", "healthy"];
+    const priorityRank = { critical: 0, high: 1, medium: 2, configuration: 3, low: 4 };
+    const visible = replenishmentRows.filter((row) => (!replenishmentFilters.decision || row.decision === replenishmentFilters.decision)
+      && (!replenishmentFilters.supplier || row.supplier_name === replenishmentFilters.supplier)
+      && (!replenishmentFilters.query || `${row.name} ${row.supplier_name || ""}`.toLocaleLowerCase("es").includes(replenishmentFilters.query.toLocaleLowerCase("es"))))
+      .sort((a, b) => (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9) || number(b.suggested_quantity) - number(a.suggested_quantity));
+    const selected = [...selectedReplenishmentIds];
+    const selectedSpend = selected.reduce((sum, id) => {
+      const row = replenishmentRows.find((item) => Number(item.id) === id);
+      return sum + number(row?.unit_cost) * number(replenishmentQuantities.get(id));
+    }, 0);
+    $("#replenishmentTools").innerHTML = `<div class="next-replenishment-tabs">${decisions.map((decision) => `<button type="button" class="ghost ${replenishmentFilters.decision === decision ? "is-active" : ""}" data-replenishment-decision="${decision}">${decisionLabels[decision]} <span>${replenishmentRows.filter((row) => row.decision === decision).length}</span></button>`).join("")}</div>
+      <div class="next-replenishment-filters"><label>Buscar<input type="search" data-replenishment-filter="query" value="${text(replenishmentFilters.query)}" placeholder="Material o proveedor"></label><label>Proveedor<select data-replenishment-filter="supplier"><option value="">Todos</option>${suppliers.map((supplier) => `<option ${supplier === replenishmentFilters.supplier ? "selected" : ""}>${text(supplier)}</option>`).join("")}</select></label><div class="next-replenishment-parameters"><span>Plazo base ${number(replenishmentParameters.default_lead_days)} d</span><span>Seguridad ${number(replenishmentParameters.safety_days)} d</span><span>Objetivo +${number(replenishmentParameters.target_coverage_days)} d</span></div></div>
+      <div class="next-selection-bar"><div><strong>${selected.length} seleccionados</strong><span>${fmt(selectedSpend)} estimados</span></div><button id="createPurchasePlan" type="button" class="button-with-icon" ${selected.length ? "" : "disabled"}><svg><use href="#icon-plus"></use></svg><span>Crear plan de compra</span></button></div>`;
+    $("#replenishmentList").innerHTML = visible.length ? visible.map((row) => {
+      const quantity = number(replenishmentQuantities.get(Number(row.id)));
+      const coverage = row.coverage_days === null ? "Sin calcular" : `${number(row.coverage_days).toFixed(row.coverage_days < 10 ? 1 : 0)} días`;
+      const blocker = row.blockers?.includes("supplier") ? "Falta proveedor" : row.blockers?.includes("stock") ? "Falta stock" : "";
+      return `<article class="next-replenishment-row priority-${row.priority}">
+        <label class="next-replenishment-check"><input type="checkbox" data-replenishment-select="${row.id}" ${selectedReplenishmentIds.has(Number(row.id)) ? "checked" : ""} ${row.can_plan ? "" : "disabled"}><span></span></label>
+        <div class="next-replenishment-material"><strong>${text(row.name)}</strong><small>${text(row.supplier_name || "Sin proveedor")} · Stock ${row.stock_known ? `${number(row.effective_stock)} ${text(row.unit_label)}` : "desconocido"} · Objetivo ${Math.ceil(number(row.calculated_target_stock))} ${text(row.unit_label)}</small><p>${text(row.reason)}</p></div>
+        <div><small>Consumo 30 / 90 días</small><strong>${number(row.consumption_30).toFixed(0)} / ${number(row.consumption_90).toFixed(0)}</strong><span class="next-trend trend-${row.trend}">${trendLabels[row.trend]}</span></div>
+        <div><small>Cobertura / plazo</small><strong>${coverage}</strong><span>${number(row.lead_days)} días de entrega</span></div>
+        <div class="next-replenishment-quantity"><small>Cantidad a comprar</small><input type="number" min="0" step="${number(row.purchase_pack_size) || 1}" value="${quantity}" data-replenishment-quantity="${row.id}" ${row.decision === "buy" ? "" : "disabled"}><span>${row.cost_known ? fmt(quantity * number(row.unit_cost)) : "Sin coste registrado"}</span></div>
+        <span class="status-pill tone-${row.priority}">${blocker || (row.decision === "monitor" ? "Seguimiento" : priorityLabels[row.priority])}</span>
+      </article>`;
+    }).join("") : `<div class="empty-state">No hay materiales en esta decisión con los filtros aplicados.</div>`;
   }
 
   async function loadPurchasePlans() {
     const rows = await api("/api/purchase-plans");
-    $("#purchasePlanList").innerHTML = rows.length ? rows.map((row) => `<article class="next-plan-row"><div><strong>${text(row.name)}</strong><small>${row.order_count} pedidos · ${text(row.status)}</small></div><b>${fmt(row.estimated_total)}</b><button class="ghost" data-open-plan="${row.id}">Abrir</button></article>`).join("") : `<div class="empty-state">No hay planes creados.</div>`;
+    $("#purchasePlanListPanel").classList.remove("hidden");
+    $("#purchasePlanDetail").classList.add("hidden");
+    $("#purchasePlanList").innerHTML = rows.length ? rows.map((row) => `<article class="next-plan-row"><div><strong>${text(row.name)}</strong><small>${row.order_count} proveedores · ${row.line_count} materiales</small></div><span class="status-pill tone-${text(row.status)}">${text(row.status)}</span><div><small>Pendiente</small><strong>${number(row.pending_units)} uds</strong></div><b>${fmt(row.estimated_total)}</b><button class="ghost" data-open-plan="${row.id}">Abrir plan</button></article>`).join("") : `<div class="empty-state next-plan-empty"><strong>Aún no hay planes de compra</strong><span>Empieza por revisar las recomendaciones y prepara una compra agrupada por proveedor.</span><button type="button" data-materials-section="replenishment">Preparar primera compra</button></div>`;
   }
 
   async function openPlan(id) {
     const data = await api(`/api/purchase-plans/${id}`);
     currentPurchasePlan = data;
+    $("#purchasePlanListPanel").classList.add("hidden");
     $("#purchasePlanDetail").classList.remove("hidden");
-    $("#purchasePlanDetail").innerHTML = `<div class="panel-head"><div><h2>${text(data.plan.name)}</h2><p>Snapshot de compra · ${fmt(data.plan.estimated_total)}</p></div></div>${data.orders.map((order) => `<section class="next-order"><div class="panel-head"><div><h3>${text(order.supplier_name || "Sin proveedor")}</h3><p>${text(order.status)} · ${fmt(order.estimated_total)}</p></div><button class="ghost" data-order-ordered="${order.id}">Marcar pedido</button></div>${order.lines.map((line) => `<article><span>${text(line.material_name)}</span><b>${number(line.received_quantity)} / ${number(line.ordered_quantity)} ${text(line.unit_label)}</b></article>`).join("")}<button type="button" data-receive-order="${order.id}">Registrar recepción completa pendiente</button></section>`).join("")}`;
+    $("#purchasePlanDetail").innerHTML = `<div class="panel-head"><div><p class="eyebrow">Plan de compra</p><h2>${text(data.plan.name)}</h2><p>${data.orders.length} proveedores · ${fmt(data.plan.estimated_total)} estimados · ${text(data.plan.status)}</p></div><button class="ghost button-with-icon" data-close-plan><svg><use href="#icon-arrow-left"></use></svg><span>Volver a planes</span></button></div>
+      <div class="next-plan-progress">${data.orders.map((order) => `<span class="is-${order.status}">${text(order.supplier_name || "Sin proveedor")} · ${text(order.status)}</span>`).join("")}</div>
+      ${data.orders.map((order) => `<section class="next-order"><div class="panel-head"><div><h3>${text(order.supplier_name || "Sin proveedor")}</h3><p>${order.lines.filter((line) => !line.is_excluded).length} materiales · ${fmt(order.estimated_total)}</p></div><div class="row-actions"><span class="status-pill tone-${order.status}">${text(order.status)}</span>${order.status === "draft" ? `<button class="ghost" data-order-ordered="${order.id}">Marcar como pedido</button>` : ""}</div></div>
+        <div class="next-order-lines">${order.lines.map((line) => { const pending = Math.max(0, number(line.ordered_quantity) - number(line.received_quantity)); return `<article class="${line.is_excluded ? "is-excluded" : ""}" data-purchase-line-row="${line.id}"><label class="next-replenishment-check"><input type="checkbox" data-purchase-line-excluded="${line.id}" ${line.is_excluded ? "" : "checked"} ${order.status === "draft" ? "" : "disabled"}><span></span></label><div><strong>${text(line.material_name)}</strong><small>${text(line.reason_snapshot)}</small></div><label>Pedido<input type="number" min="0" step="${number(line.pack_size_snapshot) || 1}" value="${number(line.ordered_quantity)}" data-purchase-line-quantity="${line.id}" ${order.status === "draft" ? "" : "disabled"}></label><div><small>Recibido</small><strong>${number(line.received_quantity)} / ${number(line.ordered_quantity)} ${text(line.unit_label)}</strong></div><div><small>Coste</small><strong>${fmt(number(line.ordered_quantity) * number(line.unit_cost_snapshot))}</strong></div>${["ordered", "partially_received"].includes(order.status) && pending > 0 ? `<label>Recibir ahora<input type="number" min="0" max="${pending}" value="${pending}" data-receipt-quantity="${line.id}"></label>` : ""}</article>`; }).join("")}</div>
+        <div class="next-order-footer"><span>La recepción queda trazada, pero el stock solo cambia al sincronizar Shopify.</span>${["ordered", "partially_received"].includes(order.status) ? `<button type="button" data-receive-order="${order.id}">Registrar recepción</button>` : ""}</div></section>`).join("")}`;
   }
 
   document.body.addEventListener("click", async (event) => {
     const button = event.target.closest("button");
     if (!button) return;
     try {
+      if (button.dataset.documentZoom) {
+        const host = button.closest(".document-viewer")?.querySelector("[data-annotated-document-viewer]");
+        if (host?.setZoom) {
+          const current = Number(host.dataset.zoom || 1);
+          const next = button.dataset.documentZoom === "fit" ? Number(host.dataset.fitZoom || 1)
+            : button.dataset.documentZoom === "in" ? current + 0.25 : current - 0.25;
+          host.setZoom(next);
+        }
+      }
       if (button.dataset.expenseSection) switchExpense(button.dataset.expenseSection);
       if (button.dataset.materialsSection) switchMaterials(button.dataset.materialsSection);
       if (button.dataset.openDuplicateInvoice) {
@@ -403,15 +554,15 @@
       }
       if (button.dataset.splitImportLine) {
         const row = button.closest("[data-import-line-row]");
-        const quantityInput = row.querySelector('[data-line-field="quantity"]');
-        const totalInput = row.querySelector('[data-line-field="line_total"]');
-        const quantity = number(quantityInput.value);
-        const total = number(totalInput.value);
-        const firstQuantity = quantity > 1 ? quantity / 2 : quantity;
-        const firstTotal = total / 2;
-        await api(`/api/expense-imports/${button.dataset.importId}/lines/${button.dataset.splitImportLine}`, { method: "PATCH", body: JSON.stringify({ quantity: firstQuantity, line_total: firstTotal, unit_price: firstQuantity ? firstTotal / firstQuantity : firstTotal }) });
+        const packages = number(row.querySelector('[data-line-field="package_count"]').value);
+        const unitsPackage = number(row.querySelector('[data-line-field="units_per_package"]').value);
+        const pricePackage = number(row.querySelector('[data-line-field="price_per_package"]').value);
+        const firstPackages = packages > 1 ? packages / 2 : packages;
+        const firstUnitsPackage = packages > 1 ? unitsPackage : unitsPackage / 2;
+        const firstPricePackage = packages > 1 ? pricePackage : pricePackage / 2;
+        await api(`/api/expense-imports/${button.dataset.importId}/lines/${button.dataset.splitImportLine}`, { method: "PATCH", body: JSON.stringify({ package_count: firstPackages, units_per_package: firstUnitsPackage, price_per_package: firstPricePackage }) });
         const impressions = number(row.querySelector('[data-line-field="impressions"]')?.value);
-        await api(`/api/expense-imports/${button.dataset.importId}/lines`, { method: "POST", body: JSON.stringify({ description: row.querySelector('[data-line-field="description"]').value, quantity: quantity > 1 ? quantity - firstQuantity : quantity, line_total: firstTotal, unit_price: firstQuantity ? firstTotal / firstQuantity : firstTotal, impressions: impressions ? impressions / 2 : null, suggested_material_id: row.querySelector('[data-line-field="suggested_material_id"]').value || null, human_decision: "pending" }) });
+        await api(`/api/expense-imports/${button.dataset.importId}/lines`, { method: "POST", body: JSON.stringify({ description: row.querySelector('[data-line-field="description"]').value, package_count: packages - firstPackages || firstPackages, units_per_package: firstUnitsPackage, price_per_package: firstPricePackage, line_total: firstPackages * firstPricePackage, impressions: impressions ? impressions / 2 : null, suggested_material_id: row.querySelector('[data-line-field="suggested_material_id"]').value || null, human_decision: "pending" }) });
         if (impressions) await api(`/api/expense-imports/${button.dataset.importId}/lines/${button.dataset.splitImportLine}`, { method: "PATCH", body: JSON.stringify({ impressions: impressions / 2 }) });
         await openImport(button.dataset.importId);
       }
@@ -420,17 +571,22 @@
         if (rows.length < 2) throw new Error("Selecciona al menos dos líneas para combinarlas.");
         const first = rows[0];
         const total = rows.reduce((sum, row) => sum + number(row.querySelector('[data-line-field="line_total"]').value), 0);
-        const quantity = rows.reduce((sum, row) => sum + number(row.querySelector('[data-line-field="quantity"]').value), 0);
+        const totalUnits = rows.reduce((sum, row) => sum + number(row.querySelector('[data-line-field="package_count"]').value) * number(row.querySelector('[data-line-field="units_per_package"]').value), 0);
+        const packages = rows.reduce((sum, row) => sum + number(row.querySelector('[data-line-field="package_count"]').value), 0);
         const impressions = rows.reduce((sum, row) => sum + number(row.querySelector('[data-line-field="impressions"]')?.value), 0);
         const description = rows.map((row) => row.querySelector('[data-line-field="description"]').value).filter(Boolean).join(" + ");
-        await api(`/api/expense-imports/${button.dataset.mergeImportLines}/lines/${first.dataset.importLineRow}`, { method: "PATCH", body: JSON.stringify({ description, quantity, line_total: total, unit_price: quantity ? total / quantity : total, impressions: impressions || null, human_decision: "pending" }) });
+        await api(`/api/expense-imports/${button.dataset.mergeImportLines}/lines/${first.dataset.importLineRow}`, { method: "PATCH", body: JSON.stringify({ description, package_count: packages, units_per_package: packages ? totalUnits / packages : totalUnits, price_per_package: packages ? total / packages : total, impressions: impressions || null, human_decision: "pending" }) });
         for (const row of rows.slice(1)) await api(`/api/expense-imports/${button.dataset.mergeImportLines}/lines/${row.dataset.importLineRow}`, { method: "DELETE" });
         await openImport(button.dataset.mergeImportLines);
       }
       if (button.dataset.saveImportLine) {
         const row = button.closest("[data-import-line-row]");
         const body = Object.fromEntries(Array.from(row.querySelectorAll("[data-line-field]")).map((input) => [input.dataset.lineField, input.value]));
-        body.quantity = number(body.quantity);
+        body.package_count = number(body.package_count);
+        body.units_per_package = number(body.units_per_package);
+        body.total_units = body.package_count * body.units_per_package;
+        body.quantity = body.total_units;
+        body.price_per_package = number(body.price_per_package);
         body.unit_price = number(body.unit_price);
         body.line_total = number(body.line_total);
         body.suggested_material_id = body.suggested_material_id || null;
@@ -439,16 +595,32 @@
         await openImport(button.dataset.importId);
       }
       if (button.id === "createPurchasePlan") {
-        const material_ids = Array.from(document.querySelectorAll("[data-replenishment-select]:checked")).map((node) => Number(node.dataset.replenishmentSelect));
-        await api("/api/purchase-plans", { method: "POST", body: JSON.stringify({ material_ids }) });
+        const lines = Array.from(document.querySelectorAll("[data-replenishment-select]:checked")).map((node) => ({
+          material_id: Number(node.dataset.replenishmentSelect),
+          ordered_quantity: number(replenishmentQuantities.get(Number(node.dataset.replenishmentSelect)))
+        })).filter((line) => line.ordered_quantity > 0);
+        await api("/api/purchase-plans", { method: "POST", body: JSON.stringify({ lines }) });
         toast("Plan de compra creado"); switchMaterials("purchases");
       }
+      if (button.dataset.replenishmentDecision) {
+        replenishmentFilters.decision = button.dataset.replenishmentDecision;
+        renderReplenishment();
+      }
       if (button.dataset.openPlan) await openPlan(button.dataset.openPlan);
-      if (button.dataset.orderOrdered) { await api(`/api/purchase-orders/${button.dataset.orderOrdered}`, { method: "PATCH", body: JSON.stringify({ status: "ordered" }) }); toast("Pedido marcado como realizado"); }
+      if (Object.prototype.hasOwnProperty.call(button.dataset, "closePlan")) loadPurchasePlans();
+      if (button.dataset.orderOrdered) {
+        await api(`/api/purchase-orders/${button.dataset.orderOrdered}`, { method: "PATCH", body: JSON.stringify({ status: "ordered" }) });
+        toast("Pedido marcado como realizado");
+        await openPlan(currentPurchasePlan.plan.id);
+      }
       if (button.dataset.receiveOrder) {
         const order = currentPurchasePlan?.orders?.find((candidate) => String(candidate.id) === button.dataset.receiveOrder);
         if (order) {
-          const result = await api(`/api/purchase-orders/${order.id}/receipts`, { method: "POST", body: JSON.stringify({ lines: order.lines.filter((line) => !line.is_excluded && line.received_quantity < line.ordered_quantity).map((line) => ({ purchase_order_line_id: line.id, quantity: line.ordered_quantity - line.received_quantity })) }) });
+          const lines = order.lines.filter((line) => !line.is_excluded && line.received_quantity < line.ordered_quantity).map((line) => ({
+            purchase_order_line_id: line.id,
+            quantity: number(document.querySelector(`[data-receipt-quantity="${line.id}"]`)?.value)
+          })).filter((line) => line.quantity > 0);
+          const result = await api(`/api/purchase-orders/${order.id}/receipts`, { method: "POST", body: JSON.stringify({ lines }) });
           toast(result.warning);
           await openPlan(currentPurchasePlan.plan.id);
         }
@@ -457,6 +629,32 @@
   });
 
   document.body.addEventListener("change", async (event) => {
+    if (event.target.matches("[data-replenishment-filter]")) {
+      replenishmentFilters[event.target.dataset.replenishmentFilter] = event.target.value;
+      renderReplenishment();
+      return;
+    }
+    if (event.target.matches("[data-replenishment-select]")) {
+      const id = Number(event.target.dataset.replenishmentSelect);
+      if (event.target.checked) selectedReplenishmentIds.add(id); else selectedReplenishmentIds.delete(id);
+      renderReplenishment();
+      return;
+    }
+    if (event.target.matches("[data-replenishment-quantity]")) {
+      replenishmentQuantities.set(Number(event.target.dataset.replenishmentQuantity), number(event.target.value));
+      renderReplenishment();
+      return;
+    }
+    if (event.target.matches("[data-purchase-line-excluded]")) {
+      await api(`/api/purchase-order-lines/${event.target.dataset.purchaseLineExcluded}`, { method: "PATCH", body: JSON.stringify({ is_excluded: !event.target.checked }) });
+      await openPlan(currentPurchasePlan.plan.id);
+      return;
+    }
+    if (event.target.matches("[data-purchase-line-quantity]")) {
+      await api(`/api/purchase-order-lines/${event.target.dataset.purchaseLineQuantity}`, { method: "PATCH", body: JSON.stringify({ ordered_quantity: number(event.target.value) }) });
+      await openPlan(currentPurchasePlan.plan.id);
+      return;
+    }
     if (event.target.matches("[data-import-filter]")) {
       importFilters[event.target.dataset.importFilter] = event.target.value;
       renderImportList();
@@ -474,17 +672,27 @@
   });
 
   document.body.addEventListener("input", (event) => {
+    if (event.target.matches('[data-replenishment-filter="query"]')) {
+      replenishmentFilters.query = event.target.value;
+      clearTimeout(importFilterTimer);
+      importFilterTimer = setTimeout(renderReplenishment, 180);
+      return;
+    }
     if (event.target.matches('[data-import-filter="query"]')) {
       importFilters.query = event.target.value;
       clearTimeout(importFilterTimer);
       importFilterTimer = setTimeout(renderImportList, 180);
       return;
     }
-    if (!event.target.matches('[data-line-field="quantity"],[data-line-field="unit_price"]')) return;
+    if (!event.target.matches('[data-line-field="package_count"],[data-line-field="units_per_package"],[data-line-field="price_per_package"]')) return;
     const row = event.target.closest("[data-import-line-row]");
-    const quantity = number(row.querySelector('[data-line-field="quantity"]').value);
-    const unitPrice = number(row.querySelector('[data-line-field="unit_price"]').value);
-    row.querySelector('[data-line-field="line_total"]').value = (quantity * unitPrice).toFixed(2);
+    const packages = number(row.querySelector('[data-line-field="package_count"]').value);
+    const unitsPackage = number(row.querySelector('[data-line-field="units_per_package"]').value);
+    const pricePackage = number(row.querySelector('[data-line-field="price_per_package"]').value);
+    const totalUnits = packages * unitsPackage;
+    const lineTotal = packages * pricePackage;
+    row.querySelector('[data-line-field="unit_price"]').value = Number(number(totalUnits ? lineTotal / totalUnits : 0).toFixed(6)).toString();
+    row.querySelector('[data-line-field="line_total"]').value = lineTotal.toFixed(2);
   });
 
   $("#expenseImportUploadForm")?.addEventListener("submit", async (event) => {
@@ -535,7 +743,9 @@
     if (event.target.id !== "expenseImportReviewForm") return;
     event.preventDefault();
     const detected_fields = Object.fromEntries(new FormData(event.target).entries());
-    detected_fields.total = Number(detected_fields.total);
+    ["subtotal", "discount", "shipping", "tax", "total"].forEach((field) => {
+      detected_fields[field] = Number(detected_fields[field] || 0);
+    });
     await api(`/api/expense-imports/${event.target.dataset.importId}`, { method: "PATCH", body: JSON.stringify({ detected_fields }) });
     toast("Revisión guardada");
   });

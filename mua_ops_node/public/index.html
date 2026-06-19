@@ -83,144 +83,52 @@
 
       <main>
         <section id="dashboard" class="view active">
-          <section class="panel dashboard-filter-panel">
-            <div class="dashboard-filter-row">
-              <div class="dashboard-filter-meta">
-                <strong>Ventana temporal</strong>
-                <span id="dashboardWindowLabel">Todo el periodo</span>
+          <div class="dashboard-commandbar">
+            <button id="dashboardFilterTrigger" type="button" class="dashboard-filter-trigger" aria-expanded="false">
+              <svg><use href="#icon-calendar"></use></svg>
+              <strong id="dashboardWindowLabel">Este trimestre</strong>
+              <span id="dashboardFilterSummary">Mensual · vs. periodo anterior</span>
+              <b>⌄</b>
+            </button>
+            <span class="dashboard-freshness"><i></i> Actualizado hoy</span>
+            <section id="dashboardFilterPopover" class="panel dashboard-filter-popover hidden">
+              <div class="dashboard-filter-columns">
+                <fieldset><legend>1. Periodo</legend><div id="dashboardPeriodOptions" class="dashboard-filter-options"></div></fieldset>
+                <fieldset><legend>2. Granularidad</legend><div id="dashboardGranularityOptions" class="dashboard-filter-options"></div></fieldset>
               </div>
-              <div class="dashboard-filter-controls">
-                <label>Periodo
-                  <select id="dashboardWindowPreset">
-                    <option value="all">Todo el periodo</option>
-                    <option value="this_month">Este mes</option>
-                    <option value="last_3_months">Últimos 3 meses</option>
-                    <option value="last_6_months">Últimos 6 meses</option>
-                    <option value="this_year">Este año</option>
-                    <option value="custom">Ventana personalizada</option>
-                  </select>
-                </label>
-                <label>Granularidad
-                  <select id="dashboardGranularity">
-                    <option value="auto">Auto</option>
-                    <option value="month">Mensual</option>
-                    <option value="day">Diaria</option>
-                  </select>
-                </label>
-                <div id="dashboardCustomRange" class="dashboard-custom-range hidden">
-                  <label>Desde<input id="dashboardFrom" type="date"></label>
-                  <label>Hasta<input id="dashboardTo" type="date"></label>
-                </div>
+              <div id="dashboardCustomRange" class="dashboard-custom-range hidden">
+                <label>Desde<input id="dashboardFrom" type="date"></label>
+                <label>Hasta<input id="dashboardTo" type="date"></label>
               </div>
-            </div>
-          </section>
+              <label class="dashboard-comparison-toggle"><input id="dashboardComparison" type="checkbox" checked><span>Comparar con periodo anterior equivalente</span></label>
+              <div class="dashboard-filter-note">La granularidad cambia los gráficos, no los totales.</div>
+              <div class="dashboard-filter-actions"><button id="dashboardFilterReset" type="button" class="ghost">Restablecer</button><button id="dashboardFilterApply" type="button">Aplicar filtros</button></div>
+            </section>
+            <select id="dashboardWindowPreset" class="hidden" aria-hidden="true"><option value="this_month">Este mes</option><option value="last_30_days">Últimos 30 días</option><option value="this_quarter">Este trimestre</option><option value="last_3_months">Últimos 3 meses</option><option value="last_6_months">Últimos 6 meses</option><option value="this_year">Este año</option><option value="all">Todo el periodo</option><option value="custom">Personalizado</option></select>
+            <select id="dashboardGranularity" class="hidden" aria-hidden="true"><option value="auto">Auto</option><option value="day">Diaria</option><option value="week">Semanal</option><option value="month">Mensual</option><option value="quarter">Trimestral</option></select>
+          </div>
           <div id="dashboardCards" class="dashboard-kpis"></div>
+          <div class="segmented-control dashboard-mode-switch" aria-label="Modo del dashboard">
+            <button type="button" class="ghost is-active" data-dashboard-mode="operation">Operación</button>
+            <button type="button" class="ghost" data-dashboard-mode="profitability">Rentabilidad</button>
+          </div>
           <div class="dashboard-layout dashboard-dashboard">
             <div class="dashboard-hero-grid">
-              <section class="panel dashboard-balance-panel dashboard-hero-panel">
-                <div class="panel-head">
-                  <div>
-                    <h2>Balance mensual</h2>
-                    <p>Cruce simple entre gasto total, ingreso neto y diferencia del mes.</p>
-                  </div>
-                </div>
+              <section class="panel dashboard-hero-panel">
+                <div class="panel-head"><div><h2 id="dashboardPrimaryTitle">Balance operativo</h2><p id="dashboardPrimaryText">Ingresos, gastos y resultado del periodo.</p></div><span id="dashboardPrimaryBadge" class="dashboard-context-badge"></span></div>
                 <div id="dashboardBalanceChart" class="chart-surface chart-surface-hero"></div>
               </section>
-
               <section class="panel dashboard-side-panel">
-                <div class="panel-head">
-                  <div>
-                    <h2>Atención inmediata</h2>
-                    <p>Incidencias que conviene revisar sin romper la portada financiera.</p>
-                  </div>
-                  <button type="button" class="ghost dashboard-panel-link" data-jump-view="activity">Ver todas</button>
-                </div>
+                <div class="panel-head"><div><h2 id="dashboardActionTitle">Prioridades de hoy</h2><p id="dashboardActionText">Lo que necesita una decisión humana.</p></div></div>
                 <div id="dashboardOpsList" class="list compact"></div>
               </section>
             </div>
-
-            <div class="dashboard-trend-grid">
-              <section class="panel dashboard-expense-panel">
-                <div class="panel-head dashboard-trend-head">
-                  <div>
-                    <h2 id="dashboardExpenseTitle">Gastos mensuales</h2>
-                    <p id="dashboardExpenseText">Lectura mensual del gasto operativo por bloque principal.</p>
-                  </div>
-                  <div class="segmented-control dashboard-trend-switch">
-                    <button type="button" class="ghost is-active" data-dashboard-expense-trend-view="total">Total</button>
-                    <button type="button" class="ghost" data-dashboard-expense-trend-view="materiales">Materiales</button>
-                    <button type="button" class="ghost" data-dashboard-expense-trend-view="marketing">Marketing</button>
-                    <button type="button" class="ghost" data-dashboard-expense-trend-view="envios">Envíos</button>
-                  </div>
-                </div>
-                <div id="dashboardExpenseChart" class="chart-surface"></div>
-              </section>
-
-              <section class="panel dashboard-income-panel">
-                <div class="panel-head dashboard-trend-head">
-                  <div>
-                    <h2 id="dashboardIncomeTitle">Ingresos mensuales</h2>
-                    <p id="dashboardIncomeText">Seguimiento del ingreso neto y peso por canal.</p>
-                  </div>
-                  <div class="segmented-control dashboard-trend-switch">
-                    <button type="button" class="ghost is-active" data-dashboard-income-trend-view="cobros">Cobrado neto</button>
-                    <button type="button" class="ghost" data-dashboard-income-trend-view="channel_shopify">Shopify</button>
-                    <button type="button" class="ghost" data-dashboard-income-trend-view="channel_etsy">Etsy</button>
-                    <button type="button" class="ghost" data-dashboard-income-trend-view="channel_bizum">Bizum</button>
-                  </div>
-                </div>
-                <div id="dashboardIncomeChart" class="chart-surface"></div>
-              </section>
+            <div id="dashboardInsightGrid" class="dashboard-insight-grid"></div>
+            <div class="dashboard-analysis-grid">
+              <section class="panel"><div class="panel-head"><div><h2 id="dashboardSecondaryTitle">Evolución del negocio</h2><p id="dashboardSecondaryText">Cómo cambia el resultado en el periodo.</p></div></div><div id="dashboardExpenseChart" class="chart-surface"></div></section>
+              <section class="panel"><div class="panel-head"><div><h2 id="dashboardTertiaryTitle">Composición</h2><p id="dashboardTertiaryText">Dónde se concentra el resultado.</p></div></div><div id="dashboardIncomeChart" class="chart-surface"></div></section>
             </div>
-
-            <div class="dashboard-insight-grid">
-              <section class="panel dashboard-category-panel">
-                <div class="panel-head">
-                  <div>
-                    <h2>Reparto del gasto</h2>
-                    <p>Distribución por categoría para ver qué bloque pesa más.</p>
-                  </div>
-                </div>
-                <div id="dashboardCategoryChart" class="chart-surface chart-surface-small"></div>
-              </section>
-
-              <section class="panel dashboard-reorder-panel">
-                <div class="panel-head">
-                  <div>
-                    <h2>Materiales a reponer</h2>
-                    <p>Materiales con stock bajo del mínimo definido.</p>
-                  </div>
-                </div>
-                <div id="dashboardReorderList" class="dashboard-reorder-list"></div>
-                <div class="dashboard-panel-footer">
-                  <button type="button" class="ghost dashboard-panel-link" data-jump-view="materials">Ver todos los materiales</button>
-                </div>
-              </section>
-
-              <section class="panel dashboard-income-mix-panel">
-                <div class="panel-head">
-                  <div>
-                    <h2>Canales de ingreso</h2>
-                    <p>Composición actual de ingresos entre Shopify, Etsy y Bizum.</p>
-                  </div>
-                </div>
-                <div id="dashboardIncomeMixChart" class="chart-surface chart-surface-small"></div>
-              </section>
-            </div>
-
-            <section class="panel dashboard-spend-panel">
-              <div class="panel-head">
-                <div>
-                  <h2>Concentración del gasto</h2>
-                  <p>Dónde se está yendo el dinero: proveedores y materiales.</p>
-                </div>
-                <div class="segmented-control">
-                  <button type="button" class="ghost is-active" data-dashboard-spend-view="suppliers">Proveedores</button>
-                  <button type="button" class="ghost" data-dashboard-spend-view="materials">Materiales</button>
-                </div>
-              </div>
-              <div id="dashboardSpendList" class="list compact"></div>
-            </section>
+            <section class="panel dashboard-detail-panel"><div class="panel-head"><div><h2 id="dashboardDetailTitle">Lecturas para decidir</h2><p id="dashboardDetailText">Detalle de los principales impulsores.</p></div></div><div id="dashboardSpendList" class="list compact"></div></section>
           </div>
         </section>
 
@@ -735,12 +643,13 @@
             <section id="replenishmentPanel" class="next-evolution-panel hidden">
               <div id="replenishmentMetrics" class="materials-summary-grid"></div>
               <section class="panel">
-                <div class="panel-head"><div><h2>Reposición inteligente</h2><p>Cada recomendación explica consumo, cobertura, plazo y redondeo de compra.</p></div><button id="createPurchasePlan" type="button" class="button-with-icon"><svg><use href="#icon-plus"></use></svg><span>Revisar y crear compra</span></button></div>
+                <div class="panel-head"><div><h2>Reposición inteligente</h2><p>Decide qué comprar ahora, qué vigilar y qué datos faltan antes de actuar.</p></div></div>
+                <div id="replenishmentTools"></div>
                 <div id="replenishmentList" class="next-replenishment-list"></div>
               </section>
             </section>
             <section id="purchasePlannerPanel" class="next-evolution-panel hidden">
-              <section class="panel"><div class="panel-head"><div><h2>Planes de compra</h2><p>Snapshots agrupados por proveedor, con recepción trazable sin alterar stock.</p></div></div><div id="purchasePlanList" class="next-plan-list"></div></section>
+              <section id="purchasePlanListPanel" class="panel"><div class="panel-head"><div><h2>Planes de compra</h2><p>Prepara pedidos por proveedor y sigue lo pendiente hasta su recepción.</p></div></div><div id="purchasePlanList" class="next-plan-list"></div></section>
               <section id="purchasePlanDetail" class="panel hidden"></section>
             </section>
 
@@ -1468,17 +1377,43 @@
                 <div class="inline-note">
                   Se mostrarán materiales próximos a reponer cuando su stock Shopify sea menor o igual que `punto de reposición x multiplicador`.
                 </div>
-                <div class="settings-color-grid">
-                  <label>Gasto total<input name="dashboard_color_total" type="color"></label>
-                  <label>Materiales<input name="dashboard_color_materiales" type="color"></label>
-                  <label>Marketing<input name="dashboard_color_marketing" type="color"></label>
-                  <label>Envíos<input name="dashboard_color_envios" type="color"></label>
-                  <label>Ingresos<input name="dashboard_color_cobros" type="color"></label>
-                  <label>Fees<input name="dashboard_color_fees" type="color"></label>
-                  <label>Balance<input name="dashboard_color_balance" type="color"></label>
-                  <label>Shopify<input name="dashboard_color_shopify" type="color"></label>
-                  <label>Etsy<input name="dashboard_color_etsy" type="color"></label>
-                  <label>Bizum<input name="dashboard_color_bizum" type="color"></label>
+                <div class="settings-color-groups">
+                  <section class="settings-color-group">
+                    <div><h4>Gastos y balance</h4><p>Colores de categorías y evolución del resultado operativo.</p></div>
+                    <div class="settings-color-grid">
+                      <label>Gasto total<input name="dashboard_color_total" type="color"></label>
+                      <label>Materiales<input name="dashboard_color_materiales" type="color"></label>
+                      <label>Marketing<input name="dashboard_color_marketing" type="color"></label>
+                      <label>Envíos<input name="dashboard_color_envios" type="color"></label>
+                      <label>Servicios<input name="dashboard_color_servicios" type="color"></label>
+                      <label>Software<input name="dashboard_color_software" type="color"></label>
+                      <label>Otros<input name="dashboard_color_otros" type="color"></label>
+                      <label>Balance<input name="dashboard_color_balance" type="color"></label>
+                    </div>
+                  </section>
+                  <section class="settings-color-group">
+                    <div><h4>Ingresos y canales</h4><p>Series de cobro y composición por canal.</p></div>
+                    <div class="settings-color-grid">
+                      <label>Ingresos<input name="dashboard_color_cobros" type="color"></label>
+                      <label>Fees<input name="dashboard_color_fees" type="color"></label>
+                      <label>Shopify<input name="dashboard_color_shopify" type="color"></label>
+                      <label>Etsy<input name="dashboard_color_etsy" type="color"></label>
+                      <label>Bizum<input name="dashboard_color_bizum" type="color"></label>
+                    </div>
+                  </section>
+                  <section class="settings-color-group">
+                    <div><h4>Rentabilidad</h4><p>Series, umbrales y componentes del coste real.</p></div>
+                    <div class="settings-color-grid">
+                      <label>Venta neta<input name="dashboard_color_profit_sales" type="color"></label>
+                      <label>Coste real<input name="dashboard_color_profit_cost" type="color"></label>
+                      <label>Margen<input name="dashboard_color_profit_margin" type="color"></label>
+                      <label>Margen crítico<input name="dashboard_color_margin_critical" type="color"></label>
+                      <label>Margen en presión<input name="dashboard_color_margin_pressure" type="color"></label>
+                      <label>Margen saludable<input name="dashboard_color_margin_healthy" type="color"></label>
+                      <label>Contenido del pedido<input name="dashboard_color_cost_content" type="color"></label>
+                      <label>Set fijo<input name="dashboard_color_cost_fixed" type="color"></label>
+                    </div>
+                  </section>
                 </div>
               </section>
 

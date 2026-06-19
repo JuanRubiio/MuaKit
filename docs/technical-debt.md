@@ -47,11 +47,12 @@ Siguiente paso propuesto:
 - seguir reduciendo responsabilidades del `bindEvents`;
 - mover formularios/editores a capas más pequeñas cuando entremos en el refresh visual.
 
-### Margen por pedido pendiente
+### Reposicion inteligente por validar
 
-La app ya tiene gastos, ingresos, pedidos Shopify, kits y costes medios, pero
-no calcula margen por pedido. Este sera el siguiente cambio grande cuando las
-facturas esten al dia.
+La app ya calcula margen por pedido y dispone de una primera recomendacion de
+reposicion. El siguiente trabajo de producto debe validar el modelo de demanda,
+la explicacion de cada decision y el paso a plan de compra antes de considerar
+esta automatizacion como operativa.
 
 ## Media prioridad
 

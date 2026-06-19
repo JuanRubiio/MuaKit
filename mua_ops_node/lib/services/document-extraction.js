@@ -1,7 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const { createWorker } = require("tesseract.js");
-const { createCanvas } = require("@napi-rs/canvas");
+const { createCanvas, loadImage } = require("@napi-rs/canvas");
 
 function normalize(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -31,6 +31,256 @@ function isoDate(day, monthName, year) {
   return month ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}` : "";
 }
 
+function aliExpressMoney(value, referenceTotal = null) {
+  const raw = String(value || "").trim();
+  const parsed = amount(raw);
+  if (parsed === null) return null;
+  if (!/[,.]/.test(raw) && referenceTotal !== null && parsed > Number(referenceTotal) * 2) return parsed / 100;
+  return parsed;
+}
+
+function aliExpressFields(lines) {
+  if (!lines.some((line) => /aliexpress/i.test(line))) return null;
+  const findLine = (pattern) => lines.find((line) => pattern.test(line)) || "";
+  const valueAfterLabel = (pattern) => findLine(pattern).replace(pattern, "").trim();
+  const paymentTotal = findLine(/\bEUR\s+[0-9][0-9.,]*\b/i).match(/\bEUR\s+([0-9][0-9.,]*)\b/i)?.[1];
+  const totalRaw = valueAfterLabel(/^\s*total\s*:\s*/i);
+  const total = aliExpressMoney(totalRaw || paymentTotal);
+  const statedSubtotal = aliExpressMoney(valueAfterLabel(/^\s*subtotal\s*:\s*/i), total);
+  const discount = aliExpressMoney(valueAfterLabel(/^\s*todos los descuentos\s*:\s*/i), total);
+  const shipping = aliExpressMoney(valueAfterLabel(/^\s*tarifa de env[ií]o\s*:\s*/i), total);
+  const tax = aliExpressMoney(findLine(/\bI?VA incluido\b/i).match(/([0-9][0-9.,]*)\s*€/)?.[1], total);
+  const orderNumber = findLine(/^\s*[i1]d de pedido\s*:/i).match(/:\s*([0-9]{8,})/)?.[1] || "";
+  const dateMatch = findLine(/^\s*tiempo de la orden\s*:/i).match(/(\d{1,2})\s*([a-záéíóú]{3,5})\.?,?\s*(\d{4})/i);
+  const invoiceDate = dateMatch ? isoDate(dateMatch[1], dateMatch[2], dateMatch[3]) : "";
+  const subtotal = statedSubtotal ?? (total !== null && discount !== null ? Number((total + discount - Number(shipping || 0)).toFixed(2)) : null);
+  return {
+    invoice_number: orderNumber,
+    invoice_date: invoiceDate,
+    total,
+    currency: "EUR",
+    subtotal,
+    discount,
+    shipping,
+    tax
+  };
+}
+
+function etsyFields(lines) {
+  const text = lines.join("\n");
+  if (!/etsy\.com\/.+\/purchases\/|pedido\s+n\.?\s*[º°]\s*\d+/i.test(text)) return null;
+  const findLine = (pattern) => lines.find((line) => pattern.test(line)) || "";
+  const orderNumber = text.match(/pedido\s+n\.?\s*[º°]\s*(\d{6,})/i)?.[1] || "";
+  const dateMatch = text.match(/(?:comprado|pagado)\s+el\s+(\d{1,2})\s+([a-záéíóú]{3,5})\.?\s+(\d{4})/i);
+  const value = (pattern) => amount(findLine(pattern).match(/([0-9][0-9.,]*)\s*€/)?.[1]);
+  return {
+    invoice_number: orderNumber,
+    invoice_date: dateMatch ? isoDate(dateMatch[1], dateMatch[2], dateMatch[3]) : "",
+    subtotal: value(/^total de los art[ií]culos\b/i),
+    discount: value(/^descuento\b/i) || 0,
+    shipping: value(/^env[ií]o\b/i) || 0,
+    tax: value(/^(?:impuestos|iva)\b/i) || 0,
+    total: value(/^total\s+[0-9]/i),
+    currency: "EUR"
+  };
+}
+
+function sheinFields(lines) {
+  const text = lines.join("\n");
+  if (!/infinite styles services/i.test(text) || !/\bVAT Invoice\b/i.test(text)) return null;
+  const invoiceNumber = text.match(/\b(XES\d{12,}(?:_\d+)?)\b/i)?.[1] || "";
+  const invoiceDate = lines.find((line, index) => index > 0 && /invoice date/i.test(lines[index - 1]))?.match(/\b(\d{4}-\d{2}-\d{2})\b/)?.[1]
+    || text.match(/\b(\d{4}-\d{2}-\d{2})\b/)?.[1] || "";
+  const totalRows = lines.filter((line) => /^TOTAL\s+[0-9]/i.test(line));
+  const summary = totalRows[0]?.match(/^TOTAL\s+([0-9][0-9.,]*)\s+([0-9][0-9.,]*)\s+([0-9][0-9.,]*)/i);
+  return {
+    invoice_number: invoiceNumber,
+    invoice_date: invoiceDate,
+    subtotal: amount(summary?.[1]),
+    discount: 0,
+    shipping: 0,
+    tax: amount(summary?.[2]),
+    total: amount(summary?.[3]),
+    currency: "EUR"
+  };
+}
+
+function cleanAliExpressDescription(value) {
+  return String(value || "")
+    .replace(/^[^a-záéíóúñ0-9]+/i, "")
+    .replace(/^(?:or|a|tf|iy|zn|f|n)\s*[,.)|!-]?\s*/i, "")
+    .replace(/\s+[|$¡]+\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectedAliExpressLines(lines, fields = {}) {
+  if (!lines.some((line) => /aliexpress/i.test(line))) return [];
+  const detailStart = lines.findIndex((line) => /detalle del art[ií]culo/i.test(line));
+  const detailEnd = lines.findIndex((line, index) => index > detailStart && /cosas a tener en cuenta/i.test(line));
+  if (detailStart < 0) return [];
+  const detail = lines.slice(detailStart + 1, detailEnd > detailStart ? detailEnd : lines.length);
+  const result = [];
+  const allDescriptionParts = [];
+  let buffer = [];
+  for (const line of detail) {
+    if (/\b(?:official|offical|store|shop\d+)\b/i.test(line)) {
+      buffer = [];
+      continue;
+    }
+    const priceMatch = line.match(/([0-9][0-9.,]*)\s*€(?:\s*[xX]?\s*(\d+))?/);
+    if (!priceMatch) {
+      const cleaned = cleanAliExpressDescription(line);
+      if (cleaned && !/^[A-ZÁÉÍÓÚÑ]{1,4}$/.test(cleaned)) {
+        buffer.push(cleaned);
+        allDescriptionParts.push(cleaned);
+      }
+      continue;
+    }
+    const unitPrice = aliExpressMoney(priceMatch[1], fields.total);
+    let quantity = Number(priceMatch[2] || 0);
+    const description = buffer.join(" ").replace(/\s+/g, " ").trim();
+    if (!quantity && result.length === 0 && unitPrice > 0 && fields.subtotal > 0) {
+      const inferred = Math.round(fields.subtotal / unitPrice);
+      if (inferred > 0 && inferred <= 100 && Math.abs(inferred * unitPrice - fields.subtotal) <= 0.05) quantity = inferred;
+    }
+    quantity = quantity || 1;
+    if (description && unitPrice !== null) result.push({
+      description,
+      quantity,
+      unit_price: unitPrice,
+      line_total: Number((unitPrice * quantity).toFixed(2)),
+      original_text: [...buffer, line].join(" ")
+    });
+    buffer = [];
+  }
+  if (!result.length && allDescriptionParts.length && fields.subtotal > 0) {
+    result.push({
+      description: allDescriptionParts.slice(0, 2).join(" "),
+      quantity: 1,
+      unit_price: Number(fields.subtotal),
+      line_total: Number(fields.subtotal),
+      original_text: allDescriptionParts.join(" ")
+    });
+  }
+  return result;
+}
+
+function detectedEtsyLines(lines) {
+  if (!lines.some((line) => /etsy\.com\/.+\/purchases\/|pedido\s+n\.?\s*[º°]\s*\d+/i.test(line))) return [];
+  const result = [];
+  const transactionPattern = /^n\.\s*[º°]\s+de transacci[oó]n\b/i;
+  const ignored = /^(?:pedido|comprado el|personalizaci[oó]n|se aceptan cambios|resumen del pedido|total de los art[ií]culos|env[ií]o|total|impuestos|forma de pago|pagado el|notas del pedido|nota de|pol[ií]ticas|https?:\/\/)/i;
+  let description = "";
+  let price = null;
+  let variant = "";
+  for (const line of lines) {
+    if (ignored.test(line) || /^\d+\s+art[ií]culos\b/i.test(line)) continue;
+    const quantityMatch = line.match(/^ctd\.?\s*:\s*(\d+)(?:\s*;\s*(.*))?/i);
+    if (quantityMatch && description && price !== null) {
+      const quantity = Number(quantityMatch[1] || 1);
+      variant = String(quantityMatch[2] || "").replace(/\s*;\s*/g, " · ").trim();
+      result.push({
+        description: `${description}${variant ? ` · ${variant}` : ""}`,
+        quantity,
+        unit_price: price,
+        line_total: Number((price * quantity).toFixed(2)),
+        original_text: `${description} ${price.toFixed(2)} € ${line}`
+      });
+      description = "";
+      price = null;
+      variant = "";
+      continue;
+    }
+    if (transactionPattern.test(line)) {
+      description = "";
+      price = null;
+      variant = "";
+      continue;
+    }
+    const priceMatch = line.match(/([0-9][0-9.,]*)\s*€\s*$/);
+    if (priceMatch) {
+      price = amount(priceMatch[1]);
+      const inlineDescription = line.slice(0, priceMatch.index).trim();
+      if (inlineDescription) description = inlineDescription;
+      continue;
+    }
+    if (!description && /(?:plata|colgante|collar|cadena|anillo|joya|resina)/i.test(line)) description = line.trim();
+  }
+  return result;
+}
+
+function detectedSheinLines(lines) {
+  if (!lines.some((line) => /infinite styles services/i.test(line)) || !lines.some((line) => /\bVAT Invoice\b/i.test(line))) return [];
+  const start = lines.findIndex((line) => /^invoice detail$/i.test(line));
+  const end = lines.findIndex((line, index) => index > start && /^TOTAL\s+[0-9]/i.test(line));
+  if (start < 0 || end < 0) return [];
+  const rows = [];
+  const rowPattern = /^(.*?)\s+(\d+)\s+([0-9][0-9.,]*)\s+(\d+(?:[.,]\d+)?%)\s+([0-9][0-9.,]*)\s+([0-9][0-9.,]*)$/;
+  let current = null;
+  for (const line of lines.slice(start + 1, end)) {
+    if (/^description quantity\b|^\(EUR\)/i.test(line)) continue;
+    const match = line.match(rowPattern);
+    if (match) {
+      if (current) rows.push(current);
+      current = {
+        description: match[1].trim(),
+        package_quantity: Number(match[2] || 1),
+        taxable: amount(match[3]),
+        vat: amount(match[5]),
+        gross: amount(match[6]),
+        original_text: line
+      };
+      continue;
+    }
+    if (current) {
+      current.description = `${current.description} ${line}`.replace(/\s+/g, " ").trim();
+      current.original_text = `${current.original_text} ${line}`;
+    }
+  }
+  if (current) rows.push(current);
+  const grouped = new Map();
+  for (const row of rows) {
+    row.description = row.description
+      .replace(/^XZV\s+/i, "")
+      .replace(/(bolsas? de pl[aá]stico resellables).*$/i, "$1")
+      .replace(/(bolsas? de (?:OPP )?resellables).*$/i, "$1")
+      .replace(/(con cierre autoadhesivo).*$/i, "$1")
+      .replace(/(bandeja de cabuj[oó]n de resina).*$/i, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    const piecesPerPack = Number(row.description.match(/\b(\d+)\s+(?:piezas|bolsas)\b/i)?.[1] || 1);
+    const quantity = piecesPerPack * row.package_quantity;
+    const key = `${normalize(row.description)}|${piecesPerPack}|${Number((row.gross / quantity).toFixed(6))}`;
+    if (!grouped.has(key)) grouped.set(key, {
+      description: row.description,
+      package_count: 0,
+      units_per_package: piecesPerPack,
+      total_units: 0,
+      quantity: 0,
+      price_per_package: 0,
+      unit_price: Number((row.gross / quantity).toFixed(6)),
+      line_total: 0,
+      original_text: "",
+      shein_taxable_total: 0,
+      shein_gross_total: 0,
+      shein_vat_total: 0
+    });
+    const item = grouped.get(key);
+    item.package_count += row.package_quantity;
+    item.total_units += quantity;
+    item.quantity += quantity;
+    item.line_total = Number((item.line_total + row.gross).toFixed(2));
+    item.shein_taxable_total = Number((item.shein_taxable_total + row.taxable).toFixed(2));
+    item.shein_gross_total = Number((item.shein_gross_total + row.gross).toFixed(2));
+    item.shein_vat_total = Number((item.shein_vat_total + row.vat).toFixed(2));
+    item.price_per_package = Number((item.line_total / item.package_count).toFixed(6));
+    item.unit_price = Number((item.line_total / item.total_units).toFixed(6));
+    item.original_text = `${item.original_text} ${row.original_text}`.trim();
+  }
+  return [...grouped.values()];
+}
+
 function nativePageText(items) {
   const rows = new Map();
   for (const item of items) {
@@ -47,6 +297,9 @@ function nativePageText(items) {
 
 function detectFields(text) {
   const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const aliExpress = aliExpressFields(lines);
+  const etsy = etsyFields(lines);
+  const shein = sheinFields(lines);
   const numericDate = text.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/)?.[1] || "";
   const namedDate = text.match(/\b(?:paid on|bill created|fecha)\s+([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{4})/i);
   const spanishDate = text.match(/(?:fecha de la factura\/pago|fecha)\s*\n\s*(\d{1,2})\s+([a-záéíóú]{3,5})\.?\s+(\d{4})/i);
@@ -58,9 +311,9 @@ function detectFields(text) {
   const totalCandidates = [];
   for (const line of lines) {
     if (!/\b(grand\s+total|total\s+due|total|importe)\b/i.test(line) || /\b(subtotal|vat|iva|tax)\b/i.test(line)) continue;
-    for (const match of line.matchAll(/(?:€\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(EUR|USD)|\$\s*([0-9][0-9.,]*))/gi)) {
+    for (const match of line.matchAll(/(?:€\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(€|EUR|USD)|\$\s*([0-9][0-9.,]*))/gi)) {
       const raw = match[1] || match[2] || match[4];
-      totalCandidates.push({ value: amount(raw), currency: match[1] || String(match[3] || "").toUpperCase() === "EUR" ? "EUR" : "USD" });
+      totalCandidates.push({ value: amount(raw), currency: match[1] || String(match[3] || "").toUpperCase() === "EUR" || match[3] === "€" ? "EUR" : "USD" });
     }
   }
   if (/Meta Platforms|Meta anuncios|Gastos de Anuncios/i.test(text) && !totalCandidates.length) {
@@ -70,10 +323,16 @@ function detectFields(text) {
   const selectedTotal = totalCandidates.at(-1) || null;
   const rateMatch = text.match(/\b1\s+(USD|EUR)\s*=\s*([0-9][0-9.,]*)\s+(EUR|USD)\b/i);
   const exchangeRate = rateMatch ? { from: rateMatch[1].toUpperCase(), rate: amount(rateMatch[2]), to: rateMatch[3].toUpperCase() } : null;
-  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines };
+  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(etsy || {}), ...(shein || {}) };
 }
 
-function detectedInvoiceLines(lines) {
+function detectedInvoiceLines(lines, fields = {}) {
+  const aliExpressLines = detectedAliExpressLines(lines, fields);
+  if (aliExpressLines.length) return aliExpressLines;
+  const etsyLines = detectedEtsyLines(lines, fields);
+  if (etsyLines.length) return etsyLines;
+  const sheinLines = detectedSheinLines(lines, fields);
+  if (sheinLines.length) return sheinLines;
   const excluded = /\b(total|subtotal|vat|iva|tax|payment|paid|billing|bill|address|overview|page \d|learn more|recipient|credit|discount|shipping|mastercard|floor|dublin|spain|transacci[oó]n|umbral de pago|emitido una factura)\b|=|\(\d+\s+items?\)/i;
   return lines.filter((line) => {
     if (line.length > 220 || excluded.test(line)) return false;
@@ -84,6 +343,9 @@ function detectedInvoiceLines(lines) {
 }
 
 function parseInvoiceLine(line, fields) {
+  if (typeof line === "object" && line.description) {
+    return { ...line, converted_amount: line.line_total, target_currency: fields.currency || "EUR", original_currency: fields.currency || "EUR" };
+  }
   const moneyMatches = [...line.matchAll(/(?:€\s*([0-9][0-9.,]*)|\$\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(€|EUR\b|USD\b))/gi)];
   const match = moneyMatches.at(-1);
   if (!match) return null;
@@ -116,6 +378,9 @@ function parseInvoiceLine(line, fields) {
 
 function inferExpenseCategory(text, supplierCategory = "", historicalCategories = []) {
   const normalized = normalize(text);
+  if (/\baliexpress\b/.test(normalized) && /\bdetalle del articulo\b/.test(normalized)) return "materiales";
+  if (/\betsy\b/.test(normalized) && /\bpedido n\b|\bpurchases\b/.test(normalized) && /\b(plata|colgante|collar|cadena|anillo|joya|resina)\b/.test(normalized)) return "materiales";
+  if (/\binfinite styles services\b/.test(normalized) && /\bvat invoice\b/.test(normalized) && /\binvoice detail\b/.test(normalized)) return "materiales";
   const signals = [
     ["software", /\b(apps?|software|subscription|suscripcion|license|licencia|hosting|domain|shopify|canva|capcut|globo product options)\b/],
     ["envios", /\b(shipping|shipment|postage|correo|correos|envio|transporte)\b/],
@@ -146,6 +411,32 @@ function fieldEvidence(fields, pages) {
   };
 }
 
+function tsvWords(tsv) {
+  return String(tsv || "").split(/\r?\n/).slice(1).map((row) => {
+    const cells = row.split("\t");
+    const left = Number(cells[6] || 0);
+    const top = Number(cells[7] || 0);
+    const width = Number(cells[8] || 0);
+    const height = Number(cells[9] || 0);
+    const text = cells.slice(11).join("\t").trim();
+    return {
+      text,
+      confidence: Number(cells[10] || 0),
+      bbox: { x0: left, y0: top, x1: left + width, y1: top + height }
+    };
+  }).filter((word) => word.text && word.bbox.x1 > word.bbox.x0 && word.bbox.y1 > word.bbox.y0);
+}
+
+function hocrWords(hocr) {
+  return [...String(hocr || "").matchAll(/<span[^>]*class=['"]ocrx_word['"][^>]*title=['"][^'"]*bbox\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)[^'"]*['"][^>]*>([\s\S]*?)<\/span>/gi)]
+    .map((match) => ({
+      text: match[5].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim(),
+      confidence: Number(match[0].match(/x_wconf\s+(\d+)/i)?.[1] || 0),
+      bbox: { x0: Number(match[1]), y0: Number(match[2]), x1: Number(match[3]), y1: Number(match[4]) }
+    }))
+    .filter((word) => word.text && word.bbox.x1 > word.bbox.x0 && word.bbox.y1 > word.bbox.y0);
+}
+
 function createDocumentExtractionService({ query, one, exec, insert, saveDb, audit, UPLOAD_DIR }) {
   const queue = [];
   let running = false;
@@ -160,9 +451,36 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   async function ocrImage(filePath) {
     const worker = await createWorker("spa+eng", 1, { langPath, cachePath: langPath, gzip: true });
     try {
-      const result = await worker.recognize(filePath);
+      const image = await loadImage(filePath);
+      const scale = image.width < 900 ? 2 : 1;
+      const canvas = createCanvas(image.width * scale, image.height * scale);
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const result = await worker.recognize(canvas.toBuffer("image/png"), {}, { text: true, blocks: true, tsv: true, hocr: true });
       const blockWords = (result.data.blocks || []).flatMap((block) => (block.paragraphs || []).flatMap((paragraph) => (paragraph.lines || []).flatMap((line) => line.words || [])));
-      return { text: result.data.text || "", confidence: Number(result.data.confidence || 0), words: result.data.words || blockWords };
+      const words = (result.data.words || blockWords).map((word) => ({
+        text: word.text || word.symbol || "",
+        confidence: Number(word.confidence || 0),
+        bbox: word.bbox ? {
+          x0: Number(word.bbox.x0 || 0),
+          y0: Number(word.bbox.y0 || 0),
+          x1: Number(word.bbox.x1 || 0),
+          y1: Number(word.bbox.y1 || 0)
+        } : null
+      })).filter((word) => word.text && word.bbox);
+      if (!words.length) words.push(...tsvWords(result.data.tsv));
+      if (!words.length) words.push(...hocrWords(result.data.hocr));
+      return {
+        text: result.data.text || "",
+        confidence: Number(result.data.confidence || 0),
+        words,
+        source_width: image.width,
+        source_height: image.height,
+        ocr_width: canvas.width,
+        ocr_height: canvas.height
+      };
     } finally {
       await worker.terminate();
     }
@@ -200,8 +518,8 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
 
   function suggest(fields) {
     const suppliers = query("SELECT id, name, category FROM suppliers WHERE is_deleted=0");
-    const normalizedText = normalize(fields.lines.slice(0, 30).join(" "));
-    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy"], shein: ["shein"], aliexpress: ["aliexpress"], canva: ["canva"], capcut: ["capcut"] };
+    const normalizedText = normalize(fields.lines.slice(0, 100).join(" "));
+    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], canva: ["canva"], capcut: ["capcut"] };
     const supplier = suppliers
       .map((item) => {
         const names = [normalize(item.name), ...(aliases[normalize(item.name)] || []).map(normalize)];
@@ -240,24 +558,65 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
           WHERE i.supplier_id=$supplier AND i.is_deleted=0 AND m.is_deleted=0
           ORDER BY i.invoice_date DESC LIMIT 250`, { supplier: fields.suggested_supplier_id })
         : [];
-      [...new Set(detectedInvoiceLines(fields.lines))].forEach((line, index) => {
+      const detectedLines = detectedInvoiceLines(fields.lines, fields);
+      const lineKey = (line) => typeof line === "string" ? normalize(line) : `${normalize(line.description)}|${Number(line.unit_price ?? line.line_total ?? 0).toFixed(6)}`;
+      const uniqueLines = detectedLines.filter((line, index, all) => all.findIndex((candidate) => lineKey(candidate) === lineKey(line)) === index);
+      uniqueLines.forEach((line, index) => {
         const parsedLine = parseInvoiceLine(line, fields);
         if (!parsedLine) return;
         const normalizedLine = normalize(parsedLine.description);
-        const directMaterial = fields.category === "materiales"
-          ? query("SELECT id, name FROM materials WHERE is_deleted=0 ORDER BY LENGTH(name) DESC").find((candidate) => normalizedLine.includes(normalize(candidate.name)))
+        const materialCandidates = fields.category === "materiales" ? query("SELECT id, name, preferred_supplier_id FROM materials WHERE is_deleted=0 ORDER BY (preferred_supplier_id=$supplier) DESC, LENGTH(name) DESC", { supplier: fields.suggested_supplier_id || 0 }) : [];
+        const directMaterial = fields.category === "materiales" && !normalizedLine.includes("yellow gold plated")
+          ? materialCandidates.find((candidate) => normalizedLine.includes(normalize(candidate.name)))
           : null;
+        const stem = (token) => token.replace(/(?:es|s)$/i, "");
+        const aliases = normalizedLine.includes("elephant gold") ? ["elefante", "dorado"]
+          : normalizedLine.includes("elephant steel") ? ["elefante", "plateado"]
+          : normalizedLine.includes("botella") && normalizedLine.includes("aguja") ? ["botella", "opaca", "resina", "5ml"]
+          : normalizedLine.includes("etsy") ? []
+          : [
+            ...(normalizedLine.includes("pera") ? ["gota"] : []),
+            ...(normalizedLine.includes("redondo") ? ["esencia"] : []),
+            ...(normalizedLine.includes("white gold plated") ? ["plata", "plateado"] : []),
+            ...(normalizedLine.includes("yellow gold plated") ? ["plata", "bañada", "oro"] : [])
+          ]
+        ;
+        const matchText = normalize(`${normalizedLine} ${aliases.join(" ")}`);
+        const fuzzyMaterial = !directMaterial && fields.category === "materiales" ? materialCandidates
+          .map((candidate) => {
+            const candidateTokens = normalize(candidate.name).split(" ").filter((token) => token.length > 2 && !["acero", "inoxidable", "material", "incluida", "premium", "para", "resina"].includes(token));
+            const lineTokens = matchText.split(" ").map(stem);
+            const hits = candidateTokens.filter((token) => lineTokens.includes(stem(token)));
+            return { ...candidate, score: candidateTokens.length ? hits.length / candidateTokens.length : 0, hits: hits.length };
+          })
+          .filter((candidate) => candidate.hits >= 2 && candidate.score >= 0.5)
+          .sort((a, b) => b.hits - a.hits || b.score - a.score)[0] : null;
         const historicalMaterial = historicalMaterialLines.find((candidate) => {
           const historical = normalize(candidate.description);
           return historical && (normalizedLine.includes(historical) || historical.includes(normalizedLine));
         });
-        const material = directMaterial || historicalMaterial || null;
+        const material = directMaterial || fuzzyMaterial || historicalMaterial || null;
         insert(`INSERT INTO expense_import_lines
-          (expense_import_id, position, original_text, description, quantity, unit_price, line_total, impressions, suggested_material_id, confidence, human_decision, original_data_json)
-          VALUES ($import, $position, $original, $description, 1, $total, $total, $impressions, $material, $confidence, 'pending', $originalData)`, {
-          import: importId, position: index + 1, original: line, description: parsedLine.description, total: parsedLine.converted_amount,
-          impressions: parsedLine.impressions, material: material?.id || null, confidence: material ? (directMaterial ? 85 : 78) : Math.min(confidence, 69), originalData: JSON.stringify({ ...parsedLine, material_rule_source: directMaterial ? "material_name" : historicalMaterial ? "historical_invoice_line" : null, evidence: pages.map((page) => ({ page: page.page, text: String(page.text || "").split(/\r?\n/).find((candidate) => candidate.includes(line)) || "" })).find((entry) => entry.text) || null })
+          (expense_import_id, position, original_text, description, package_count, units_per_package, total_units, quantity, price_per_package, unit_price, line_total, impressions, suggested_material_id, confidence, human_decision, original_data_json)
+          VALUES ($import, $position, $original, $description, 1, 1, 1, 1, $total, $total, $total, $impressions, $material, $confidence, 'pending', $originalData)`, {
+          import: importId, position: index + 1, original: typeof line === "string" ? line : line.original_text, description: parsedLine.description,
+          total: parsedLine.line_total ?? parsedLine.converted_amount, impressions: parsedLine.impressions, material: material?.id || null,
+          confidence: material ? (directMaterial ? 85 : fuzzyMaterial ? 76 : 78) : Math.min(confidence, 69),
+          originalData: JSON.stringify({ ...parsedLine, material_rule_source: directMaterial ? "material_name" : fuzzyMaterial ? "material_tokens" : historicalMaterial ? "historical_invoice_line" : null })
         });
+        if (typeof line === "object") {
+          const packageCount = Number(line.package_count || 1);
+          const totalUnits = Number(line.total_units || line.quantity || 1);
+          const unitsPerPackage = Number(line.units_per_package || (packageCount ? totalUnits / packageCount : totalUnits) || 1);
+          const pricePerPackage = Number(line.price_per_package ?? (packageCount ? Number(line.line_total || 0) / packageCount : Number(line.line_total || 0)));
+          exec(`UPDATE expense_import_lines
+            SET package_count=$packageCount,units_per_package=$unitsPerPackage,total_units=$totalUnits,quantity=$totalUnits,
+                price_per_package=$pricePerPackage,unit_price=$unitPrice,line_total=$total
+            WHERE expense_import_id=$import AND position=$position`, {
+            import: importId, position: index + 1, packageCount, unitsPerPackage, totalUnits, pricePerPackage,
+            unitPrice: line.unit_price, total: line.line_total
+          });
+        }
       });
       audit("expense_import", importId, "process", null, { status, confidence });
     } catch (error) {
@@ -292,4 +651,4 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   return { enqueue, process, status: () => ({ available: true, languages: ["spa", "eng"], model_path: langPath, pending: queue.length, running }) };
 }
 
-module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };
+module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };

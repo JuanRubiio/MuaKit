@@ -52,7 +52,10 @@ function registerInvoiceRoutes(app, ctx) {
 
   app.get("/api/invoices/:id", (req, res) => {
     const invoice = one(
-      `SELECT i.*, s.name AS supplier_name, d.original_name AS document_name, d.stored_name AS document_stored_name, d.stored_path AS document_path
+      `SELECT i.*, s.name AS supplier_name, d.original_name AS document_name, d.stored_name AS document_stored_name,
+              d.stored_path AS document_path, d.mime_type,
+              (SELECT ei.pages_json FROM expense_imports ei WHERE ei.invoice_id=i.id OR ei.document_id=i.document_id ORDER BY ei.id DESC LIMIT 1) AS document_pages_json,
+              (SELECT ei.detected_fields_json FROM expense_imports ei WHERE ei.invoice_id=i.id OR ei.document_id=i.document_id ORDER BY ei.id DESC LIMIT 1) AS document_detected_fields_json
        FROM invoices i
        LEFT JOIN suppliers s ON s.id = i.supplier_id
        LEFT JOIN documents d ON d.id = i.document_id
@@ -60,6 +63,10 @@ function registerInvoiceRoutes(app, ctx) {
       { id: req.params.id }
     );
     if (!invoice) return notFound(res, "Factura no encontrada", "INVOICE_NOT_FOUND");
+    try { invoice.document_pages = JSON.parse(invoice.document_pages_json || "[]"); } catch { invoice.document_pages = []; }
+    try { invoice.document_detected_fields = JSON.parse(invoice.document_detected_fields_json || "{}"); } catch { invoice.document_detected_fields = {}; }
+    delete invoice.document_pages_json;
+    delete invoice.document_detected_fields_json;
     const lines = query(
       `SELECT l.*, m.name AS material_name, m.category AS material_category,
               m.usage_type AS material_usage_type, m.family AS material_family, m.subfamily AS material_subfamily,

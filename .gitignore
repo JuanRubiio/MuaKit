@@ -16,6 +16,7 @@ server.err.log
 
 uploads/
 tmp/
+coverage/
 
 .DS_Store
 Thumbs.db

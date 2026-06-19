@@ -3,7 +3,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const initSqlJs = require("sql.js");
-const { amount: parsedAmount, detectFields, detectedInvoiceLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
+const { amount: parsedAmount, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
 const { cleanOriginalName, accountingQuality } = require("./lib/routes/expense-imports");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -292,10 +292,91 @@ Factura número FBADS-394-105737940`;
   assert(cleanOriginalName("TransacciÃ³n n.Âº 123.pdf") === "Transacción n.º 123.pdf", "Mojibake document names should be repaired");
   assert(inferExpenseCategory("Globo Product Options subscription", "materiales", ["materiales"]) === "software", "Strong document signals should override supplier defaults");
   assert(inferExpenseCategory("Pedido mixto", "materiales", ["software", "software", "materiales"]) === "software", "Mixed suppliers should use historical invoice context");
+  const aliExpressText = `AliExpress
+Resumen
+1D de pedido: 3074056047541055
+Tiempo de la orden: 13jun., 2026
+Subtotal: 996€
+Todos los descuentos: 143€
+Tarifa de envío: 0,00€
+Total: 8,53€
+1,48€ IVA incluido
+Método de pago
+476664******6704 EUR 8.53
+Detalle del artículo
+10 Uds. De cadenas de eslabones d
+steel 1.5mm
+179€ 2
+Tmto Official Store
+10 Uds. De cadenas de eslabones d
+gold 1.5mm
+319€ 2
+Tmto Official Store
+Cosas a tener en cuenta:`;
+  const aliFields = detectFields(aliExpressText);
+  assert(aliFields.invoice_number === "3074056047541055" && aliFields.invoice_date === "2026-06-13", "AliExpress order references and compact Spanish dates should be normalized");
+  assert(aliFields.total === 8.53 && aliFields.subtotal === 9.96 && aliFields.discount === 1.43 && aliFields.shipping === 0, "AliExpress payment totals and summary amounts should be parsed despite OCR decimal loss");
+  assert(inferExpenseCategory(aliExpressText, "envios", ["envios"]) === "materiales", "AliExpress order summaries should be classified as material expenses");
+  const aliLines = detectedAliExpressLines(aliFields.lines, aliFields);
+  assert(aliLines.length === 2 && aliLines[0].quantity === 2, "AliExpress item blocks should preserve products and quantities");
+  assert(Math.abs(aliLines.reduce((sum, line) => sum + line.line_total, 0) - aliFields.subtotal) < 0.01, "AliExpress product lines should preserve gross prices before invoice discounts");
+  const etsyText = `Pedido n.º 4087214951
+Comprado el 10 jun 2026
+LancelotDIY
+31 artículos · 504,70 €
+Collar con cadena de cuentas de 2 mm, plata de ley 925 maciza, chapad …
+14,93 €
+Ctd.: 6; Color: White Gold Plated
+N. º de transacción: 5109024083
+Colgante de resina con forma de luna y leche materna de 9 x 11 mm con e … 16,16 €
+Ctd.: 3; Color: Yellow Gold Plated
+N. º de transacción: 5099084420
+Resumen del pedido
+Total de los artículos 504,70 €
+Envío 13,57 €
+Total 518,27 €
+https://www.etsy.com/es/your/purchases/4087214951`;
+  const etsyFields = detectFields(etsyText);
+  assert(etsyFields.invoice_number === "4087214951" && etsyFields.invoice_date === "2026-06-10", "Etsy purchase references and dates should be detected");
+  assert(etsyFields.subtotal === 504.7 && etsyFields.shipping === 13.57 && etsyFields.total === 518.27, "Etsy order adjustments should stay at invoice level");
+  assert(inferExpenseCategory(etsyText, "joyas/plata", ["envios"]) === "materiales", "Etsy jewelry purchases should be classified as materials despite shipping text");
+  const etsyLines = detectedEtsyLines(etsyFields.lines, etsyFields);
+  assert(etsyLines.length === 2 && etsyLines[0].quantity === 6 && etsyLines[1].quantity === 3, "Etsy product variants should preserve quantities");
+  assert(etsyLines[0].description.includes("White Gold Plated") && etsyLines[1].description.includes("Yellow Gold Plated"), "Etsy product descriptions should preserve finish variants");
+  assert(etsyLines.every((line) => !/^env[ií]o$/i.test(line.description)) && Math.abs(etsyLines[0].line_total - 89.58) < 0.01, "Etsy shipping must not become a product line");
+  const sheinText = `Infinite Styles Services Co., Limited
+VAT Invoice
+Bill To: Invoice No.:
+Cristina Guerrero XES20260609312005089327_1
+Billing Address: Invoice Date:
+Calle Ayala 80 Malaga Spain 2026-06-12
+Order Information
+Order Number: Order Date:
+GS017Y631007HVU 2026-06-09
+Invoice Detail
+Description Quantity | Taxable Amount VAT Rate VAT Amount Gross Amount
+(EUR) (EUR) (EUR)
+XZV 100 piezas Bolsas de plástico resellables 1 1.50 21% 0.31 1.81
+transparentes para empaquetar joyas
+XZV 100 piezas Bolsas de plástico resellables 1 1.50 21% 0.31 1.81
+transparentes para empaquetar joyas
+TOTAL 3.00 0.62 3.62
+VAT Breakdown`;
+  const sheinFields = detectFields(sheinText);
+  assert(sheinFields.invoice_number === "XES20260609312005089327_1" && sheinFields.invoice_date === "2026-06-12", "Shein invoice references and dates should be detected");
+  assert(sheinFields.subtotal === 3 && sheinFields.tax === 0.62 && sheinFields.total === 3.62, "Shein net amount, VAT and gross total should stay separated");
+  assert(inferExpenseCategory(sheinText, "materiales", ["envios"]) === "materiales", "Shein VAT purchase invoices should be classified as materials");
+  const sheinLines = detectedSheinLines(sheinFields.lines);
+  assert(sheinLines.length === 1 && sheinLines[0].package_count === 2 && sheinLines[0].units_per_package === 100 && sheinLines[0].quantity === 200, "Repeated Shein packs should preserve package structure and real purchased units");
+  assert(sheinLines[0].line_total === 3.62 && sheinLines[0].price_per_package === 1.81 && Math.abs(sheinLines[0].unit_price - 0.0181) < 0.000001, "Shein material prices should include VAT at package, unit and line level");
   const evidence = fieldEvidence({ suggested_supplier_name: "Meta", invoice_number: "FBADS-394", invoice_date: "2026-04-04", total: 18.51 }, [{ page: 1, text: "Meta Platforms\nFactura FBADS-394\nTotal 18,51 EUR" }]);
   assert(evidence.supplier?.page === 1 && evidence.invoice_number?.text.includes("FBADS-394"), "Detected fields should retain document evidence");
   const safeAccounting = accountingQuality({ suggested_supplier_id: 1, invoice_number: "A-1", invoice_date: "2026-01-01", total: 10, category: "software" }, [{ line_total: 10, human_decision: "accepted" }], {});
   assert(safeAccounting.batch_eligible && safeAccounting.score === 4, "Accounting quality should be independent from OCR confidence");
+  const discountedAccounting = accountingQuality({ suggested_supplier_id: 1, invoice_number: "A-2", invoice_date: "2026-01-01", subtotal: 11.5, discount: 1.5, total: 10, category: "materiales" }, [{ line_total: 11.5, human_decision: "accepted" }], {});
+  assert(discountedAccounting.lines_match && discountedAccounting.calculated_total === 10, "Accounting quality should reconcile product subtotal and invoice-level discounts without changing material prices");
+  const grossAccounting = accountingQuality({ suggested_supplier_id: 1, invoice_number: "A-3", invoice_date: "2026-01-01", subtotal: 3, tax: 0.62, total: 3.62, category: "materiales" }, [{ line_total: 3.62, human_decision: "accepted" }], {});
+  assert(grossAccounting.lines_match && grossAccounting.line_price_basis === "gross", "Accounting quality should accept VAT-inclusive material lines without adding tax twice");
   cleanTestDir();
   const mockShopifyServer = await createMockShopifyServer();
   let serverOutput = "";
@@ -342,6 +423,30 @@ Factura número FBADS-394-105737940`;
     assert(Array.isArray(initialDashboard.category_spend), "Dashboard finance should include category spend");
     assert(Array.isArray(initialDashboard.top_suppliers), "Dashboard finance should include top suppliers");
     assert(Array.isArray(initialDashboard.top_materials), "Dashboard finance should include top materials");
+    assert(initialDashboard.profitability?.thresholds?.critical === 75, "Dashboard should expose the configured critical margin threshold");
+    assert(initialDashboard.profitability?.thresholds?.healthy === 88, "Dashboard should expose the configured healthy margin threshold");
+    assert(Array.isArray(initialDashboard.profitability?.bands), "Dashboard should expose margin bands");
+    assert(Array.isArray(initialDashboard.profitability?.cost_drivers), "Dashboard should expose profitability cost drivers");
+    assert(Array.isArray(initialDashboard.replenishment?.recommendations), "Dashboard should expose intelligent replenishment context");
+    assert(initialDashboard.data_quality, "Dashboard should expose data quality context");
+
+    const quarterDashboard = await request("GET", "/api/dashboard/finance?preset=this_quarter&granularity=week");
+    assert(quarterDashboard.window.preset === "this_quarter", "Dashboard should support the current quarter preset");
+    assert(quarterDashboard.granularity === "week", "Dashboard should support weekly granularity");
+    const dailyDashboard = await request("GET", "/api/dashboard/finance?preset=last_30_days&granularity=day");
+    assert(dailyDashboard.window.preset === "last_30_days", "Dashboard should support the last 30 days preset");
+    assert(dailyDashboard.granularity === "day", "Dashboard should support daily granularity");
+    assert(dailyDashboard.trend.keys.length === 30, "Daily Dashboard charts should retain the complete selected period");
+    assert(dailyDashboard.profitability.series.length === 30, "Daily profitability charts should retain the complete selected period");
+    for (const preset of ["this_month", "last_30_days", "this_quarter", "last_3_months", "last_6_months", "this_year", "all"]) {
+      for (const granularity of ["day", "week", "month", "quarter"]) {
+        const matrixDashboard = await request("GET", `/api/dashboard/finance?preset=${preset}&granularity=${granularity}`);
+        assert(matrixDashboard.window.preset === preset, `Dashboard should preserve preset ${preset}`);
+        assert(matrixDashboard.granularity === granularity, `Dashboard should preserve granularity ${granularity}`);
+        assert(Array.isArray(matrixDashboard.trend?.keys), `Dashboard trend should be available for ${preset}/${granularity}`);
+        assert(Array.isArray(matrixDashboard.profitability?.series), `Dashboard profitability should be available for ${preset}/${granularity}`);
+      }
+    }
 
     const initialHealth = await request("GET", "/api/system/health");
     assert(initialHealth.ok === true, "System health should be ok on a fresh database");
@@ -360,17 +465,31 @@ Factura número FBADS-394-105737940`;
     const settings = await request("GET", "/api/settings");
     assert(settings.dashboard_monthly_view === "total", "Settings should expose default dashboard monthly view");
     assert(settings.dashboard_income_monthly_view === "cobros", "Settings should expose default income dashboard view");
+    [
+      "dashboard_color_total", "dashboard_color_materiales", "dashboard_color_marketing", "dashboard_color_envios",
+      "dashboard_color_servicios", "dashboard_color_software", "dashboard_color_otros", "dashboard_color_balance",
+      "dashboard_color_cobros", "dashboard_color_fees", "dashboard_color_shopify", "dashboard_color_etsy", "dashboard_color_bizum",
+      "dashboard_color_profit_sales", "dashboard_color_profit_cost", "dashboard_color_profit_margin",
+      "dashboard_color_margin_critical", "dashboard_color_margin_pressure", "dashboard_color_margin_healthy",
+      "dashboard_color_cost_content", "dashboard_color_cost_fixed"
+    ].forEach((key) => assert(/^#[0-9a-f]{6}$/i.test(settings[key]), `Settings should expose ${key}`));
     const updatedSettings = await request("PATCH", "/api/settings", {
       dashboard_monthly_view: "marketing",
       dashboard_income_monthly_view: "channel_shopify",
       default_invoice_status: "posted",
       default_payout_channel: "bizum",
-      dashboard_color_bizum: "#c18a3a"
+      dashboard_color_bizum: "#c18a3a",
+      dashboard_color_servicios: "#7a7168",
+      dashboard_color_profit_margin: "#bf7412",
+      dashboard_color_margin_healthy: "#157260"
     });
     assert(updatedSettings.dashboard_monthly_view === "marketing", "Settings should be editable");
     assert(updatedSettings.dashboard_income_monthly_view === "channel_shopify", "Settings should persist income dashboard defaults");
     assert(updatedSettings.default_invoice_status === "posted", "Settings should persist invoice defaults");
     assert(updatedSettings.default_payout_channel === "bizum", "Settings should persist payout defaults");
+    assert(updatedSettings.dashboard_color_servicios === "#7a7168", "Settings should persist expense category colors");
+    assert(updatedSettings.dashboard_color_profit_margin === "#bf7412", "Settings should persist profitability series colors");
+    assert(updatedSettings.dashboard_color_margin_healthy === "#157260", "Settings should persist profitability band colors");
 
     const shopifyConnection = await request("PATCH", "/api/shopify/connection", {
       store_domain: `http://127.0.0.1:${SHOPIFY_MOCK_PORT}`,
@@ -764,11 +883,18 @@ Factura número FBADS-394-105737940`;
     assert(replenishmentRow, "Replenishment should include inventory-controlled materials");
     assert(replenishmentRow.suggested_quantity === 15, "Replenishment should round fallback target deficit to purchase pack size");
     assert(replenishmentRow.reason.includes("Sin consumo suficiente"), "Every replenishment recommendation should explain its fallback");
+    assert(replenishmentRow.decision === "buy", "Fallback target deficits should be classified as a purchase decision");
+    assert(replenishmentRow.can_plan === true, "Recommendations with a supplier and quantity should be eligible for a purchase plan");
+    assert(Array.isArray(replenishmentRow.blockers), "Replenishment should expose operational blockers");
 
-    const purchasePlan = await request("POST", "/api/purchase-plans", { material_ids: [replenishmentMaterial.id], name: "Plan QA" });
+    const purchasePlan = await request("POST", "/api/purchase-plans", { lines: [{ material_id: replenishmentMaterial.id, ordered_quantity: 20 }], name: "Plan QA" });
     assert(purchasePlan.orders.length === 1, "Purchase plan should group selected recommendations by supplier");
     const purchaseOrder = purchasePlan.orders[0];
     const purchaseLine = purchaseOrder.lines[0];
+    assert(Number(purchaseLine.ordered_quantity) === 20, "Purchase plans should preserve supervised quantity overrides");
+    await request("PATCH", `/api/purchase-order-lines/${purchaseLine.id}`, { ordered_quantity: 25 });
+    const adjustedPlan = await request("GET", `/api/purchase-plans/${purchasePlan.plan.id}`);
+    assert(Number(adjustedPlan.orders[0].lines[0].ordered_quantity) === 25, "Draft purchase quantities should remain editable");
     await request("PATCH", `/api/purchase-orders/${purchaseOrder.id}`, { status: "ordered" });
     const receipt = await request("POST", `/api/purchase-orders/${purchaseOrder.id}/receipts`, {
       lines: [{ purchase_order_line_id: purchaseLine.id, quantity: 5 }]
@@ -837,7 +963,7 @@ Factura número FBADS-394-105737940`;
     const batchImport = batchUploadResult.accepted[0];
     await request("PATCH", `/api/expense-imports/${batchImport.id}`, {
       status: "review",
-      detected_fields: { suggested_supplier_id: supplier.id, invoice_number: "OCR-BATCH-001", invoice_date: "2026-06-03", total: 12.5, currency: "EUR", category: "software" }
+      detected_fields: { suggested_supplier_id: supplier.id, invoice_number: "OCR-BATCH-001", invoice_date: "2026-06-03", subtotal: 12.5, discount: 2.5, shipping: 0, tax: 0, total: 10, currency: "EUR", category: "software" }
     });
     const removableLine = await request("POST", `/api/expense-imports/${batchImport.id}/lines`, { description: "Temporary line", quantity: 1, line_total: 1, human_decision: "pending" });
     await request("DELETE", `/api/expense-imports/${batchImport.id}/lines/${removableLine.id}`);
@@ -846,6 +972,22 @@ Factura número FBADS-394-105737940`;
     assert(batchDetail.accounting_quality.batch_eligible && batchDetail.accounting_quality.lines_match, "Import detail should expose safe accounting quality");
     const batchConfirmation = await request("POST", "/api/expense-imports/batch-confirm", { ids: [batchImport.id, duplicateImport.id] });
     assert(batchConfirmation.confirmed.length === 1 && batchConfirmation.rejected.length === 1, "Batch confirmation should only create safe draft invoices");
+    const discountedImportedInvoice = await request("GET", `/api/invoices/${batchConfirmation.confirmed[0].invoice_id}`);
+    assert(discountedImportedInvoice.invoice.subtotal === 12.5 && discountedImportedInvoice.invoice.discount === 2.5 && discountedImportedInvoice.invoice.total === 10, "Imported draft should preserve invoice-level discounts separately from product prices");
+    assert(discountedImportedInvoice.lines[0].line_total === 12.5, "Imported draft should preserve the original gross product price");
+
+    const structuredImportForm = new FormData();
+    structuredImportForm.append("documents", new Blob([tinyPng], { type: "image/png" }), "invoice-structured-line.png");
+    const structuredUpload = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: structuredImportForm });
+    const structuredImport = (await structuredUpload.json()).accepted[0];
+    await request("PATCH", `/api/expense-imports/${structuredImport.id}`, {
+      detected_fields: { suggested_supplier_id: supplier.id, invoice_number: "OCR-STRUCTURED-001", invoice_date: "2026-06-04", subtotal: 2.23, tax: 0.47, total: 2.7, currency: "EUR", category: "materiales" }
+    });
+    await request("POST", `/api/expense-imports/${structuredImport.id}/lines`, { description: "100 bolsas", package_count: 1, units_per_package: 100, price_per_package: 2.7, line_total: 2.7, human_decision: "accepted" });
+    const structuredConfirmation = await request("POST", `/api/expense-imports/${structuredImport.id}/confirm`, {});
+    const structuredInvoice = await request("GET", `/api/invoices/${structuredConfirmation.invoice_id}`);
+    assert(structuredInvoice.lines[0].package_count === 1 && structuredInvoice.lines[0].units_per_package === 100 && structuredInvoice.lines[0].total_units === 100, "Confirmed imports should preserve reviewed package structure");
+    assert(Math.abs(structuredInvoice.lines[0].price_per_package - 2.7) < 0.000001 && Math.abs(structuredInvoice.lines[0].unit_price - 0.027) < 0.000001 && Math.abs(structuredInvoice.lines[0].line_total - 2.7) < 0.000001, "Confirmed imports should preserve VAT-inclusive package, unit and line prices");
 
     const dashboard = await request("GET", "/api/dashboard/finance");
     assert(dashboard.kpis.period_expense > 0, "Dashboard finance should aggregate invoice totals");
@@ -857,6 +999,9 @@ Factura número FBADS-394-105737940`;
     assert(dashboard.income_channels.some((row) => row.channel === "bizum"), "Dashboard finance should expose Bizum channel");
     assert(dashboard.top_suppliers.some((row) => row.supplier_name === "Test Supplier"), "Dashboard should include supplier concentration");
     assert(dashboard.monthly_breakdown.series.materiales.some((value) => value > 0), "Dashboard breakdown should include category spend by month");
+    assert(dashboard.profitability.metrics.weighted_margin_percent == null || Number.isFinite(dashboard.profitability.metrics.weighted_margin_percent), "Dashboard weighted margin should be numeric when available");
+    assert(dashboard.profitability.metrics.reliable_orders <= dashboard.profitability.metrics.total_orders, "Reliable order coverage should be bounded by total orders");
+    assert(dashboard.profitability.bands.reduce((sum, row) => sum + row.orders, 0) === dashboard.profitability.metrics.reliable_orders, "Margin bands should reconcile with reliable orders");
 
     const audit = await request("GET", `/api/audit-log?entity=invoice&id=${invoice.id}`);
     assert(audit.some((row) => row.action === "create"), "Audit log should include invoice creation");
