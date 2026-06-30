@@ -1,4 +1,4 @@
-﻿export function createMaterialViews(ctx) {
+export function createMaterialViews(ctx) {
   const {
     state,
     $,
@@ -937,5 +937,4 @@
     renderMaterialWorkspace
   };
 }
-
 

@@ -30,7 +30,12 @@ function registerPurchaseRoutes(app, ctx) {
     return { plan, orders };
   }
 
-  app.get("/api/replenishment/recommendations", (req, res) => res.json(replenishment.recommendations({ priority: req.query.priority })));
+  app.get("/api/replenishment/recommendations", (req, res) => res.json(replenishment.recommendations({
+    priority: req.query.priority,
+    decision: req.query.decision,
+    action: req.query.action,
+    confidence: req.query.confidence
+  })));
 
   app.get("/api/purchase-plans", (req, res) => res.json(query(`SELECT pp.*,
     (SELECT COUNT(*) FROM purchase_orders po WHERE po.purchase_plan_id=pp.id) order_count,
@@ -41,7 +46,7 @@ function registerPurchaseRoutes(app, ctx) {
   app.post("/api/purchase-plans", (req, res) => {
     const requestedLines = Array.isArray(req.body.lines) ? req.body.lines : (req.body.material_ids || []).map((materialId) => ({ material_id: materialId }));
     const requestedByMaterial = new Map(requestedLines.map((line) => [Number(line.material_id), line]));
-    const recommendations = replenishment.recommendations().recommendations.filter((row) => requestedByMaterial.has(Number(row.id)) && row.suggested_quantity > 0 && row.preferred_supplier_id);
+    const recommendations = replenishment.recommendations().recommendations.filter((row) => requestedByMaterial.has(Number(row.id)) && row.can_plan);
     if (!recommendations.length) return badRequest(res, "Selecciona recomendaciones con cantidad sugerida.", "PURCHASE_PLAN_EMPTY");
     exec("BEGIN TRANSACTION");
     try {

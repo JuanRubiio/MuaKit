@@ -57,11 +57,17 @@ async function run() {
     if ((await page.locator("#dashboardCards .dashboard-kpi-card").count()) !== 5) {
       throw new Error("El Dashboard operativo no muestra los cinco KPIs de decisión");
     }
+    const freshnessClass = await page.locator("#dashboardFreshness").getAttribute("class");
+    const freshnessText = (await page.locator("#dashboardFreshness").innerText()).trim();
+    if (!freshnessText || !/\bis-(fresh|warning|danger|syncing)\b/.test(freshnessClass || "")) {
+      throw new Error("El Dashboard no muestra un estado funcional de frescura de sincronizacion");
+    }
     const configuredDashboardColors = [
       "dashboard_color_total", "dashboard_color_materiales", "dashboard_color_marketing", "dashboard_color_envios",
       "dashboard_color_servicios", "dashboard_color_software", "dashboard_color_otros", "dashboard_color_balance",
       "dashboard_color_cobros", "dashboard_color_fees", "dashboard_color_shopify", "dashboard_color_etsy", "dashboard_color_bizum",
       "dashboard_color_profit_sales", "dashboard_color_profit_cost", "dashboard_color_profit_margin",
+      "dashboard_color_sales_revenue", "dashboard_color_sales_orders", "dashboard_color_sales_ticket", "dashboard_color_sales_previous",
       "dashboard_color_margin_critical", "dashboard_color_margin_pressure", "dashboard_color_margin_healthy",
       "dashboard_color_cost_content", "dashboard_color_cost_fixed"
     ];
@@ -82,6 +88,12 @@ async function run() {
     if (!(await page.locator('[data-dashboard-mode="profitability"].is-active').count())
       || !(await page.locator("#dashboardPrimaryTitle").innerText()).includes("rentabilidad")) {
       throw new Error("El Dashboard no cambia correctamente al modo Rentabilidad");
+    }
+    await page.locator('[data-dashboard-mode="sales"]').click();
+    await page.waitForTimeout(250);
+    if (!(await page.locator('[data-dashboard-mode="sales"].is-active').count())
+      || !(await page.locator("#dashboardPrimaryTitle").innerText()).includes("Ventas acumuladas")) {
+      throw new Error("El Dashboard no cambia correctamente al modo Ventas");
     }
     await page.locator('[data-dashboard-mode="operation"]').click();
     await page.locator("#dashboardFilterTrigger").click();
@@ -122,6 +134,12 @@ async function run() {
     await page.waitForTimeout(250);
     if (!(await page.locator("#kits.active").count()) || await page.locator("#orderStatusFilter").inputValue() !== "low_margin") {
       throw new Error("Margen en presión no abre Pedidos con el filtro correcto");
+    }
+    if (!(await page.locator("#orderMetalFilter").count())) {
+      throw new Error("Pedidos no expone el filtro por plata/sin plata");
+    }
+    if (!(await page.locator("#kitList").innerText()).includes("Beneficio real")) {
+      throw new Error("Pedidos no muestra el beneficio real en el listado");
     }
     await goToDashboard();
     await page.locator('#dashboardOpsList [data-jump-context="pending"]').click();
@@ -258,20 +276,29 @@ async function run() {
     await page.waitForTimeout(350);
     await page.locator('[data-materials-section="replenishment"]').click();
     await page.waitForTimeout(300);
-    if (!(await page.locator("#replenishmentPanel:not(.hidden)").count()) || !(await page.locator(".next-replenishment-row").count())) {
+    if (!(await page.locator("#replenishmentPanel:not(.hidden)").count())) {
       throw new Error("No cargo la vista de reposicion inteligente");
     }
-    if ((await page.locator("#replenishmentMetrics .next-kpi").count()) !== 4 || !(await page.locator("[data-replenishment-decision]").count())) {
+    if ((await page.locator("#replenishmentMetrics .replenishment-kpi").count()) !== 4 || (await page.locator("[data-replenishment-action]").count()) !== 4) {
       throw new Error("La reposicion inteligente no muestra sus decisiones y KPIs operativos");
     }
-    await page.locator('[data-replenishment-decision="monitor"]').click();
+    if (await page.locator("[data-replenishment-select]:checked").count()) {
+      throw new Error("La reposicion no debe preseleccionar compras sin supervision humana");
+    }
+    await page.locator('[data-replenishment-action="review"]').click();
     await page.waitForTimeout(100);
-    if (!(await page.locator('[data-replenishment-decision="monitor"].is-active').count())) {
+    if (!(await page.locator('[data-replenishment-action="review"].is-active').count()) || !(await page.locator(".next-replenishment-row-v2").count())) {
       throw new Error("El filtro de decisiones de reposicion no responde");
     }
-    await page.locator('[data-replenishment-decision="buy"]').click();
     if (!(await page.locator("#createPurchasePlan").count()) || !(await page.locator("[data-replenishment-quantity]").count())) {
       throw new Error("La reposicion no permite supervisar cantidades antes de crear el plan");
+    }
+    const expansion = page.locator("[data-toggle-replenishment]");
+    if (await expansion.count()) {
+      await expansion.first().click();
+      if (!(await page.locator(".replenishment-detail").count())) throw new Error("La reposicion no explica el calculo de la cantidad sugerida");
+      if ((await page.locator(".replenishment-echart").count()) !== 2) throw new Error("El detalle de reposicion no muestra demanda y proyeccion de stock");
+      if (!(await page.locator("[data-replenishment-simulator]").count())) throw new Error("El detalle de reposicion no permite simular otra cantidad");
     }
     await page.locator('[data-materials-section="purchases"]').click();
     await page.waitForTimeout(200);
@@ -316,18 +343,23 @@ async function run() {
     await page.locator('button[data-view="kits"]').click();
     await page.waitForTimeout(800);
     const ordersFilters = await page.locator(".orders-filter-panel").count();
+    const orderTypeFilter = await page.locator("#orderTypeFilter").count();
+    const orderSetFilter = await page.locator("#orderSetFilter").count();
     const ordersFixedPreview = await page.locator("#ordersFixedPreview").count();
     const ordersReview = await page.locator("#ordersReviewQueue").count();
-    if (!ordersFilters || !ordersFixedPreview || !ordersReview) {
+    if (!ordersFilters || !orderTypeFilter || !orderSetFilter || !ordersFixedPreview || !ordersReview) {
       throw new Error("No cargo la nueva composicion de pedidos");
     }
-
     const firstOrder = page.locator("[data-open-order]:visible").first();
     if (await firstOrder.count()) {
+      const orderTypeBadges = await page.locator(".order-type-badge").count();
+      if (!orderTypeBadges) throw new Error("El listado de pedidos no muestra la tipologia");
       await firstOrder.click();
       await page.waitForTimeout(500);
       const orderPanelVisible = await page.locator("#kitDetailPanel:not(.hidden)").count();
       const orderAudit = await page.locator(".orders-audit-panel").count();
+      const orderIdentity = await page.locator(".order-identity-band").count();
+      const orderTypeEditor = await page.locator(".order-type-editor").count();
       const orderLines = await page.locator(".orders-material-row").count();
       const orderToggles = await page.locator("[data-order-line-include]").count();
       if (!orderPanelVisible) {
@@ -335,6 +367,9 @@ async function run() {
       }
       if (!orderAudit) {
         throw new Error("No cargo la auditoria de rentabilidad del pedido");
+      }
+      if (!orderIdentity || !orderTypeEditor) {
+        throw new Error("El detalle no explica la tipologia ni el set recomendado");
       }
       if (!orderLines || !orderToggles) {
         throw new Error("No cargo el desglose de materiales con interruptores de coste");
@@ -352,9 +387,11 @@ async function run() {
       const fixedList = await page.locator("#ordersFixedList").count();
       const fixedRows = await page.locator(".orders-fixed-row").count();
       const fixedToggles = await page.locator("[data-kit-item-include]").count();
+      const typeSelector = await page.locator(".orders-type-selector").count();
       if (!fixedList) {
         throw new Error("No cargo la lista de sets fijos");
       }
+      if (!typeSelector) throw new Error("Los sets no estan organizados por tipologia");
       if (fixedRows && !fixedToggles) {
         throw new Error("Los componentes del set fijo no muestran interruptor de coste");
       }

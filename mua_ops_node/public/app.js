@@ -1,4 +1,4 @@
-﻿const state = {
+const state = {
   suppliers: [],
   materials: [],
   invoices: [],
@@ -285,6 +285,8 @@ function createViewContext() {
     technicalLogMessage,
     technicalLogContext,
     TECHNICAL_LOG_LEVELS,
+    shopifyFreshnessState,
+    syncFreshnessMarkup,
     chartColors,
     dashboardChart
   };
@@ -332,6 +334,10 @@ function chartColors() {
     profit_sales: settings.dashboard_color_profit_sales || "#087c6d",
     profit_cost: settings.dashboard_color_profit_cost || "#bd4e68",
     profit_margin: settings.dashboard_color_profit_margin || "#cc7d13",
+    sales_revenue: settings.dashboard_color_sales_revenue || "#087c6d",
+    sales_orders: settings.dashboard_color_sales_orders || "#3b7f87",
+    sales_ticket: settings.dashboard_color_sales_ticket || "#cc7d13",
+    sales_previous: settings.dashboard_color_sales_previous || "#8a8178",
     margin_critical: settings.dashboard_color_margin_critical || "#b84c5f",
     margin_pressure: settings.dashboard_color_margin_pressure || "#d89a3a",
     margin_healthy: settings.dashboard_color_margin_healthy || "#18836f",
@@ -346,6 +352,30 @@ function applyConfiguredColorVars() {
   root.style.setProperty("--channel-shopify", colors.channel_shopify);
   root.style.setProperty("--channel-etsy", colors.channel_etsy);
   root.style.setProperty("--channel-bizum", colors.channel_bizum);
+}
+
+function shopifyFreshnessState(source = state.shopifySyncStatus || state.shopifyConnection || {}) {
+  const running = Boolean(source.running || state.shopifySyncStatus?.running);
+  const lastSync = source.last_sync_at || source.finished_at || state.shopifySyncStatus?.last_sync_at || state.shopifyConnection?.last_sync_at || "";
+  if (running) return { tone: "syncing", label: "Sincronizando Shopify", hours: 0, lastSync };
+  if (!lastSync) return { tone: "danger", label: "Sin sincronizar", hours: null, lastSync };
+  const timestamp = new Date(lastSync);
+  if (Number.isNaN(timestamp.getTime())) return { tone: "danger", label: "Sincronización desconocida", hours: null, lastSync };
+  const hours = Math.max(0, (Date.now() - timestamp.getTime()) / 36e5);
+  const sameDay = timestamp.toDateString() === new Date().toDateString();
+  const label = hours < 1
+    ? "Actualizado hace menos de 1 h"
+    : hours < 24
+      ? `Actualizado hace ${Math.round(hours)} h`
+      : `Actualizado ${timestamp.toLocaleDateString("es-ES")}`;
+  if (!sameDay) return { tone: "danger", label, hours, lastSync };
+  if (hours > 5) return { tone: "warning", label, hours, lastSync };
+  return { tone: "fresh", label, hours, lastSync };
+}
+
+function syncFreshnessMarkup(source = state.shopifySyncStatus || state.shopifyConnection || {}, className = "dashboard-freshness") {
+  const freshness = shopifyFreshnessState(source);
+  return `<span class="${className} is-${freshness.tone}"><i></i>${text(freshness.label)}</span>`;
 }
 
 function ensurePaginationState(key) {
@@ -2275,6 +2305,21 @@ function bindEvents() {
         .then(() => toast("Set aplicado al pedido"))
         .catch((error) => toast(error.message));
     }
+    if (event.target.matches("[data-order-type-select]")) {
+      const select = event.target;
+      const id = select.dataset.orderTypeSelect;
+      const applyRecommended = Boolean(document.querySelector(`[data-order-type-apply-set="${id}"]`)?.checked);
+      api(`/api/orders/${id}/type`, {
+        method: "PATCH",
+        body: JSON.stringify({ order_type: select.value || "", apply_recommended_set: applyRecommended })
+      }).then(() => loadKits())
+        .then(() => openOrderDetail(id))
+        .then(() => toast("Tipologia actualizada"))
+        .catch((error) => toast(error.message));
+    }
+    if (event.target.matches("[data-set-type-filter]")) {
+      viewModules.operations?.setOrderSetTypeFilter?.(event.target.value || "");
+    }
     if (event.target.matches("[data-order-line-include]")) {
       const input = event.target;
       api(`/api/order-lines/${input.dataset.orderLineInclude}/include`, {
@@ -2496,10 +2541,6 @@ init().catch((error) => {
   clientLog("app_init_error", { message: error.message }, "error");
   toast(error.message);
 });
-
-
-
-
 
 
 

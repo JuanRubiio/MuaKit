@@ -17,6 +17,7 @@ const { registerExpenseImportRoutes } = require("./lib/routes/expense-imports");
 const { registerPurchaseRoutes } = require("./lib/routes/purchasing");
 const { createReplenishmentService } = require("./lib/services/replenishment");
 const { createDocumentExtractionService, parseInvoiceLine, parseImpressions } = require("./lib/services/document-extraction");
+const { detectOrderType, inferRecipeOrderType } = require("./lib/services/order-typologies");
 const packageInfo = require("../package.json");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -59,6 +60,10 @@ const DEFAULT_SETTINGS = {
   dashboard_color_profit_sales: "#087c6d",
   dashboard_color_profit_cost: "#bd4e68",
   dashboard_color_profit_margin: "#cc7d13",
+  dashboard_color_sales_revenue: "#087c6d",
+  dashboard_color_sales_orders: "#3b7f87",
+  dashboard_color_sales_ticket: "#cc7d13",
+  dashboard_color_sales_previous: "#8a8178",
   dashboard_color_margin_critical: "#b84c5f",
   dashboard_color_margin_pressure: "#d89a3a",
   dashboard_color_margin_healthy: "#18836f",
@@ -931,6 +936,60 @@ const SCHEMA_MIGRATIONS = [
         });
       }
     }
+  },
+  {
+    id: "016_order_typologies",
+    name: "Add order typologies and type-specific fixed sets",
+    up: ({ ensureColumn, query, exec }) => {
+      ensureColumn("sales_orders", "order_type", "TEXT DEFAULT ''");
+      ensureColumn("sales_orders", "order_type_source", "TEXT DEFAULT ''");
+      ensureColumn("sales_orders", "order_type_confidence", "REAL NOT NULL DEFAULT 0");
+      ensureColumn("kit_recipes", "order_type", "TEXT DEFAULT ''");
+      ensureColumn("kit_recipes", "is_type_default", "INTEGER NOT NULL DEFAULT 0");
+      ensureColumn("sales_order_lines", "is_type_marker", "INTEGER NOT NULL DEFAULT 0");
+
+      for (const recipe of query("SELECT id, name, version, notes, is_default, order_type FROM kit_recipes WHERE is_deleted=0")) {
+        if (recipe.order_type) continue;
+        const orderType = inferRecipeOrderType(recipe);
+        if (!orderType) continue;
+        exec("UPDATE kit_recipes SET order_type=$orderType, is_type_default=$isDefault WHERE id=$id", {
+          id: recipe.id,
+          orderType,
+          isDefault: Number(recipe.is_default || 0) ? 1 : 0
+        });
+      }
+
+      for (const order of query("SELECT id, order_type FROM sales_orders WHERE is_deleted=0")) {
+        if (order.order_type) continue;
+        const lines = query("SELECT id, title FROM sales_order_lines WHERE order_id=$id AND is_deleted=0", { id: order.id });
+        const detection = detectOrderType(lines);
+        if (!detection.code) continue;
+        exec(`UPDATE sales_orders
+              SET order_type=$orderType, order_type_source='automatic', order_type_confidence=$confidence
+              WHERE id=$id`, { id: order.id, orderType: detection.code, confidence: detection.confidence });
+        for (const lineId of detection.markerIds) {
+          exec("UPDATE sales_order_lines SET is_type_marker=1, include_in_cost=0 WHERE id=$id", { id: lineId });
+        }
+      }
+    }
+  },
+  {
+    id: "017_reconcile_typology_default_sets",
+    name: "Map existing fixed sets to their order typology",
+    up: ({ query, exec }) => {
+      for (const recipe of query("SELECT id, name, version, notes, order_type FROM kit_recipes WHERE is_deleted=0 ORDER BY id")) {
+        const orderType = recipe.order_type || inferRecipeOrderType(recipe);
+        if (!orderType) continue;
+        exec("UPDATE kit_recipes SET order_type=$orderType WHERE id=$id", { id: recipe.id, orderType });
+      }
+      const types = query("SELECT DISTINCT order_type FROM kit_recipes WHERE is_deleted=0 AND order_type!=''");
+      for (const { order_type: orderType } of types) {
+        const existingDefault = query("SELECT id FROM kit_recipes WHERE is_deleted=0 AND order_type=$orderType AND is_type_default=1 LIMIT 1", { orderType })[0];
+        if (existingDefault) continue;
+        const candidate = query("SELECT id FROM kit_recipes WHERE is_deleted=0 AND order_type=$orderType ORDER BY is_complete DESC, id DESC LIMIT 1", { orderType })[0];
+        if (candidate) exec("UPDATE kit_recipes SET is_type_default=1 WHERE id=$id", { id: candidate.id });
+      }
+    }
   }
 ];
 
@@ -1144,6 +1203,36 @@ function shopifyRestUrl(config, resourcePath, query = null) {
   return url.toString();
 }
 
+function shopifyNetworkError(error, url) {
+  const cause = error?.cause || error;
+  const code = cause?.code || "";
+  const host = (() => {
+    try {
+      return new URL(url).host;
+    } catch (_) {
+      return "Shopify";
+    }
+  })();
+  if (code === "EACCES") {
+    return new Error(`No hay permiso de red para conectar con ${host}. Reinicia Mua Ops fuera del entorno restringido y vuelve a sincronizar Shopify.`);
+  }
+  if (["ENOTFOUND", "EAI_AGAIN"].includes(code)) {
+    return new Error(`No se puede resolver el dominio ${host}. Revisa la conexion a internet o el dominio de Shopify configurado.`);
+  }
+  if (["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT"].includes(code)) {
+    return new Error(`No se pudo conectar con ${host}. Revisa la conexion a internet y vuelve a intentar la sincronizacion.`);
+  }
+  return new Error(`No se pudo conectar con ${host}: ${error?.message || "error de red"}`);
+}
+
+async function shopifyFetch(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    throw shopifyNetworkError(error, url);
+  }
+}
+
 async function acquireShopifyAccessToken(config) {
   validateShopifyConnectionConfig(config);
   if (String(config.admin_token || "").trim()) return String(config.admin_token).trim();
@@ -1156,7 +1245,8 @@ async function acquireShopifyAccessToken(config) {
   const cached = shopifyAccessTokenCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
 
-  const response = await fetch(shopifyTokenUrl(config), {
+  const tokenUrl = shopifyTokenUrl(config);
+  const response = await shopifyFetch(tokenUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -1180,7 +1270,8 @@ async function acquireShopifyAccessToken(config) {
 async function shopifyRest(config, resourcePath, query = null) {
   validateShopifyConnectionConfig(config);
   const accessToken = await acquireShopifyAccessToken(config);
-  const response = await fetch(shopifyRestUrl(config, resourcePath, query), {
+  const restUrl = shopifyRestUrl(config, resourcePath, query);
+  const response = await shopifyFetch(restUrl, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
@@ -1202,7 +1293,8 @@ async function shopifyRest(config, resourcePath, query = null) {
 async function shopifyGraphql(config, queryText, variables = {}) {
   validateShopifyConnectionConfig(config);
   const accessToken = await acquireShopifyAccessToken(config);
-  const response = await fetch(shopifyGraphqlUrl(config), {
+  const graphqlUrl = shopifyGraphqlUrl(config);
+  const response = await shopifyFetch(graphqlUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1402,6 +1494,28 @@ function replaceSalesOrderLines(orderId, lines = []) {
   }
 }
 
+function classifySalesOrder(orderId) {
+  const order = one("SELECT * FROM sales_orders WHERE id=$id", { id: orderId });
+  if (!order) return null;
+  const lines = query("SELECT id, title FROM sales_order_lines WHERE order_id=$id AND is_deleted=0", { id: orderId });
+  const detection = detectOrderType(lines);
+  exec("UPDATE sales_order_lines SET is_type_marker=0 WHERE order_id=$id", { id: orderId });
+  for (const lineId of detection.markerIds) {
+    exec("UPDATE sales_order_lines SET is_type_marker=1, include_in_cost=0 WHERE id=$id", { id: lineId });
+  }
+  if (order.order_type_source === "manual") return detection;
+  exec(`UPDATE sales_orders
+        SET order_type=$orderType, order_type_source=$source, order_type_confidence=$confidence,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=$id`, {
+    id: orderId,
+    orderType: detection.code,
+    source: detection.code ? detection.source : "unclassified",
+    confidence: detection.confidence
+  });
+  return detection;
+}
+
 async function testShopifyConnection(configInput = null) {
   const config = configInput || shopifyConnectionForUse();
   validateShopifyConnectionConfig(config);
@@ -1588,6 +1702,7 @@ async function syncShopifyOrders(configInput = null, options = {}) {
         discount_amount: moneyAmount(line.totalDiscountSet),
         net_amount: moneyAmount(line.discountedTotalSet)
       })));
+      classifySalesOrder(result.row.id);
       rows += 1;
       if (result.created) created += 1;
       else if (result.updated) updated += 1;
@@ -2568,6 +2683,197 @@ function dashboardProfitability(window, granularity, settings) {
   };
 }
 
+function dashboardSales(window, previousWindow, granularity, invoices, profitability, previousInvoices = [], previousProfitability = null) {
+  const allOrders = query(
+    `SELECT *
+     FROM sales_orders
+     WHERE is_deleted=0
+     ORDER BY order_date ASC, id ASC`
+  );
+  const orders = allOrders.filter((order) => dateInRange(order.order_date, window.from, window.to));
+  const previousOrders = previousWindow ? allOrders.filter((order) => dateInRange(order.order_date, previousWindow.from, previousWindow.to)) : [];
+
+  const buildSeries = (rows, rangeWindow) => {
+    const buckets = new Map();
+    for (const order of rows) {
+      const key = dashboardBucketKey(order.order_date, granularity);
+      if (!key) continue;
+      const bucket = buckets.get(key) || { key, sales: 0, orders: 0 };
+      bucket.sales += n(order.net_amount);
+      bucket.orders += 1;
+      buckets.set(key, bucket);
+    }
+    const keys = dashboardBucketSpan(
+      rangeWindow?.from,
+      rangeWindow?.to,
+      granularity,
+      Array.from(buckets.keys()).sort((a, b) => a.localeCompare(b))
+    );
+    return keys.map((key) => {
+      const row = buckets.get(key) || { key, sales: 0, orders: 0 };
+      return {
+        key,
+        sales: row.sales,
+        orders: row.orders,
+        average_ticket: row.orders > 0 ? row.sales / row.orders : null
+      };
+    });
+  };
+
+  const series = buildSeries(orders, window);
+  const previousSeries = previousWindow ? buildSeries(previousOrders, previousWindow) : [];
+
+  let currentCumulative = 0;
+  let previousCumulative = 0;
+  const cumulative = series.map((row, index) => {
+    currentCumulative += n(row.sales);
+    previousCumulative += n(previousSeries[index]?.sales);
+    return {
+      key: row.key,
+      current_sales: currentCumulative,
+      previous_sales: previousWindow ? previousCumulative : null
+    };
+  });
+
+  const totalSales = orders.reduce((sum, order) => sum + n(order.net_amount), 0);
+  const totalOrders = orders.length;
+  const averageTicket = totalOrders ? totalSales / totalOrders : 0;
+  const previousSales = previousOrders.reduce((sum, order) => sum + n(order.net_amount), 0);
+  const previousOrderCount = previousOrders.length;
+  const previousAverageTicket = previousOrderCount ? previousSales / previousOrderCount : null;
+  const marketingExpense = invoices
+    .filter((invoice) => invoice.category === "marketing")
+    .reduce((sum, invoice) => sum + n(invoice.total), 0);
+  const previousMarketingExpense = previousInvoices
+    .filter((invoice) => invoice.category === "marketing")
+    .reduce((sum, invoice) => sum + n(invoice.total), 0);
+
+  const ticketBands = [
+    { key: "lt40", label: "< 40 €", min: 0, max: 40 },
+    { key: "40_60", label: "40-60 €", min: 40, max: 60 },
+    { key: "60_80", label: "60-80 €", min: 60, max: 80 },
+    { key: "80_100", label: "80-100 €", min: 80, max: 100 },
+    { key: "gt100", label: "> 100 €", min: 100, max: null }
+  ].map((band) => {
+    const bandOrders = orders.filter((order) => {
+      const amount = n(order.net_amount);
+      if (band.max == null) return amount >= band.min;
+      return amount >= band.min && amount < band.max;
+    });
+    const sales = bandOrders.reduce((sum, order) => sum + n(order.net_amount), 0);
+    return {
+      ...band,
+      orders: bandOrders.length,
+      sales,
+      share_of_orders: totalOrders > 0 ? (bandOrders.length / totalOrders) * 100 : 0,
+      share_of_sales: totalSales > 0 ? (sales / totalSales) * 100 : 0
+    };
+  });
+
+  const previousTopProducts = previousWindow ? query(
+    `SELECT m.id AS material_id,
+            COUNT(DISTINCT l.order_id) AS order_count,
+            SUM(COALESCE(l.quantity, 0)) AS units
+     FROM sales_order_lines l
+     JOIN sales_orders o ON o.id = l.order_id
+     JOIN materials m ON m.id = l.material_id
+     WHERE l.is_deleted = 0
+       AND o.is_deleted = 0
+       AND m.is_deleted = 0
+       AND LOWER(COALESCE(m.category, '')) = 'joya'
+       AND ($from = '' OR o.order_date >= $from)
+       AND ($to = '' OR o.order_date <= $to)
+     GROUP BY m.id`,
+    { from: previousWindow.from || "", to: previousWindow.to || "" }
+  ) : [];
+  const previousTopProductMap = new Map(previousTopProducts.map((row) => [
+    Number(row.material_id || 0),
+    { order_count: Number(row.order_count || 0), units: n(row.units) }
+  ]));
+
+  const topProducts = query(
+    `SELECT m.id AS material_id,
+            m.name AS title,
+            COUNT(DISTINCT l.order_id) AS order_count,
+            SUM(COALESCE(l.quantity, 0)) AS units,
+            SUM(COALESCE(l.net_amount, 0)) AS sales,
+            (
+              SELECT COALESCE(NULLIF(sp.image_url, ''), '')
+              FROM shopify_products sp
+              WHERE sp.material_id = m.id AND sp.image_url != ''
+              ORDER BY sp.id DESC
+              LIMIT 1
+            ) AS image_url
+     FROM sales_order_lines l
+     JOIN sales_orders o ON o.id = l.order_id
+     JOIN materials m ON m.id = l.material_id
+     WHERE l.is_deleted = 0
+       AND o.is_deleted = 0
+       AND m.is_deleted = 0
+       AND LOWER(COALESCE(m.category, '')) = 'joya'
+       AND ($from = '' OR o.order_date >= $from)
+       AND ($to = '' OR o.order_date <= $to)
+     GROUP BY m.id, m.name
+     HAVING SUM(COALESCE(l.quantity, 0)) > 0
+     ORDER BY units DESC, order_count DESC, sales DESC, m.name
+     LIMIT 8`,
+    { from: window.from || "", to: window.to || "" }
+  ).map((row) => {
+    const materialId = Number(row.material_id || 0);
+    const units = n(row.units);
+    const previous = previousTopProductMap.get(materialId) || null;
+    return {
+      material_id: materialId,
+      title: row.title || "Material sin nombre",
+      sku: "",
+      order_count: Number(row.order_count || 0),
+      units,
+      sales: n(row.sales),
+      previous_order_count: previous?.order_count || 0,
+      previous_units: previous?.units || 0,
+      units_change_percent: previous && previous.units > 0 ? ((units - previous.units) / previous.units) * 100 : null,
+      image_url: row.image_url || ""
+    };
+  });
+
+  const reliableOrders = Number(profitability?.metrics?.reliable_orders || 0);
+  const totalProfit = n(profitability?.metrics?.total_profit);
+  const previousReliableOrders = Number(previousProfitability?.metrics?.reliable_orders || 0);
+  const previousTotalProfit = n(previousProfitability?.metrics?.total_profit);
+  const averageProfitPerReliableOrder = reliableOrders ? totalProfit / reliableOrders : null;
+  const previousAverageProfitPerReliableOrder = previousReliableOrders ? previousTotalProfit / previousReliableOrders : null;
+  const marketingPerOrder = totalOrders ? marketingExpense / totalOrders : null;
+  const previousMarketingPerOrder = previousOrderCount ? previousMarketingExpense / previousOrderCount : null;
+
+  return {
+    metrics: {
+      total_sales: totalSales,
+      total_orders: totalOrders,
+      average_ticket: averageTicket,
+      marketing_per_order: marketingPerOrder,
+      average_profit_per_reliable_order: averageProfitPerReliableOrder
+    },
+    comparison: previousWindow ? {
+      total_sales: previousSales,
+      total_orders: previousOrderCount,
+      average_ticket: previousAverageTicket,
+      marketing_per_order: previousMarketingPerOrder,
+      average_profit_per_reliable_order: previousAverageProfitPerReliableOrder,
+      sales_change_percent: previousSales ? ((totalSales - previousSales) / previousSales) * 100 : null,
+      orders_change_percent: previousOrderCount ? ((totalOrders - previousOrderCount) / previousOrderCount) * 100 : null,
+      ticket_change_percent: previousAverageTicket ? ((averageTicket - previousAverageTicket) / previousAverageTicket) * 100 : null,
+      marketing_per_order_change_percent: previousMarketingPerOrder ? ((marketingPerOrder - previousMarketingPerOrder) / previousMarketingPerOrder) * 100 : null,
+      average_profit_per_reliable_order_change_percent: previousAverageProfitPerReliableOrder
+        ? ((averageProfitPerReliableOrder - previousAverageProfitPerReliableOrder) / Math.abs(previousAverageProfitPerReliableOrder)) * 100
+        : null
+    } : null,
+    series,
+    cumulative,
+    ticket_bands: ticketBands,
+    top_products: topProducts
+  };
+}
+
 function monthSpan(from, to, fallbackMonths = []) {
   if (!from || !to) return fallbackMonths;
   const months = [];
@@ -3035,6 +3341,8 @@ function dashboardFinance(options = {}) {
   const settings = settingsObject();
   const reorderAlertMultiplier = Math.max(1, n(settings.reorder_alert_multiplier || 1.25) || 1.25);
   const profitability = dashboardProfitability(window, granularity, settings);
+  const previousProfitability = previousWindow ? dashboardProfitability(previousWindow, granularity, settings) : null;
+  const sales = dashboardSales(window, previousWindow, granularity, invoices, profitability, previousInvoices, previousProfitability);
   const replenishmentResult = createReplenishmentService({ query, one, materialCosts, settingsObject }).recommendations();
   const purchaseCandidates = replenishmentResult.recommendations
     .filter((row) => row.suggested_quantity > 0)
@@ -3113,9 +3421,33 @@ function dashboardFinance(options = {}) {
       period_expense: previousExpense,
       period_net_received: previousNetReceived,
       period_balance: previousNetReceived - previousExpense,
+      weighted_margin_percent: previousProfitability?.metrics?.weighted_margin_percent ?? null,
+      reliable_coverage_percent: previousProfitability?.metrics?.reliable_coverage_percent ?? null,
+      average_ticket: previousProfitability?.metrics?.average_ticket ?? null,
+      net_sales: previousProfitability?.metrics?.net_sales ?? null,
+      total_profit: previousProfitability?.metrics?.total_profit ?? null,
+      real_cost_sold: previousProfitability ? n(previousProfitability.metrics.net_sales) - n(previousProfitability.metrics.total_profit) : null,
       expense_change_percent: previousExpense ? ((totalExpense - previousExpense) / previousExpense) * 100 : null,
       income_change_percent: previousNetReceived ? ((totalNetReceived - previousNetReceived) / previousNetReceived) * 100 : null,
-      balance_change_percent: previousNetReceived - previousExpense ? (((totalNetReceived - totalExpense) - (previousNetReceived - previousExpense)) / Math.abs(previousNetReceived - previousExpense)) * 100 : null
+      balance_change_percent: previousNetReceived - previousExpense ? (((totalNetReceived - totalExpense) - (previousNetReceived - previousExpense)) / Math.abs(previousNetReceived - previousExpense)) * 100 : null,
+      weighted_margin_change_points: previousProfitability?.metrics?.weighted_margin_percent == null || profitability.metrics.weighted_margin_percent == null
+        ? null
+        : profitability.metrics.weighted_margin_percent - previousProfitability.metrics.weighted_margin_percent,
+      reliable_coverage_change_points: previousProfitability?.metrics?.reliable_coverage_percent == null || profitability.metrics.reliable_coverage_percent == null
+        ? null
+        : profitability.metrics.reliable_coverage_percent - previousProfitability.metrics.reliable_coverage_percent,
+      average_ticket_change_percent: previousProfitability?.metrics?.average_ticket
+        ? ((profitability.metrics.average_ticket - previousProfitability.metrics.average_ticket) / previousProfitability.metrics.average_ticket) * 100
+        : null,
+      net_sales_change_percent: previousProfitability?.metrics?.net_sales
+        ? ((profitability.metrics.net_sales - previousProfitability.metrics.net_sales) / previousProfitability.metrics.net_sales) * 100
+        : null,
+      total_profit_change_percent: previousProfitability?.metrics?.total_profit
+        ? ((profitability.metrics.total_profit - previousProfitability.metrics.total_profit) / Math.abs(previousProfitability.metrics.total_profit)) * 100
+        : null,
+      real_cost_sold_change_percent: previousProfitability && n(previousProfitability.metrics.net_sales) - n(previousProfitability.metrics.total_profit)
+        ? (((n(profitability.metrics.net_sales) - n(profitability.metrics.total_profit)) - (n(previousProfitability.metrics.net_sales) - n(previousProfitability.metrics.total_profit))) / Math.abs(n(previousProfitability.metrics.net_sales) - n(previousProfitability.metrics.total_profit))) * 100
+        : null
     } : null,
     monthly_spend: trendKeys,
     monthly_breakdown: { months: trendLabelKeys, series: trend.series },
@@ -3134,6 +3466,7 @@ function dashboardFinance(options = {}) {
     top_suppliers: supplierSpend,
     top_materials: topMaterials,
     profitability,
+    sales,
     replenishment: {
       generated_at: replenishmentResult.generated_at,
       parameters: replenishmentResult.parameters,

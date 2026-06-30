@@ -408,4 +408,3 @@ export function createInvoiceViews(ctx) {
 
   return { loadInvoices, renderInvoices, openInvoice, openInvoiceWorkspace, bindLineForm };
 }
-

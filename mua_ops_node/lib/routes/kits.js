@@ -1,3 +1,25 @@
+const { ORDER_TYPES, isValidOrderType, orderTypeMeta } = require("../services/order-typologies");
+
+function normalizeOrderMaterial(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function orderLineIsSilver(line = {}) {
+  const category = normalizeOrderMaterial(line.material_category || "");
+  const baseMaterial = normalizeOrderMaterial(line.material_base_material || "");
+  const source = normalizeOrderMaterial(`${line.material_name || ""} ${line.title || ""}`);
+  const jewelryLike = ["joya", "cadena", "topping"].includes(category);
+  if (baseMaterial === "plata") return true;
+  if (!jewelryLike) return false;
+  if (/\b925\b|\bsterling\b|\bsilver\b/.test(source)) return true;
+  if (/\bplata\b/.test(source) && !/\bplatead[oa]s?\b/.test(source)) return true;
+  return false;
+}
+
 function registerKitRoutes(app, ctx) {
   const {
     query,
@@ -58,6 +80,11 @@ function registerKitRoutes(app, ctx) {
     const activeSet = fixedSets.find((set) => Number(set.is_default || 0)) || fixedSets[0] || null;
     const costMap = new Map((materialCosts ? materialCosts() : []).map((row) => [Number(row.material_id), row]));
     const fixedSetById = new Map(fixedSets.map((set) => [Number(set.id), set]));
+    const typeDefaults = new Map(
+      fixedSets
+        .filter((set) => set.order_type && Number(set.is_type_default || 0))
+        .map((set) => [set.order_type, set])
+    );
     normalizeHistoricalOrderLines(costMap);
     const orders = query(
       `SELECT o.*, kr.name AS selected_fixed_set_name, kr.version AS selected_fixed_set_version, COUNT(l.id) AS line_count
@@ -68,10 +95,13 @@ function registerKitRoutes(app, ctx) {
        GROUP BY o.id
        ORDER BY o.order_date DESC, o.id DESC`
     ).map((order) => {
-      const orderSet = fixedSetById.get(Number(order.kit_recipe_id)) || activeSet;
+      const recommendedSet = typeDefaults.get(order.order_type) || null;
+      const orderSet = fixedSetById.get(Number(order.kit_recipe_id)) || recommendedSet || activeSet;
       const fixedSetCost = n(orderSet?.known_cost);
-      const lines = query(
+      const allLines = query(
         `SELECT l.*, m.name AS material_name, m.category AS material_category,
+                m.base_material AS material_base_material,
+                m.finish AS material_finish,
                 COALESCE(NULLIF(m.image_url_override, ''), (
                   SELECT sp.image_url
                   FROM shopify_products sp
@@ -93,10 +123,15 @@ function registerKitRoutes(app, ctx) {
           ...line,
           include_in_cost: included ? 1 : 0,
           unit_cost: unitCost,
-          total_cost: totalCost
+          total_cost: totalCost,
+          is_silver: orderLineIsSilver(line)
         };
       });
+      const markerLines = allLines.filter((line) => Number(line.is_type_marker || 0));
+      const lines = allLines.filter((line) => !Number(line.is_type_marker || 0));
       const includedLines = lines.filter((line) => Number(line.include_in_cost ?? 1) !== 0);
+      const silverLines = lines.filter((line) => line.is_silver);
+      const silverIncludedLines = includedLines.filter((line) => line.is_silver);
       const contentCostKnown = includedLines.reduce((sum, line) => sum + (line.total_cost ?? 0), 0);
       const missingLineCosts = includedLines.filter((line) => line.material_id && line.unit_cost == null).length;
       const missingMaterials = includedLines.filter((line) => !line.material_id).length;
@@ -110,27 +145,41 @@ function registerKitRoutes(app, ctx) {
         ...order,
         lines,
         fixed_set: orderSet,
+        recommended_fixed_set: recommendedSet,
+        set_matches_recommended: Boolean(recommendedSet && orderSet && Number(recommendedSet.id) === Number(orderSet.id)),
+        has_manual_set_override: Boolean(order.kit_recipe_id && recommendedSet && Number(order.kit_recipe_id) !== Number(recommendedSet.id)),
+        order_type_meta: orderTypeMeta(order.order_type),
+        type_marker_lines: markerLines.map((line) => ({ id: line.id, title: line.title })),
         fixed_set_options: fixedSets.map((set) => ({
           id: set.id,
           name: set.name,
           version: set.version,
           known_cost: set.known_cost,
           missing_cost_items: set.missing_cost_items,
-          is_default: set.is_default
+          is_default: set.is_default,
+          order_type: set.order_type,
+          is_type_default: set.is_type_default
         })),
         fixed_set_cost: fixedSetCost,
         content_cost: contentCost,
         content_cost_known: contentCostKnown,
         real_cost: realCost,
         profit,
+        profit_per_sale_euro: n(order.net_amount) ? profit / n(order.net_amount) : null,
         margin_percent: marginPercent,
         missing_materials: missingMaterials,
         missing_line_costs: missingLineCosts,
         excluded_lines: lines.length - includedLines.length,
+        contains_silver: silverLines.length > 0,
+        silver_profile: silverLines.length ? (silverLines.length === lines.length ? "silver" : "mixed") : "standard",
+        silver_line_count: silverLines.length,
+        silver_included_line_count: silverIncludedLines.length,
         status
       };
     });
     const completeOrders = orders.filter((order) => order.status === "complete");
+    const silverOrders = orders.filter((order) => order.contains_silver);
+    const standardOrders = orders.filter((order) => !order.contains_silver);
     const avg = (values) => values.length ? values.reduce((sum, value) => sum + n(value), 0) / values.length : null;
     res.json({
       active_set: activeSet,
@@ -143,10 +192,50 @@ function registerKitRoutes(app, ctx) {
         average_fixed_cost: avg(orders.map((order) => order.fixed_set_cost)) ?? 0,
         average_real_cost: avg(completeOrders.map((order) => order.real_cost)),
         average_margin_percent: completeOrders.length ? avg(completeOrders.map((order) => order.margin_percent)) : null,
-        complete_orders: completeOrders.length
+        average_profit: completeOrders.length ? avg(completeOrders.map((order) => order.profit)) : null,
+        complete_orders: completeOrders.length,
+        classified_orders: orders.filter((order) => order.order_type).length,
+        unclassified_orders: orders.filter((order) => !order.order_type).length,
+        set_mismatch_orders: orders.filter((order) => order.recommended_fixed_set && !order.set_matches_recommended).length,
+        silver_orders: silverOrders.length,
+        standard_orders: standardOrders.length,
+        silver_average_margin_percent: avg(silverOrders.filter((order) => order.margin_percent != null).map((order) => order.margin_percent)),
+        standard_average_margin_percent: avg(standardOrders.filter((order) => order.margin_percent != null).map((order) => order.margin_percent)),
+        silver_average_ticket: avg(silverOrders.map((order) => order.net_amount)),
+        standard_average_ticket: avg(standardOrders.map((order) => order.net_amount)),
+        silver_average_profit: avg(silverOrders.filter((order) => order.profit != null).map((order) => order.profit)),
+        standard_average_profit: avg(standardOrders.filter((order) => order.profit != null).map((order) => order.profit))
       },
+      order_types: ORDER_TYPES,
       orders
     });
+  });
+
+  app.patch("/api/orders/:id/type", (req, res) => {
+    const before = one("SELECT * FROM sales_orders WHERE id=$id AND is_deleted=0", { id: req.params.id });
+    if (!before) return res.status(404).json({ error: "Pedido no encontrado" });
+    const orderType = String(req.body?.order_type || "");
+    if (orderType && !isValidOrderType(orderType)) return badRequest(res, "Tipologia de pedido no valida", "ORDER_TYPE_INVALID");
+    const recommended = orderType
+      ? one(`SELECT * FROM kit_recipes
+             WHERE is_deleted=0 AND order_type=$orderType AND is_type_default=1
+             ORDER BY id DESC LIMIT 1`, { orderType })
+      : null;
+    const applyRecommended = Boolean(req.body?.apply_recommended_set);
+    exec(`UPDATE sales_orders
+          SET order_type=$orderType, order_type_source='manual', order_type_confidence=1,
+              kit_recipe_id=CASE WHEN $applyRecommended=1 THEN $recipeId ELSE kit_recipe_id END,
+              updated_at=CURRENT_TIMESTAMP
+          WHERE id=$id`, {
+      id: req.params.id,
+      orderType: orderType || null,
+      applyRecommended: applyRecommended ? 1 : 0,
+      recipeId: recommended?.id || null
+    });
+    const after = one("SELECT * FROM sales_orders WHERE id=$id", { id: req.params.id });
+    audit("sales_order", req.params.id, applyRecommended ? "order_type_and_set_update" : "order_type_update", before, after);
+    saveDb();
+    res.json({ ...after, recommended_kit_recipe_id: recommended?.id || null });
   });
 
   app.patch("/api/orders/:id/fixed-set", (req, res) => {
@@ -186,14 +275,21 @@ function registerKitRoutes(app, ctx) {
 
   app.post("/api/kit-recipes", (req, res) => {
     if (req.body.is_default) exec("UPDATE kit_recipes SET is_default=0");
+    const orderType = String(req.body.order_type || "");
+    if (!isValidOrderType(orderType)) return badRequest(res, "Tipologia de pedido no valida", "ORDER_TYPE_INVALID");
+    if (req.body.is_type_default && orderType) {
+      exec("UPDATE kit_recipes SET is_type_default=0 WHERE order_type=$orderType", { orderType });
+    }
     const id = insert(
-      `INSERT INTO kit_recipes (name, version, is_complete, is_default, notes)
-       VALUES ($name, $version, $isComplete, $isDefault, $notes)`,
+      `INSERT INTO kit_recipes (name, version, is_complete, is_default, order_type, is_type_default, notes)
+       VALUES ($name, $version, $isComplete, $isDefault, $orderType, $isTypeDefault, $notes)`,
       {
         name: req.body.name,
         version: req.body.version || "",
         isComplete: req.body.is_complete ? 1 : 0,
         isDefault: req.body.is_default ? 1 : 0,
+        orderType,
+        isTypeDefault: req.body.is_type_default ? 1 : 0,
         notes: req.body.notes || ""
       }
     );
@@ -208,12 +304,21 @@ function registerKitRoutes(app, ctx) {
       ...req.body,
       is_complete: req.body.is_complete === undefined ? undefined : (req.body.is_complete ? 1 : 0),
       is_default: req.body.is_default === undefined ? undefined : (req.body.is_default ? 1 : 0)
+      ,is_type_default: req.body.is_type_default === undefined ? undefined : (req.body.is_type_default ? 1 : 0)
     };
     for (const key of Object.keys(payload)) {
       if (payload[key] === undefined) delete payload[key];
     }
     if (payload.is_default) exec("UPDATE kit_recipes SET is_default=0 WHERE id!=$id", { id: req.params.id });
-    updateEntity("kit_recipes", "kit_recipe", req.params.id, payload, ["name", "version", "is_complete", "is_default", "notes"], res);
+    if (payload.order_type !== undefined && !isValidOrderType(String(payload.order_type || ""))) {
+      return badRequest(res, "Tipologia de pedido no valida", "ORDER_TYPE_INVALID");
+    }
+    const current = one("SELECT * FROM kit_recipes WHERE id=$id", { id: req.params.id });
+    const targetType = payload.order_type === undefined ? String(current?.order_type || "") : String(payload.order_type || "");
+    if (payload.is_type_default && targetType) {
+      exec("UPDATE kit_recipes SET is_type_default=0 WHERE order_type=$orderType AND id!=$id", { orderType: targetType, id: req.params.id });
+    }
+    updateEntity("kit_recipes", "kit_recipe", req.params.id, payload, ["name", "version", "is_complete", "is_default", "order_type", "is_type_default", "notes"], res);
   });
 
   app.delete("/api/kit-recipes/:id", (req, res) => softDelete("kit_recipes", "kit_recipe", req.params.id, res));

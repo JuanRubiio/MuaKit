@@ -16,7 +16,8 @@ export function createIncomeViews(ctx) {
     renderPagination,
     chartColors,
     dashboardChart,
-    compactTimeline
+    compactTimeline,
+    shopifyFreshnessState
   } = ctx;
 
   const paidStatuses = new Set(["paid", "executed"]);
@@ -237,9 +238,12 @@ export function createIncomeViews(ctx) {
         </div>
       `;
     }
-    $("#incomeUpdatedMeta").innerHTML = filteredRows.length
-      ? `<svg><use href="#icon-refresh"></use></svg><span>Actualizado \u00B7 ${text(filteredRows[0]?.payout_date || "")}</span>`
-      : `<svg><use href="#icon-refresh"></use></svg><span>Sin ingresos visibles</span>`;
+    const incomeMeta = $("#incomeUpdatedMeta");
+    if (incomeMeta) {
+      const freshness = shopifyFreshnessState(state.shopifySyncStatus || state.shopifyConnection || {});
+      incomeMeta.className = `dashboard-freshness is-${freshness.tone}`;
+      incomeMeta.innerHTML = `<i></i>${text(freshness.label)}`;
+    }
   }
 
   function reviewItems(rows) {

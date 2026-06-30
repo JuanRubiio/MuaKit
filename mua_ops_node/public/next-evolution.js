@@ -9,6 +9,7 @@
   const replenishmentQuantities = new Map();
   const selectedReplenishmentIds = new Set();
   let replenishmentSelectionInitialized = false;
+  let expandedReplenishmentId = null;
   let currentPurchasePlan = null;
   let expensePoll = null;
   let importUploading = false;
@@ -424,54 +425,83 @@
     replenishmentParameters = data.parameters || {};
     replenishmentRows.forEach((row) => {
       if (!replenishmentQuantities.has(Number(row.id))) replenishmentQuantities.set(Number(row.id), Number(row.suggested_quantity || 0));
-      if (!replenishmentSelectionInitialized && row.can_plan && row.decision === "buy") selectedReplenishmentIds.add(Number(row.id));
     });
     replenishmentSelectionInitialized = true;
     renderReplenishment();
   }
 
+
   function renderReplenishment() {
-    const decisionLabels = { buy: "Comprar", monitor: "Vigilar", configure: "Configurar", healthy: "Sin acción" };
-    const priorityLabels = { critical: "Rotura", high: "Urgente", medium: "Próximo", low: "Cubierto", configuration: "Configurar" };
-    const trendLabels = { accelerating: "Sube", slowing: "Baja", stable: "Estable" };
+    const actions = [
+      { key: "buy", decision: "buy", label: "Comprar ahora" },
+      { key: "monitor", decision: "monitor", label: "Comprar pronto" },
+      { key: "review", decision: "configure", label: "Revisar" },
+      { key: "healthy", decision: "healthy", label: "Cubierto" }
+    ];
+    const priorityLabels = { critical: "Rotura", high: "Urgente", medium: "Proximo", low: "Cubierto", configuration: "Configurar" };
+    const trendLabels = {
+      accelerating: { label: "Demanda al alza", icon: "trending-up", tone: "up" },
+      slowing: { label: "Demanda a la baja", icon: "trending-down", tone: "down" },
+      stable: { label: "Demanda estable", icon: "minus", tone: "stable" }
+    };
     const actionable = replenishmentRows.filter((row) => row.decision === "buy");
     const planReady = actionable.filter((row) => row.can_plan);
     const estimated = planReady.reduce((sum, row) => sum + number(row.unit_cost) * number(replenishmentQuantities.get(Number(row.id))), 0);
     const unpriced = planReady.filter((row) => !row.cost_known).length;
     const atRisk = replenishmentRows.filter((row) => row.risk_before_arrival).length;
     const blocked = replenishmentRows.filter((row) => row.decision === "configure" || (row.decision === "buy" && !row.can_plan)).length;
-    $("#replenishmentMetrics").innerHTML = metric("Compra propuesta", fmt(estimated), `${planReady.length} materiales${unpriced ? ` · ${unpriced} sin coste` : ""}`)
-      + metric("Riesgo antes de entrega", atRisk, "Cobertura menor que el plazo")
-      + metric("Comprar ahora", actionable.length, "Déficit hasta stock objetivo")
-      + metric("Bloqueos", blocked, "Completar antes de planificar");
+    const metricCard = (tone, icon, label, value, hint) => `<article class="replenishment-kpi tone-${tone}"><span class="kpi-icon"><svg><use href="#icon-${icon}"></use></svg></span><div><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></div></article>`;
+    $("#replenishmentMetrics").innerHTML = [
+      metricCard("danger", "alert", "Riesgo de rotura", atRisk, "Se agotan antes de la llegada"),
+      metricCard("success", "package", "Compra recomendada", planReady.length, "Materiales con evidencia fiable"),
+      metricCard("neutral", "coin", "Inversion estimada", fmt(estimated), `${planReady.length} de ${actionable.length} con coste`),
+      metricCard("warning", "clipboard", "Requieren revision", blocked + unpriced, "Datos o referencias manuales")
+    ].join("");
+
     const suppliers = [...new Set(replenishmentRows.map((row) => row.supplier_name).filter(Boolean))].sort();
-    const decisions = ["buy", "monitor", "configure", "healthy"];
+    const families = [...new Set(replenishmentRows.map((row) => row.family || row.category).filter(Boolean))].sort();
     const priorityRank = { critical: 0, high: 1, medium: 2, configuration: 3, low: 4 };
     const visible = replenishmentRows.filter((row) => (!replenishmentFilters.decision || row.decision === replenishmentFilters.decision)
       && (!replenishmentFilters.supplier || row.supplier_name === replenishmentFilters.supplier)
+      && (!replenishmentFilters.family || (row.family || row.category) === replenishmentFilters.family)
+      && (!replenishmentFilters.confidence || row.confidence === replenishmentFilters.confidence)
       && (!replenishmentFilters.query || `${row.name} ${row.supplier_name || ""}`.toLocaleLowerCase("es").includes(replenishmentFilters.query.toLocaleLowerCase("es"))))
       .sort((a, b) => (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9) || number(b.suggested_quantity) - number(a.suggested_quantity));
+
     const selected = [...selectedReplenishmentIds];
     const selectedSpend = selected.reduce((sum, id) => {
       const row = replenishmentRows.find((item) => Number(item.id) === id);
       return sum + number(row?.unit_cost) * number(replenishmentQuantities.get(id));
     }, 0);
-    $("#replenishmentTools").innerHTML = `<div class="next-replenishment-tabs">${decisions.map((decision) => `<button type="button" class="ghost ${replenishmentFilters.decision === decision ? "is-active" : ""}" data-replenishment-decision="${decision}">${decisionLabels[decision]} <span>${replenishmentRows.filter((row) => row.decision === decision).length}</span></button>`).join("")}</div>
-      <div class="next-replenishment-filters"><label>Buscar<input type="search" data-replenishment-filter="query" value="${text(replenishmentFilters.query)}" placeholder="Material o proveedor"></label><label>Proveedor<select data-replenishment-filter="supplier"><option value="">Todos</option>${suppliers.map((supplier) => `<option ${supplier === replenishmentFilters.supplier ? "selected" : ""}>${text(supplier)}</option>`).join("")}</select></label><div class="next-replenishment-parameters"><span>Plazo base ${number(replenishmentParameters.default_lead_days)} d</span><span>Seguridad ${number(replenishmentParameters.safety_days)} d</span><span>Objetivo +${number(replenishmentParameters.target_coverage_days)} d</span></div></div>
-      <div class="next-selection-bar"><div><strong>${selected.length} seleccionados</strong><span>${fmt(selectedSpend)} estimados</span></div><button id="createPurchasePlan" type="button" class="button-with-icon" ${selected.length ? "" : "disabled"}><svg><use href="#icon-plus"></use></svg><span>Crear plan de compra</span></button></div>`;
+    const activeAction = actions.find((action) => action.decision === replenishmentFilters.decision)?.key || "buy";
+
+    $("#replenishmentTools").innerHTML = `<div class="next-replenishment-tabs">${actions.map((action) => `<button type="button" class="ghost ${activeAction === action.key ? "is-active" : ""}" data-replenishment-action="${action.key}">${action.label} <span>${replenishmentRows.filter((row) => row.decision === action.decision).length}</span></button>`).join("")}</div>
+      <div class="next-replenishment-filters"><label>Buscar<input type="search" data-replenishment-filter="query" value="${text(replenishmentFilters.query)}" placeholder="Material o proveedor"></label><label>Proveedor<select data-replenishment-filter="supplier"><option value="">Todos</option>${suppliers.map((supplier) => `<option ${supplier === replenishmentFilters.supplier ? "selected" : ""}>${text(supplier)}</option>`).join("")}</select></label><label>Confianza<select data-replenishment-filter="confidence"><option value="">Todas</option><option value="high" ${replenishmentFilters.confidence === "high" ? "selected" : ""}>Alta</option><option value="medium" ${replenishmentFilters.confidence === "medium" ? "selected" : ""}>Media</option><option value="low" ${replenishmentFilters.confidence === "low" ? "selected" : ""}>Baja</option></select></label><label>Familia<select data-replenishment-filter="family"><option value="">Todas</option>${families.map((family) => `<option ${family === replenishmentFilters.family ? "selected" : ""}>${text(family)}</option>`).join("")}</select></label></div>
+      <div class="next-selection-bar"><button type="button" class="ghost" data-select-reliable-replenishment>Seleccionar recomendaciones fiables</button><div><strong>${selected.length} seleccionados</strong><span>${fmt(selectedSpend)} estimados</span></div><button id="createPurchasePlan" type="button" class="button-with-icon" ${selected.length ? "" : "disabled"}><svg><use href="#icon-plus"></use></svg><span>Preparar plan de compra</span></button></div>`;
+
     $("#replenishmentList").innerHTML = visible.length ? visible.map((row) => {
-      const quantity = number(replenishmentQuantities.get(Number(row.id)));
-      const coverage = row.coverage_days === null ? "Sin calcular" : `${number(row.coverage_days).toFixed(row.coverage_days < 10 ? 1 : 0)} días`;
+      const id = Number(row.id);
+      const quantity = number(replenishmentQuantities.get(id));
+      const coverage = row.coverage_days === null ? "Sin calcular" : `${number(row.coverage_days).toFixed(row.coverage_days < 10 ? 1 : 0)} dias`;
       const blocker = row.blockers?.includes("supplier") ? "Falta proveedor" : row.blockers?.includes("stock") ? "Falta stock" : "";
-      return `<article class="next-replenishment-row priority-${row.priority}">
-        <label class="next-replenishment-check"><input type="checkbox" data-replenishment-select="${row.id}" ${selectedReplenishmentIds.has(Number(row.id)) ? "checked" : ""} ${row.can_plan ? "" : "disabled"}><span></span></label>
-        <div class="next-replenishment-material"><strong>${text(row.name)}</strong><small>${text(row.supplier_name || "Sin proveedor")} · Stock ${row.stock_known ? `${number(row.effective_stock)} ${text(row.unit_label)}` : "desconocido"} · Objetivo ${Math.ceil(number(row.calculated_target_stock))} ${text(row.unit_label)}</small><p>${text(row.reason)}</p></div>
-        <div><small>Consumo 30 / 90 días</small><strong>${number(row.consumption_30).toFixed(0)} / ${number(row.consumption_90).toFixed(0)}</strong><span class="next-trend trend-${row.trend}">${trendLabels[row.trend]}</span></div>
-        <div><small>Cobertura / plazo</small><strong>${coverage}</strong><span>${number(row.lead_days)} días de entrega</span></div>
-        <div class="next-replenishment-quantity"><small>Cantidad a comprar</small><input type="number" min="0" step="${number(row.purchase_pack_size) || 1}" value="${quantity}" data-replenishment-quantity="${row.id}" ${row.decision === "buy" ? "" : "disabled"}><span>${row.cost_known ? fmt(quantity * number(row.unit_cost)) : "Sin coste registrado"}</span></div>
-        <span class="status-pill tone-${row.priority}">${blocker || (row.decision === "monitor" ? "Seguimiento" : priorityLabels[row.priority])}</span>
+      const trend = trendLabels[row.trend] || trendLabels.stable;
+      const expanded = expandedReplenishmentId === id;
+      const stockGoal = Math.ceil(number(row.calculated_target_stock));
+      const deficit = Math.max(0, number(row.calculated_target_stock) - number(row.effective_stock));
+      const projectedCoverage = number(row.weighted_daily_demand) > 0 ? Math.round((number(row.effective_stock) + quantity) / number(row.weighted_daily_demand)) : 0;
+      return `<article class="next-replenishment-row-v2 priority-${row.priority} ${expanded ? "is-expanded" : ""}">
+        <label class="next-replenishment-check"><input type="checkbox" data-replenishment-select="${row.id}" ${selectedReplenishmentIds.has(id) ? "checked" : ""} ${row.can_plan ? "" : "disabled"}><span></span></label>
+        <div class="next-replenishment-material"><strong>${text(row.name)}</strong><small>${text(row.supplier_name || "Sin proveedor")} · ${text(row.family || row.category || "material")}</small><p>${text(row.reason)}</p></div>
+        <div class="replenishment-stock-cell"><small>Stock disponible</small><strong>${row.stock_known ? `${number(row.effective_stock)} ${text(row.unit_label)}` : "Sin stock"}</strong><span>Objetivo ${stockGoal}</span></div>
+        <div class="replenishment-demand-cell"><small>Consumo 30 / 90 dias</small><strong>${number(row.consumption_30).toFixed(0)} / ${number(row.consumption_90).toFixed(0)}</strong><span class="next-trend trend-${trend.tone}" title="${text(trend.label)}"><svg><use href="#icon-${trend.icon}"></use></svg><span>${text(trend.label)}</span></span></div>
+        <div class="replenishment-coverage-cell"><small>Cobertura / llegada</small><strong>${coverage}</strong><span>Llega en ${number(row.lead_days)} dias</span></div>
+        <div class="next-replenishment-quantity"><small>Cantidad sugerida</small><input type="number" min="0" step="${number(row.purchase_pack_size) || 1}" value="${quantity}" data-replenishment-quantity="${row.id}" ${row.decision === "buy" ? "" : "disabled"}><span>${row.cost_known ? `${fmt(quantity * number(row.unit_cost))} · ${fmt(number(row.unit_cost))}/ud` : "Sin coste registrado"}</span></div>
+        <div class="replenishment-confidence"><small>Confianza</small><span class="status-pill tone-${row.confidence || "medium"}">${text(row.confidence === "high" ? "Alta" : row.confidence === "low" ? "Baja" : "Media")}</span><span>${text(row.cost_known ? "Demanda observada" : "Sin coste")}</span></div>
+        <div class="replenishment-reason"><small>Motivo principal</small><strong>${text(blocker || (row.decision === "monitor" ? "Seguimiento" : row.reason_code ? row.reason_code.replaceAll("_", " ") : "Stock agotado"))}</strong><span class="status-pill tone-${row.priority}">${text(priorityLabels[row.priority] || "Revisar")}</span></div>
+        <button type="button" class="ghost icon-button" data-toggle-replenishment="${row.id}" aria-label="Ver detalle"><svg><use href="#icon-${expanded ? "chevron-up" : "arrow-right"}"></use></svg></button>
+        ${expanded ? `<div class="replenishment-detail"><div class="replenishment-detail-head"><div><strong>Por que recomendamos ${quantity} ${text(row.unit_label)}</strong><span>${text(row.explanation || row.reason || "La cobertura no alcanza el plazo de entrega configurado.")}</span></div><button type="button" class="ghost" data-open-material="${row.id}"><svg><use href="#icon-eye"></use></svg><span>Ver ficha completa</span></button></div><div class="replenishment-detail-grid"><section><h4>Demanda ultimas 12 semanas</h4><div class="replenishment-echart" data-chart="demand"><span>Pedidos</span><b>${number(row.consumption_30).toFixed(0)}</b><span>Sets</span><b>${number(row.set_consumption_30 || 0).toFixed(0)}</b></div></section><section><h4>Proyeccion de stock</h4><div class="replenishment-echart" data-chart="projection"><span>Sin comprar</span><b>${coverage}</b><span>Con compra</span><b>${projectedCoverage} dias</b></div></section></div><div class="replenishment-formula"><span>Objetivo <strong>${stockGoal}</strong></span><span>-</span><span>Stock <strong>${number(row.effective_stock)}</strong></span><span>=</span><span>Deficit <strong>${deficit.toFixed(1)}</strong></span><span>→</span><span>Comprar <strong>${quantity}</strong></span></div><div class="replenishment-simulator"><div><small>Simulador</small><strong>Prueba otra cantidad sin modificar el calculo base.</strong></div><label>Cantidad<input type="number" min="0" step="${number(row.purchase_pack_size) || 1}" value="${quantity}" data-replenishment-simulator="${row.id}"></label><div><small>Cobertura resultante</small><strong>${projectedCoverage} dias</strong></div><button type="button" data-use-replenishment-simulator="${row.id}">Usar esta cantidad</button></div></div>` : ""}
       </article>`;
-    }).join("") : `<div class="empty-state">No hay materiales en esta decisión con los filtros aplicados.</div>`;
+    }).join("") : `<div class="empty-state">No hay materiales en esta decision con los filtros aplicados.</div>`;
   }
 
   async function loadPurchasePlans() {
@@ -604,6 +634,31 @@
       }
       if (button.dataset.replenishmentDecision) {
         replenishmentFilters.decision = button.dataset.replenishmentDecision;
+        renderReplenishment();
+      }
+      if (button.dataset.replenishmentAction) {
+        const actionToDecision = { buy: "buy", monitor: "monitor", review: "configure", healthy: "healthy" };
+        replenishmentFilters.decision = actionToDecision[button.dataset.replenishmentAction] || "buy";
+        expandedReplenishmentId = null;
+        renderReplenishment();
+      }
+      if (button.dataset.toggleReplenishment) {
+        const id = Number(button.dataset.toggleReplenishment);
+        expandedReplenishmentId = expandedReplenishmentId === id ? null : id;
+        renderReplenishment();
+      }
+      if (Object.prototype.hasOwnProperty.call(button.dataset, "selectReliableReplenishment")) {
+        const candidates = replenishmentRows.filter((row) => row.decision === "buy" && row.can_plan && row.cost_known && row.confidence !== "low");
+        const allSelected = candidates.length > 0 && candidates.every((row) => selectedReplenishmentIds.has(Number(row.id)));
+        candidates.forEach((row) => {
+          const id = Number(row.id);
+          if (allSelected) selectedReplenishmentIds.delete(id); else selectedReplenishmentIds.add(id);
+        });
+        renderReplenishment();
+      }
+      if (button.dataset.useReplenishmentSimulator) {
+        const input = document.querySelector(`[data-replenishment-simulator="${button.dataset.useReplenishmentSimulator}"]`);
+        if (input) replenishmentQuantities.set(Number(button.dataset.useReplenishmentSimulator), number(input.value));
         renderReplenishment();
       }
       if (button.dataset.openPlan) await openPlan(button.dataset.openPlan);

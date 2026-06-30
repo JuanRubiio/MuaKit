@@ -105,6 +105,36 @@ function sheinFields(lines) {
   };
 }
 
+function capcutFields(lines) {
+  const text = lines.join("\n");
+  if (!/\bcapcut\b/i.test(text)) return null;
+  const findLine = (pattern) => lines.find((line) => pattern.test(line)) || "";
+  const leadingDate = lines.find((line) => /^\d{1,2}\s+de\s+[a-záéíóú]+\s+de\s+\d{4}$/i.test(line)) || "";
+  const leadingDateMatch = leadingDate.match(/^(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})$/i);
+  const renewalDateMatch = text.match(/se renueva el\s+(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})/i);
+  const documentNumber = findLine(/^\s*documento\s*:/i).match(/:\s*([A-Z0-9-]{6,})/i)?.[1]
+    || findLine(/^\s*secuencia\s*:/i).match(/:\s*([A-Z0-9-]{6,})/i)?.[1]
+    || "";
+  const capcutLine = findLine(/\bcapcut\b.*[0-9][0-9.,]*\s*€/i);
+  const paymentLine = findLine(/\bapple pay\b.*[0-9][0-9.,]*\s*€/i);
+  const total = amount(paymentLine.match(/([0-9][0-9.,]*)\s*€/i)?.[1] || capcutLine.match(/([0-9][0-9.,]*)\s*€/i)?.[1]);
+  const subtotal = amount(findLine(/\bsubtotal\b/i).match(/subtotal\s+([0-9][0-9.,]*)\s*€/i)?.[1]);
+  const taxRaw = findLine(/\bVAT\b/i).match(/(?:VAT(?: del \d+ ?%)?\s*)([0-9][0-9.,]*)\s*€/i)?.[1];
+  const tax = aliExpressMoney(taxRaw, total);
+  return {
+    invoice_number: documentNumber,
+    invoice_date: leadingDateMatch ? isoDate(leadingDateMatch[1], leadingDateMatch[2], leadingDateMatch[3])
+      : renewalDateMatch ? isoDate(renewalDateMatch[1], renewalDateMatch[2], renewalDateMatch[3])
+      : "",
+    subtotal,
+    discount: 0,
+    shipping: 0,
+    tax,
+    total,
+    currency: "EUR"
+  };
+}
+
 function cleanAliExpressDescription(value) {
   return String(value || "")
     .replace(/^[^a-záéíóúñ0-9]+/i, "")
@@ -281,6 +311,29 @@ function detectedSheinLines(lines) {
   return [...grouped.values()];
 }
 
+function detectedCapCutLines(lines, fields = {}) {
+  if (!lines.some((line) => /\bcapcut\b/i.test(line))) return [];
+  const headline = lines.find((line) => /\bcapcut\b.*editor/i.test(line)) || "";
+  if (!headline) return [];
+  const seatsLine = lines.find((line) => /\b\d+\s+puestos\/mensual\b/i.test(line)) || "";
+  const seatCount = Number(seatsLine.match(/\b(\d+)\s+puestos\/mensual\b/i)?.[1] || 1);
+  const total = Number(fields.total ?? amount(headline.match(/([0-9][0-9.,]*)\s*€/i)?.[1]) ?? 0);
+  const description = [headline.replace(/\s*[0-9][0-9.,]*\s*€\s*$/i, "").trim(), seatsLine.match(/\b\d+\s+puestos\/mensual\b/i)?.[0] || ""]
+    .filter(Boolean)
+    .join(" · ");
+  return total > 0 ? [{
+    description,
+    quantity: seatCount,
+    package_count: seatCount,
+    units_per_package: 1,
+    total_units: seatCount,
+    price_per_package: Number((total / Math.max(1, seatCount)).toFixed(2)),
+    unit_price: Number((total / Math.max(1, seatCount)).toFixed(2)),
+    line_total: Number(total.toFixed(2)),
+    original_text: [headline, seatsLine].filter(Boolean).join(" ")
+  }] : [];
+}
+
 function nativePageText(items) {
   const rows = new Map();
   for (const item of items) {
@@ -300,6 +353,7 @@ function detectFields(text) {
   const aliExpress = aliExpressFields(lines);
   const etsy = etsyFields(lines);
   const shein = sheinFields(lines);
+  const capcut = capcutFields(lines);
   const numericDate = text.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/)?.[1] || "";
   const namedDate = text.match(/\b(?:paid on|bill created|fecha)\s+([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{4})/i);
   const spanishDate = text.match(/(?:fecha de la factura\/pago|fecha)\s*\n\s*(\d{1,2})\s+([a-záéíóú]{3,5})\.?\s+(\d{4})/i);
@@ -323,7 +377,7 @@ function detectFields(text) {
   const selectedTotal = totalCandidates.at(-1) || null;
   const rateMatch = text.match(/\b1\s+(USD|EUR)\s*=\s*([0-9][0-9.,]*)\s+(EUR|USD)\b/i);
   const exchangeRate = rateMatch ? { from: rateMatch[1].toUpperCase(), rate: amount(rateMatch[2]), to: rateMatch[3].toUpperCase() } : null;
-  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(etsy || {}), ...(shein || {}) };
+  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(etsy || {}), ...(shein || {}), ...(capcut || {}) };
 }
 
 function detectedInvoiceLines(lines, fields = {}) {
@@ -333,6 +387,8 @@ function detectedInvoiceLines(lines, fields = {}) {
   if (etsyLines.length) return etsyLines;
   const sheinLines = detectedSheinLines(lines, fields);
   if (sheinLines.length) return sheinLines;
+  const capcutLines = detectedCapCutLines(lines, fields);
+  if (capcutLines.length) return capcutLines;
   const excluded = /\b(total|subtotal|vat|iva|tax|payment|paid|billing|bill|address|overview|page \d|learn more|recipient|credit|discount|shipping|mastercard|floor|dublin|spain|transacci[oó]n|umbral de pago|emitido una factura)\b|=|\(\d+\s+items?\)/i;
   return lines.filter((line) => {
     if (line.length > 220 || excluded.test(line)) return false;
@@ -651,4 +707,4 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   return { enqueue, process, status: () => ({ available: true, languages: ["spa", "eng"], model_path: langPath, pending: queue.length, running }) };
 }
 
-module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };
+module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };

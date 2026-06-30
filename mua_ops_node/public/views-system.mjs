@@ -1,4 +1,4 @@
-﻿export function createSystemViews(ctx) {
+export function createSystemViews(ctx) {
   const {
     state,
     $,
@@ -289,6 +289,10 @@
     if (form.elements.dashboard_color_profit_sales) form.elements.dashboard_color_profit_sales.value = state.settings.dashboard_color_profit_sales || colors.profit_sales;
     if (form.elements.dashboard_color_profit_cost) form.elements.dashboard_color_profit_cost.value = state.settings.dashboard_color_profit_cost || colors.profit_cost;
     if (form.elements.dashboard_color_profit_margin) form.elements.dashboard_color_profit_margin.value = state.settings.dashboard_color_profit_margin || colors.profit_margin;
+    if (form.elements.dashboard_color_sales_revenue) form.elements.dashboard_color_sales_revenue.value = state.settings.dashboard_color_sales_revenue || colors.sales_revenue;
+    if (form.elements.dashboard_color_sales_orders) form.elements.dashboard_color_sales_orders.value = state.settings.dashboard_color_sales_orders || colors.sales_orders;
+    if (form.elements.dashboard_color_sales_ticket) form.elements.dashboard_color_sales_ticket.value = state.settings.dashboard_color_sales_ticket || colors.sales_ticket;
+    if (form.elements.dashboard_color_sales_previous) form.elements.dashboard_color_sales_previous.value = state.settings.dashboard_color_sales_previous || colors.sales_previous;
     if (form.elements.dashboard_color_margin_critical) form.elements.dashboard_color_margin_critical.value = state.settings.dashboard_color_margin_critical || colors.margin_critical;
     if (form.elements.dashboard_color_margin_pressure) form.elements.dashboard_color_margin_pressure.value = state.settings.dashboard_color_margin_pressure || colors.margin_pressure;
     if (form.elements.dashboard_color_margin_healthy) form.elements.dashboard_color_margin_healthy.value = state.settings.dashboard_color_margin_healthy || colors.margin_healthy;
@@ -896,6 +900,4 @@
     technicalLogFilterValues
   };
 }
-
-
 

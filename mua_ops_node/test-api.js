@@ -3,8 +3,9 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const initSqlJs = require("sql.js");
-const { amount: parsedAmount, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
+const { amount: parsedAmount, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
 const { cleanOriginalName, accountingQuality } = require("./lib/routes/expense-imports");
+const { ORDER_TYPES, detectOrderType, inferRecipeOrderType, isOrderTypeMarkerTitle } = require("./lib/services/order-typologies");
 
 const ROOT = path.resolve(__dirname, "..");
 const SERVER = path.join(__dirname, "server.js");
@@ -258,6 +259,17 @@ async function waitForServer() {
 }
 
 async function run() {
+  assert(ORDER_TYPES.length === 7, "Orders should expose the seven agreed business typologies");
+  const maternityDetection = detectOrderType([
+    { id: 1, title: "Kit Müa | Recuerdos de Maternidad" },
+    { id: 2, title: "Colgante Corazón dorado (acero)" }
+  ]);
+  assert(maternityDetection.code === "maternity" && maternityDetection.confidence >= 0.9, "Maternity kit markers should classify orders with high confidence");
+  assert(maternityDetection.markerIds.includes(1), "The conceptual kit line should be identified as a typology marker");
+  assert(!isOrderTypeMarkerTitle("Colgante huella plateado"), "Real jewellery lines should not be hidden as typology markers");
+  assert(detectOrderType([{ title: "OMOI — Tu mascota convertida en joya" }]).code === "omoi", "Omoi orders should have their own typology");
+  assert(detectOrderType([{ title: "Joya extra sin kit" }]).code === "extra_jewel", "Extra jewellery without a kit should have its own typology");
+  assert(inferRecipeOrderType({ name: "Kit base mascota", notes: "Sin pipeta" }) === "pet", "Existing recipe names should be mapped to typologies");
   assert(parsedAmount("19.90") === 19.9, "Dot-decimal amounts should not be multiplied by 100");
   assert(parsedAmount("1.725,00") === 1725, "European amounts should parse thousands and decimals");
   const euroFields = detectFields("Shopify\nPaid on Jun 12, 2026\nTOTAL €17.25 EUR\nBill #543058864");
@@ -369,6 +381,25 @@ VAT Breakdown`;
   const sheinLines = detectedSheinLines(sheinFields.lines);
   assert(sheinLines.length === 1 && sheinLines[0].package_count === 2 && sheinLines[0].units_per_package === 100 && sheinLines[0].quantity === 200, "Repeated Shein packs should preserve package structure and real purchased units");
   assert(sheinLines[0].line_total === 3.62 && sheinLines[0].price_per_package === 1.81 && Math.abs(sheinLines[0].unit_price - 0.0181) < 0.000001, "Shein material prices should include VAT at package, unit and line level");
+  const capcutText = `18 de junio de 2026
+Secuencia: 1-13844802927
+ID de pedido: MXGSH2FKWD
+Documento: 784149346482
+Cuenta de Apple: cquerreroheras gmail.com
+CapCut - Editor de vídeo 20,00 €
+2 puestos/mensual (Mensual Incluye el VAT del 21% 3,47 €
+Se renueva el 19 de julio de 2026
+Pagos y facturación
+Cristina Guerrero Heras Subtotal 16,53 €
+Ayala Se ha cargado un 21 % de VAT 3,47€
+España Visa +++ 6704 (Apple Pay) 20,00 €`;
+  const capcutFields = detectFields(capcutText);
+  assert(capcutFields.invoice_number === "784149346482" && capcutFields.invoice_date === "2026-06-18", "CapCut document number and purchase date should be detected");
+  assert(capcutFields.subtotal === 16.53 && capcutFields.tax === 3.47 && capcutFields.total === 20, "CapCut subtotal, VAT and final paid total should be separated correctly");
+  assert(inferExpenseCategory(capcutText, "materiales", ["materiales"]) === "software", "CapCut invoices should stay classified as software");
+  const capcutLines = detectedCapCutLines(capcutFields.lines, capcutFields);
+  assert(capcutLines.length === 1 && capcutLines[0].quantity === 2, "CapCut subscriptions should become a single line with seat quantity");
+  assert(!capcutLines[0].description.includes("Apple Pay") && capcutLines[0].line_total === 20, "CapCut payment rows must not become expense lines");
   const evidence = fieldEvidence({ suggested_supplier_name: "Meta", invoice_number: "FBADS-394", invoice_date: "2026-04-04", total: 18.51 }, [{ page: 1, text: "Meta Platforms\nFactura FBADS-394\nTotal 18,51 EUR" }]);
   assert(evidence.supplier?.page === 1 && evidence.invoice_number?.text.includes("FBADS-394"), "Detected fields should retain document evidence");
   const safeAccounting = accountingQuality({ suggested_supplier_id: 1, invoice_number: "A-1", invoice_date: "2026-01-01", total: 10, category: "software" }, [{ line_total: 10, human_decision: "accepted" }], {});
@@ -470,6 +501,7 @@ VAT Breakdown`;
       "dashboard_color_servicios", "dashboard_color_software", "dashboard_color_otros", "dashboard_color_balance",
       "dashboard_color_cobros", "dashboard_color_fees", "dashboard_color_shopify", "dashboard_color_etsy", "dashboard_color_bizum",
       "dashboard_color_profit_sales", "dashboard_color_profit_cost", "dashboard_color_profit_margin",
+      "dashboard_color_sales_revenue", "dashboard_color_sales_orders", "dashboard_color_sales_ticket", "dashboard_color_sales_previous",
       "dashboard_color_margin_critical", "dashboard_color_margin_pressure", "dashboard_color_margin_healthy",
       "dashboard_color_cost_content", "dashboard_color_cost_fixed"
     ].forEach((key) => assert(/^#[0-9a-f]{6}$/i.test(settings[key]), `Settings should expose ${key}`));
@@ -481,6 +513,8 @@ VAT Breakdown`;
       dashboard_color_bizum: "#c18a3a",
       dashboard_color_servicios: "#7a7168",
       dashboard_color_profit_margin: "#bf7412",
+      dashboard_color_sales_revenue: "#0f6f64",
+      dashboard_color_sales_orders: "#4b778a",
       dashboard_color_margin_healthy: "#157260"
     });
     assert(updatedSettings.dashboard_monthly_view === "marketing", "Settings should be editable");
@@ -489,6 +523,8 @@ VAT Breakdown`;
     assert(updatedSettings.default_payout_channel === "bizum", "Settings should persist payout defaults");
     assert(updatedSettings.dashboard_color_servicios === "#7a7168", "Settings should persist expense category colors");
     assert(updatedSettings.dashboard_color_profit_margin === "#bf7412", "Settings should persist profitability series colors");
+    assert(updatedSettings.dashboard_color_sales_revenue === "#0f6f64", "Settings should persist sales series colors");
+    assert(updatedSettings.dashboard_color_sales_orders === "#4b778a", "Settings should persist sales comparison colors");
     assert(updatedSettings.dashboard_color_margin_healthy === "#157260", "Settings should persist profitability band colors");
 
     const shopifyConnection = await request("PATCH", "/api/shopify/connection", {
@@ -748,10 +784,13 @@ VAT Breakdown`;
       name: "Kit test base",
       version: "maternal",
       is_default: true,
+      order_type: "maternity",
+      is_type_default: true,
       notes: "API test fixed set"
     });
     assert(kitRecipe.id, "Kit recipe should be created");
     assert(Number(kitRecipe.is_default) === 1, "Kit recipe should be markable as default");
+    assert(kitRecipe.order_type === "maternity" && Number(kitRecipe.is_type_default) === 1, "Kit recipes should be defaultable per order typology");
 
     const kitItem = await request("POST", `/api/kit-recipes/${kitRecipe.id}/items`, {
       material_id: material.id,
@@ -798,6 +837,16 @@ VAT Breakdown`;
     assert(profitability.active_set?.id === kitRecipe.id, "Order profitability should use the default fixed set");
     const profitableOrder = profitability.orders.find((order) => (order.lines || []).some((orderLine) => orderLine.material_id === material.id && orderLine.total_cost != null));
     assert(profitableOrder, "Order profitability should expose synced order lines with linked materials");
+    assert(profitability.order_types.length === 7, "Profitability should publish the order typology catalogue");
+    const invalidType = await requestRaw("PATCH", `/api/orders/${profitableOrder.id}/type`, { order_type: "not-a-type" });
+    assert(invalidType.response.status === 400 && invalidType.payload.code === "ORDER_TYPE_INVALID", "Invalid order typologies should be rejected with a stable error");
+    const typedOrder = await request("PATCH", `/api/orders/${profitableOrder.id}/type`, { order_type: "maternity", apply_recommended_set: true });
+    assert(typedOrder.order_type === "maternity" && typedOrder.order_type_source === "manual", "Manual order classification should be persisted and audited");
+    assert(typedOrder.kit_recipe_id === kitRecipe.id, "Applying a typology should optionally apply its recommended fixed set");
+    profitability = await request("GET", "/api/orders/profitability");
+    const typedProfitability = profitability.orders.find((order) => order.id === profitableOrder.id);
+    assert(typedProfitability.order_type_meta.label === "Recuerdos de maternidad", "Order profitability should expose readable typology metadata");
+    assert(typedProfitability.recommended_fixed_set?.id === kitRecipe.id && typedProfitability.set_matches_recommended, "Order profitability should distinguish the recommended and applied set");
     const missingCostLines = profitableOrder.lines.filter((orderLine) => orderLine.material_id && orderLine.unit_cost == null);
     assert(missingCostLines.length > 0, "Fixture order should include Shopify lines without registered cost");
     assert(missingCostLines.every((orderLine) => Number(orderLine.include_in_cost) === 0), "Shopify lines without cost should be excluded automatically");
@@ -833,6 +882,46 @@ VAT Breakdown`;
     profitability = await request("GET", "/api/orders/profitability");
     changedOrder = profitability.orders.find((order) => order.id === profitableOrder.id);
     assert(changedOrder.fixed_set_cost > 0, "Reincluded fixed set component should restore order fixed set cost");
+
+    const silverMaterial = await request("POST", "/api/materials", {
+      name: "Colgante QA plata 925",
+      category: "joya",
+      unit_label: "ud",
+      preferred_supplier_id: supplier.id,
+      base_material: "plata",
+      finish: "pulida"
+    });
+    const silverInvoice = await request("POST", "/api/invoices", {
+      supplier_id: supplier.id,
+      invoice_date: "2026-06-01",
+      status: "paid",
+      category: "materiales",
+      subtotal: 12,
+      total: 12
+    });
+    await request("POST", `/api/invoices/${silverInvoice.id}/lines`, {
+      material_id: silverMaterial.id,
+      description: "Compra QA plata",
+      package_count: 1,
+      units_per_package: 1,
+      total_units: 1,
+      price_per_package: 12,
+      unit_price: 12,
+      line_total: 12,
+      affects_stock: true
+    });
+    const linkedProductCandidates = await request("GET", `/api/shopify-products?q=${encodeURIComponent(costedOrderLine.title)}`);
+    const linkedProduct = linkedProductCandidates.find((row) => row.title === costedOrderLine.title) || linkedProductCandidates[0];
+    assert(linkedProduct, "A Shopify product should be available to validate silver order profiling");
+    await request("PATCH", `/api/shopify-products/${linkedProduct.id}`, { material_id: silverMaterial.id });
+    await request("POST", "/api/shopify/sync/orders", { full: true });
+    profitability = await request("GET", "/api/orders/profitability");
+    changedOrder = profitability.orders.find((order) => order.id === profitableOrder.id);
+    assert(changedOrder.contains_silver === true, "Orders with linked silver jewellery should be marked as silver-aware");
+    assert(["silver", "mixed"].includes(changedOrder.silver_profile), "Silver-aware orders should expose a readable silver profile");
+    assert(changedOrder.silver_line_count > 0, "Silver-aware orders should count the affected order lines");
+    assert(profitability.metrics.silver_orders >= 1, "Profitability metrics should segment orders with silver jewellery");
+    assert(profitability.metrics.average_profit != null, "Profitability metrics should expose average real profit");
 
     const noCostFixedMaterial = await request("POST", "/api/materials", {
       name: "Material sin coste para set",
@@ -882,10 +971,16 @@ VAT Breakdown`;
     const replenishmentRow = replenishment.recommendations.find((row) => row.id === replenishmentMaterial.id);
     assert(replenishmentRow, "Replenishment should include inventory-controlled materials");
     assert(replenishmentRow.suggested_quantity === 15, "Replenishment should round fallback target deficit to purchase pack size");
-    assert(replenishmentRow.reason.includes("Sin consumo suficiente"), "Every replenishment recommendation should explain its fallback");
-    assert(replenishmentRow.decision === "buy", "Fallback target deficits should be classified as a purchase decision");
+    assert(replenishmentRow.reason.includes("referencia es manual"), "Every manual replenishment reference should explain its fallback");
+    assert(replenishmentRow.action === "review", "Fallback target deficits should require human review instead of looking automatic");
+    assert(replenishmentRow.confidence === "manual", "Fallback target deficits should expose manual confidence");
+    assert(replenishmentRow.reliable_plan === false, "Manual references must not be marked as reliable purchase recommendations");
     assert(replenishmentRow.can_plan === true, "Recommendations with a supplier and quantity should be eligible for a purchase plan");
     assert(Array.isArray(replenishmentRow.blockers), "Replenishment should expose operational blockers");
+    assert(replenishmentRow.formula?.rounded_quantity === 15, "Replenishment should expose the supervised calculation formula");
+    assert(Array.isArray(replenishmentRow.demand_history) && replenishmentRow.demand_history.length === 12, "Replenishment should expose twelve weekly demand buckets");
+    assert(replenishmentRow.demand_history.every((bucket) => Number.isFinite(bucket.direct) && Number.isFinite(bucket.sets)), "Weekly demand should separate direct and set consumption");
+    assert(replenishmentRow.projection?.horizon_days === 90 && Object.prototype.hasOwnProperty.call(replenishmentRow.projection, "rupture_day"), "Replenishment should expose stock projection inputs");
 
     const purchasePlan = await request("POST", "/api/purchase-plans", { lines: [{ material_id: replenishmentMaterial.id, ordered_quantity: 20 }], name: "Plan QA" });
     assert(purchasePlan.orders.length === 1, "Purchase plan should group selected recommendations by supplier");
@@ -1002,6 +1097,28 @@ VAT Breakdown`;
     assert(dashboard.profitability.metrics.weighted_margin_percent == null || Number.isFinite(dashboard.profitability.metrics.weighted_margin_percent), "Dashboard weighted margin should be numeric when available");
     assert(dashboard.profitability.metrics.reliable_orders <= dashboard.profitability.metrics.total_orders, "Reliable order coverage should be bounded by total orders");
     assert(dashboard.profitability.bands.reduce((sum, row) => sum + row.orders, 0) === dashboard.profitability.metrics.reliable_orders, "Margin bands should reconcile with reliable orders");
+    if (dashboard.comparison) {
+      [
+        "expense_change_percent",
+        "weighted_margin_change_points",
+        "reliable_coverage_change_points",
+        "average_ticket_change_percent",
+        "net_sales_change_percent",
+        "total_profit_change_percent",
+        "real_cost_sold_change_percent"
+      ].forEach((key) => {
+        assert(Object.prototype.hasOwnProperty.call(dashboard.comparison, key), `Dashboard comparison should expose ${key}`);
+      });
+    }
+    assert(Array.isArray(dashboard.sales?.series), "Dashboard should expose sales series");
+    assert(Array.isArray(dashboard.sales?.cumulative), "Dashboard should expose cumulative sales series");
+    assert(dashboard.sales?.series.length === dashboard.sales?.cumulative.length, "Sales trend and cumulative series should align");
+    assert(Array.isArray(dashboard.sales?.ticket_bands) && dashboard.sales.ticket_bands.length === 5, "Dashboard should expose ticket distribution bands");
+    assert(Array.isArray(dashboard.sales?.top_products), "Dashboard should expose top sold products");
+    if (dashboard.sales?.comparison) {
+      assert(Object.prototype.hasOwnProperty.call(dashboard.sales.comparison, "marketing_per_order_change_percent"), "Dashboard sales comparison should expose marketing per order delta");
+      assert(Object.prototype.hasOwnProperty.call(dashboard.sales.comparison, "average_profit_per_reliable_order_change_percent"), "Dashboard sales comparison should expose reliable profit delta");
+    }
 
     const audit = await request("GET", `/api/audit-log?entity=invoice&id=${invoice.id}`);
     assert(audit.some((row) => row.action === "create"), "Audit log should include invoice creation");

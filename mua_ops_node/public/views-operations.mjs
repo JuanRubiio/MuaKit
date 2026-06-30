@@ -1,4 +1,4 @@
-﻿export function createOperationViews(ctx) {
+export function createOperationViews(ctx) {
   const {
     state,
     $,
@@ -19,8 +19,11 @@
     paginateRows,
     renderPagination,
     chartColors,
-    dashboardChart
+    dashboardChart,
+    syncFreshnessMarkup,
+    shopifyFreshnessState
   } = ctx;
+  let selectedOrderSetType = "";
 
   async function loadSuppliers() {
     const includeDeleted = $("#suppliersDeleted")?.checked ? 1 : 0;
@@ -42,7 +45,7 @@
       name_asc: (a, b) => lower(a.name).localeCompare(lower(b.name))
     });
     const meta = paginateRows("suppliers", rows);
-    $("#supplierResultText").textContent = `${meta.total} proveedores visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+    if ($("#supplierResultText")) $("#supplierResultText").textContent = "";
     $("#supplierList").innerHTML = meta.rows.map((supplier) => `
       <article class="row ${supplier.is_deleted ? "deleted" : ""}">
         <div class="row-main">
@@ -50,7 +53,7 @@
             ${entityIconMarkup(supplier.name, { type: "supplier", className: "supplier-avatar" })}
             <div>
           <strong>${text(supplier.name)}</strong>
-          <div class="meta">${text(supplier.category, "Sin categorÃ­a")} ${supplier.lead_time_days ? `Â· ${supplier.lead_time_days} dÃ­as` : ""}</div>
+          <div class="meta">${text(supplier.category, "Sin categoría")} ${supplier.lead_time_days ? `· ${supplier.lead_time_days} días` : ""}</div>
             </div>
           </div>
           ${supplier.website ? `<a class="subtle-link" href="${text(supplier.website)}" target="_blank" rel="noreferrer">${text(supplier.website)}</a>` : ""}
@@ -278,10 +281,9 @@
     const allRows = [...state.suppliers];
     const rows = supplierFilteredRows();
     const meta = paginateRows("suppliers", rows);
-    const now = new Date();
-    $("#supplierResultText").textContent = `${meta.total} proveedores visibles.${meta.total ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
+    if ($("#supplierResultText")) $("#supplierResultText").textContent = "";
     $("#supplierListMetaText").textContent = meta.total ? `Mostrando ${meta.startIndex + 1}-${meta.endIndex} de ${meta.total} proveedores filtrados.` : "No hay proveedores con esos filtros.";
-    $("#supplierUpdatedMeta").innerHTML = `<svg><use href="#icon-clock"></use></svg><span>Actualizado ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>`;
+    if ($("#supplierUpdatedMeta")) $("#supplierUpdatedMeta").textContent = "";
     renderSupplierSummary(allRows);
     renderSupplierCritical(allRows);
     renderSupplierReview(allRows);
@@ -483,6 +485,55 @@
     return set?.items || [];
   }
 
+  function orderTypeOptions() {
+    return state.ordersProfitability?.order_types || [];
+  }
+
+  function orderTypeMeta(order) {
+    return order?.order_type_meta || orderTypeOptions().find((type) => type.code === order?.order_type) || {
+      code: "",
+      label: "Sin clasificar",
+      shortLabel: "Sin tipologia",
+      icon: "icon-alert"
+    };
+  }
+
+  function orderTypeBadge(order) {
+    const meta = orderTypeMeta(order);
+    const typeClass = meta.code ? `type-${String(meta.code).replace(/[^a-z0-9_-]/gi, "_")}` : "type-missing";
+    return `
+      <span class="order-type-badge ${typeClass}">
+        <span class="order-type-icon"><svg><use href="#${text(meta.icon || "icon-tag")}"></use></svg></span>
+        <span><strong>${text(meta.shortLabel || meta.label || "Sin tipologia")}</strong><small>${text(meta.label || "Pendiente")}</small></span>
+      </span>
+    `;
+  }
+
+  function orderMetalBadge(order) {
+    return order.contains_silver ? badge("Con plata", "ok") : badge("Sin plata", "neutral");
+  }
+
+  function orderSetLabel(order) {
+    const set = order.fixed_set || activeFixedSet();
+    const recommended = order.recommended_set;
+    const suffix = recommended && set && String(recommended.id) === String(set.id) ? "Set recomendado" : "Set manual";
+    return `${set?.name || "Sin set"} · ${suffix}`;
+  }
+
+  function refreshOrderFilterOptions() {
+    const typeFilter = $("#orderTypeFilter");
+    if (typeFilter) {
+      const selected = typeFilter.value;
+      typeFilter.innerHTML = `<option value="">Todas</option>${orderTypeOptions().map((type) => `<option value="${text(type.code)}" ${selected === type.code ? "selected" : ""}>${text(type.label)}</option>`).join("")}`;
+    }
+    const setFilter = $("#orderSetFilter");
+    if (setFilter) {
+      const selected = setFilter.value;
+      const sets = state.ordersProfitability?.fixed_sets || state.kits || [];
+      setFilter.innerHTML = `<option value="">Todos</option>${sets.map((set) => `<option value="${text(set.id)}" ${String(selected) === String(set.id) ? "selected" : ""}>${text(set.name)}${set.version ? ` - ${text(set.version)}` : ""}</option>`).join("")}`;
+    }
+  }
+
   function filteredOrderRows() {
     let rows = [...(state.ordersProfitability?.orders || [])];
     const search = lower($("#orderSearch")?.value).trim();
@@ -492,12 +543,22 @@
         order.channel,
         order.financial_status,
         order.fulfillment_status,
+        orderTypeMeta(order).label,
+        orderTypeMeta(order).shortLabel,
+        order.fixed_set?.name,
         ...(order.lines || []).map((line) => `${line.title} ${line.material_name || ""}`)
       ].join(" ")).includes(search));
     }
     const channel = $("#orderChannelFilter")?.value;
     const status = $("#orderStatusFilter")?.value;
+    const type = $("#orderTypeFilter")?.value;
+    const set = $("#orderSetFilter")?.value;
+    const metal = $("#orderMetalFilter")?.value;
     if (channel) rows = rows.filter((order) => order.channel === channel);
+    if (type) rows = rows.filter((order) => String(order.order_type || "") === String(type));
+    if (set) rows = rows.filter((order) => String(order.kit_recipe_id || order.fixed_set?.id || "") === String(set));
+    if (metal === "silver") rows = rows.filter((order) => order.contains_silver);
+    if (metal === "standard") rows = rows.filter((order) => !order.contains_silver);
     if (status === "complete") rows = rows.filter((order) => order.status === "complete");
     if (status === "missing") rows = rows.filter((order) => order.status !== "complete");
     if (status === "low_margin") rows = rows.filter((order) => order.status === "low_margin");
@@ -513,12 +574,14 @@
     const metrics = state.ordersProfitability?.metrics || {};
     const avg = (values) => values.length ? values.reduce((sum, value) => sum + number(value), 0) / values.length : 0;
     const complete = rows.filter((order) => order.status === "complete");
+    const classified = number(metrics.classified_orders ?? rows.filter((order) => order.order_type).length);
+    const silver = number(metrics.silver_orders ?? rows.filter((order) => order.contains_silver).length);
     const cards = [
-      ["Ticket medio", euro.format(number(metrics.average_ticket) || avg(rows.map((order) => order.net_amount))), "Venta neta media", "icon-wallet", "accent"],
-      ["Margen medio", metrics.average_margin_percent == null ? "-" : `${number(metrics.average_margin_percent).toFixed(1)}%`, `${text(metrics.complete_orders || complete.length)} pedidos fiables`, "icon-chart", "gold"],
-      ["Coste fijo medio", euro.format(number(metrics.average_fixed_cost)), "Set aplicado por pedido", "icon-cube", "gold"],
-      ["Coste real medio", metrics.average_real_cost == null ? "-" : euro.format(number(metrics.average_real_cost)), "Contenido + set fijo", "icon-coin", "accent"],
-      ["Pedidos incompletos", number(metrics.incomplete_orders ?? rows.filter((order) => order.status !== "complete").length), "Falta coste o desglose", "icon-alert", "rose"]
+      ["Pedidos analizados", rows.length, "Pedidos sincronizados", "icon-kit", "accent"],
+      ["Cobertura tipológica", rows.length ? `${Math.round((classified / rows.length) * 100)}%` : "-", `${classified} pedidos clasificados`, "icon-tag", "accent"],
+      ["Margen fiable", metrics.average_margin_percent == null ? "-" : `${number(metrics.average_margin_percent).toFixed(1)}%`, `${text(metrics.complete_orders || complete.length)} pedidos explicables`, "icon-percent", "gold"],
+      ["Con plata", silver, `${metrics.silver_average_ticket ? euro.format(number(metrics.silver_average_ticket)) : euro.format(avg(rows.filter((order) => order.contains_silver).map((order) => order.net_amount)))} ticket medio`, "icon-gem", "accent"],
+      ["Por revisar", number(metrics.incomplete_orders ?? rows.filter((order) => order.status !== "complete").length), "Tipologia, set o costes", "icon-alert", "rose"]
     ];
     $("#ordersSummaryCards").innerHTML = cards.map(([label, value, hint, icon, tone]) => `
       <article class="orders-summary-card tone-${tone}">
@@ -569,6 +632,8 @@
   function renderFixedSetView() {
     const set = activeFixedSet();
     const sets = state.ordersProfitability?.fixed_sets || state.kits || [];
+    const typeOptions = orderTypeOptions();
+    const filteredSets = selectedOrderSetType ? sets.filter((item) => String(item.order_type || item.type_code || "") === selectedOrderSetType) : sets;
     const rows = fixedSetRows(set);
     const componentForm = set ? `
       <form id="kitItemForm" class="orders-add-component">
@@ -583,8 +648,17 @@
       </form>
     ` : "";
     $("#ordersFixedList").innerHTML = `
+      <div class="orders-type-selector">
+        <label>Tipologia
+          <select data-set-type-filter>
+            <option value="">Todas las tipologias</option>
+            ${typeOptions.map((type) => `<option value="${text(type.code)}" ${selectedOrderSetType === type.code ? "selected" : ""}>${text(type.label)}</option>`).join("")}
+          </select>
+        </label>
+        <span>${text(filteredSets.length)} sets visibles</span>
+      </div>
       <div class="orders-set-version-list">
-        ${sets.map((item) => `
+        ${filteredSets.map((item) => `
           <article class="orders-set-version ${String(item.id) === String(set?.id) ? "is-active" : ""}">
             <button type="button" data-select-fixed-set="${item.id}">
               <span><strong>${text(item.name)}</strong><small>${text(item.version || "Sin version")}</small></span>
@@ -630,31 +704,35 @@
   function renderKits() {
     const list = $("#kitList");
     if (!list) return;
+    refreshOrderFilterOptions();
     const rows = filteredOrderRows();
     const meta = paginateRows("kits", rows);
-    $("#kitResultText").textContent = `${rows.length} pedidos analizados.${rows.length ? ` Mostrando ${meta.startIndex + 1}-${meta.endIndex}.` : ""}`;
-    $("#ordersUpdatedMeta").innerHTML = `<svg><use href="#icon-clock"></use></svg><span>Actualizado ${new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>`;
+    if ($("#kitResultText")) $("#kitResultText").textContent = "";
+    const ordersMeta = $("#ordersUpdatedMeta");
+    if (ordersMeta) {
+      const freshness = shopifyFreshnessState(state.shopifySyncStatus || state.shopifyConnection || {});
+      ordersMeta.className = `dashboard-freshness is-${freshness.tone}`;
+      ordersMeta.innerHTML = `<i></i>${text(freshness.label)}`;
+    }
     renderOrdersSummary(state.ordersProfitability?.orders || []);
     renderFixedPreview();
     renderOrdersReview(state.ordersProfitability?.orders || []);
     renderFixedSetView();
     $("#ordersListMetaText").textContent = meta.total ? `Mostrando ${meta.startIndex + 1}-${meta.endIndex} de ${meta.total} pedidos filtrados.` : "No hay pedidos con esos filtros.";
     list.innerHTML = `
-      <div class="orders-table-head"><span>Pedido</span><span>Fecha</span><span>Contenido</span><span>Venta</span><span>Coste pedido</span><span>Set fijo</span><span>Coste real</span><span>Margen</span><span>Estado</span><span>Acciones</span></div>
+      <div class="orders-table-head"><span>Pedido</span><span>Fecha</span><span>Tipología</span><span>Contenido</span><span>Venta</span><span>Beneficio real</span><span>Margen</span><span>Estado</span><span>Acción</span></div>
       ${meta.rows.length ? meta.rows.map((order) => {
         const status = orderStatusMeta(order.status);
         const marginTone = orderMarginTone(order);
         const statusTone = orderStatusTone(order);
-        const set = order.fixed_set || activeFixedSet();
         return `
           <article class="orders-table-row">
             <span><strong>${text(order.order_number || `Pedido #${order.id}`)}</strong><small>${text(order.channel || "canal")}</small></span>
             <span>${text(order.order_date || "-")}</span>
+            <span>${orderTypeBadge(order)}${orderMetalBadge(order)}<small>${text(orderSetLabel(order))}</small></span>
             <span><strong>${(order.lines || []).length ? `${order.lines.length} lineas` : "Sin desglose"}</strong><small>${text((order.lines || []).slice(0, 2).map((line) => line.title).join(", ") || "Pendiente de sincronizar")}</small></span>
             <span>${euro.format(number(order.net_amount))}</span>
-            <span>${order.content_cost == null ? "-" : euro.format(number(order.content_cost))}</span>
-            <span><strong>${euro.format(number(order.fixed_set_cost))}</strong><small>${text(set?.version || set?.name || "Set fijo")}</small></span>
-            <span><strong>${order.content_cost == null ? "-" : euro.format(number(order.real_cost))}</strong></span>
+            <span><strong>${order.profit == null ? "-" : euro.format(number(order.profit))}</strong><small>Coste real ${order.real_cost == null ? "-" : euro.format(number(order.real_cost))}</small></span>
             <span class="orders-chip-cell">${badge(order.margin_percent == null ? "-" : `${number(order.margin_percent).toFixed(1)}%`, marginTone)}</span>
             <span class="orders-chip-cell">${badge(status.label, statusTone)}</span>
             <span class="row-actions slim"><button type="button" class="icon-action" data-open-order="${order.id}" title="Ver pedido"><svg><use href="#icon-eye"></use></svg></button></span>
@@ -687,6 +765,24 @@
         <div><p class="eyebrow">OPERACIONES / PEDIDOS</p><h1>${text(order.order_number || `Pedido #${order.id}`)}</h1><p>${text(order.channel || "Shopify")} - ${text(order.order_date || "")} - ${(order.lines || []).length} lineas</p></div>
         <div class="invoice-hero-actions"><button type="button" class="ghost button-with-icon" data-close-kit-detail><svg><use href="#icon-x"></use></svg><span>Cerrar</span></button></div>
       </div>
+      <section class="panel order-identity-card">
+        <div class="order-identity-band">
+          <div class="order-identity-type">${orderTypeBadge(order)}</div>
+          <div><small>Metal</small><strong>${order.contains_silver ? "Con plata" : "Sin plata"}</strong><em>${text(order.silver_profile || "standard")}</em></div>
+          <div><small>Beneficio real</small><strong>${order.profit == null ? "-" : euro.format(number(order.profit))}</strong><em>Venta menos coste real</em></div>
+          <div><small>Set recomendado</small><strong>${text(order.recommended_set?.name || "Sin recomendacion")}</strong><em>${text(orderSetLabel(order))}</em></div>
+        </div>
+        <div class="order-type-editor">
+          <label>Tipologia del pedido
+            <select data-order-type-select="${order.id}">
+              <option value="">Sin clasificar</option>
+              ${orderTypeOptions().map((type) => `<option value="${text(type.code)}" ${String(type.code) === String(order.order_type || "") ? "selected" : ""}>${text(type.label)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" data-order-type-apply-set="${order.id}" checked> Aplicar set recomendado al guardar tipologia</label>
+          <div class="order-type-preview"><small>La tipologia decide el set fijo por defecto y separa pedidos con plata para leer margen y beneficio sin mezclar comportamientos distintos.</small></div>
+        </div>
+      </section>
       <section class="panel orders-audit-panel">
         <div class="panel-head compact">
           <div><h2>Auditoria de rentabilidad</h2><p>Selecciona el set fijo aplicado y revisa el margen real de este pedido.</p></div>
@@ -774,6 +870,11 @@
     });
   }
 
+  function setOrderSetTypeFilter(value = "") {
+    selectedOrderSetType = value;
+    renderFixedSetView();
+  }
+
   return {
     loadSuppliers,
     renderSuppliers: renderSuppliersNew,
@@ -784,14 +885,7 @@
     openKit,
     openOrderDetail,
     openKitWorkspace,
-    bindKitItemForm
+    bindKitItemForm,
+    setOrderSetTypeFilter
   };
 }
-
-
-
-
-
-
-
-
