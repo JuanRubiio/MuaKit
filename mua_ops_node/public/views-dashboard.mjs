@@ -4,7 +4,10 @@ export function createDashboardViews(ctx) {
   const percent = (value, digits = 1) => value == null || Number.isNaN(Number(value)) ? "-" : `${number(value).toFixed(digits)}%`;
   const icon = (name) => `<svg aria-hidden="true"><use href="#${name}"></use></svg>`;
   const delta = (value, options = {}) => {
-    if (value == null || Number.isNaN(Number(value))) return options.empty || "";
+    if (value == null || Number.isNaN(Number(value))) {
+      if (options.neutral && options.empty) return `<span class="dashboard-delta is-neutral">${text(options.empty)}</span>`;
+      return options.empty || "";
+    }
     const suffix = options.pp ? " pp" : "%";
     return `<span class="dashboard-delta ${value >= 0 ? "is-positive" : "is-negative"}">${value >= 0 ? "↑" : "↓"} ${Math.abs(number(value)).toFixed(options.digits ?? 1)}${suffix}</span>`;
   };
@@ -21,6 +24,7 @@ export function createDashboardViews(ctx) {
   const marginBandColor = (value, colors) => ({ critical: colors.margin_critical, pressure: colors.margin_pressure, healthy: colors.margin_healthy })[value] || colors.margin_pressure;
   const marginTone = (value, thresholds = {}) => value == null ? "neutral" : value < thresholds.critical ? "warn" : value < thresholds.healthy ? "attention" : "ok";
   const materialThumb = (row) => `<span class="dashboard-material-thumb">${img(row.image_url || row.material_image_url || row.image_url_override || "")}</span>`;
+  const changeTone = (value) => value == null || Number.isNaN(Number(value)) || Math.abs(number(value)) < 0.05 ? "neutral" : number(value) > 0 ? "positive" : "negative";
 
   function setChart(id, option) {
     const chart = dashboardChart(id);
@@ -282,19 +286,19 @@ export function createDashboardViews(ctx) {
       ["Venta neta", euro.format(s.metrics.total_sales || 0), delta(salesComparison.sales_change_percent), "icon-chart", "green"],
       ["Pedidos", `${s.metrics.total_orders || 0}`, delta(salesComparison.orders_change_percent), "icon-kit", "green"],
       ["Ticket medio", euro.format(s.metrics.average_ticket || 0), delta(salesComparison.ticket_change_percent), "icon-tag", "neutral"],
-      ["Beneficio medio fiable", s.metrics.average_profit_per_reliable_order == null ? "-" : euro.format(s.metrics.average_profit_per_reliable_order), `${percent(p.metrics.reliable_coverage_percent)} cobertura fiable`, "icon-coin", "green"],
-      ["Marketing por pedido", s.metrics.marketing_per_order == null ? "-" : euro.format(s.metrics.marketing_per_order), "Gasto marketing agregado", "icon-megaphone", "rose"]
+      ["Beneficio medio fiable", s.metrics.average_profit_per_reliable_order == null ? "-" : euro.format(s.metrics.average_profit_per_reliable_order), delta(salesComparison.average_profit_per_reliable_order_change_percent, { empty: `${percent(p.metrics.reliable_coverage_percent)} cobertura fiable` }), "icon-coin", "green"],
+      ["Marketing por pedido", s.metrics.marketing_per_order == null ? "-" : euro.format(s.metrics.marketing_per_order), delta(salesComparison.marketing_per_order_change_percent, { empty: "Sin periodo previo", neutral: true }), "icon-megaphone", "rose"]
     ] : mode === "profitability" ? [
-      ["Ventas fiables", euro.format(p.metrics.net_sales), `${p.metrics.reliable_orders || 0} pedidos`, "icon-chart", "green"],
-      ["Beneficio estimado", euro.format(p.metrics.total_profit), "Venta menos coste real", "icon-coin", "green"],
-      ["Margen ponderado", percent(p.metrics.weighted_margin_percent), `${percent(p.metrics.reliable_coverage_percent)} cobertura fiable`, "icon-percent", marginTone(p.metrics.weighted_margin_percent, p.thresholds)],
-      ["Coste real vendido", euro.format((p.metrics.net_sales || 0) - (p.metrics.total_profit || 0)), "Contenido más set fijo", "icon-cube", "rose"],
-      ["Ticket medio", euro.format(p.metrics.average_ticket), `${p.metrics.total_orders || 0} pedidos`, "icon-tag", "neutral"]
+      ["Ventas fiables", euro.format(p.metrics.net_sales), delta(comparison.net_sales_change_percent, { empty: `${p.metrics.reliable_orders || 0} pedidos` }), "icon-chart", "green"],
+      ["Beneficio estimado", euro.format(p.metrics.total_profit), delta(comparison.total_profit_change_percent, { empty: "Venta menos coste real" }), "icon-coin", "green"],
+      ["Margen ponderado", percent(p.metrics.weighted_margin_percent), delta(comparison.weighted_margin_change_points, { pp: true, empty: `${percent(p.metrics.reliable_coverage_percent)} cobertura fiable` }), "icon-percent", marginTone(p.metrics.weighted_margin_percent, p.thresholds)],
+      ["Coste real vendido", euro.format((p.metrics.net_sales || 0) - (p.metrics.total_profit || 0)), delta(comparison.real_cost_sold_change_percent, { empty: "Contenido más set fijo" }), "icon-cube", "rose"],
+      ["Ticket medio", euro.format(p.metrics.average_ticket), delta(comparison.average_ticket_change_percent, { empty: `${p.metrics.total_orders || 0} pedidos` }), "icon-tag", "neutral"]
     ] : [
-      ["Ingreso neto", euro.format(k.period_net_received), delta(comparison.income_change_percent), "icon-chart", "green"],
-      ["Gasto comprometido", euro.format(k.period_expense), delta(comparison.expense_change_percent), "icon-file", "rose"],
-      ["Balance operativo", euro.format(k.period_balance), delta(comparison.balance_change_percent), "icon-activity", k.period_balance >= 0 ? "green" : "rose"],
-      ["Margen ponderado", percent(k.weighted_margin_percent), delta(comparison.margin_change_pp, { pp: true }), "icon-coin", marginTone(k.weighted_margin_percent, p.thresholds)],
+      ["Ingreso neto", euro.format(k.period_net_received), delta(comparison.income_change_percent, { empty: "Sin periodo previo", neutral: true }), "icon-chart", "green"],
+      ["Gasto comprometido", euro.format(k.period_expense), delta(comparison.expense_change_percent, { empty: "Sin periodo previo", neutral: true }), "icon-file", "rose"],
+      ["Balance operativo", euro.format(k.period_balance), delta(comparison.balance_change_percent, { empty: "Sin periodo previo", neutral: true }), "icon-activity", k.period_balance >= 0 ? "green" : "rose"],
+      ["Margen ponderado", percent(k.weighted_margin_percent), delta(comparison.weighted_margin_change_points, { pp: true, empty: "Sin periodo previo", neutral: true }), "icon-coin", marginTone(k.weighted_margin_percent, p.thresholds)],
       ["Ticket medio", euro.format(p.metrics.average_ticket), delta(comparison.average_ticket_change_percent), "icon-tag", "neutral"]
     ];
     $("#dashboardCards").innerHTML = cards.map(([label, value, hint, itemIcon, tone]) => `<article class="dashboard-kpi-card is-${tone}"><span class="dashboard-kpi-icon">${icon(itemIcon)}</span><span class="dashboard-kpi-label">${label}</span><strong>${value}</strong><small>${hint}</small></article>`).join("");
@@ -373,7 +377,7 @@ export function createDashboardViews(ctx) {
       </section>
       <section class="panel dashboard-driver-panel">
         <div class="dashboard-driver-head"><span>${icon("icon-cube")}</span><div><small>Joyas con salida</small><strong>${top.reduce((sum, row) => sum + number(row.units), 0).toFixed(0)} uds top</strong></div><button type="button" data-jump-view="kits"><span>Ver</span>${icon("icon-arrow-right")}</button></div>
-        <div class="dashboard-driver-list dashboard-recommendation-list">${top.map((row) => `<div>${materialThumb(row)}<span><strong>${text(row.title)}</strong><small>${row.order_count || 0} pedidos · ${number(row.units).toFixed(0)} uds</small></span><b>${percent(row.units_change_percent, 0)}</b></div>`).join("") || `<p>Sin joyas vendidas en este periodo.</p>`}</div>
+        <div class="dashboard-driver-list dashboard-recommendation-list">${top.map((row) => `<div>${materialThumb(row)}<span><strong>${text(row.title)}</strong><small>${row.order_count || 0} pedidos · ${number(row.units).toFixed(0)} uds</small></span><b class="dashboard-change-pill is-${changeTone(row.units_change_percent)}">${percent(row.units_change_percent, 0)}</b></div>`).join("") || `<p>Sin joyas vendidas en este periodo.</p>`}</div>
       </section>
       <section class="panel dashboard-driver-panel">
         <div class="dashboard-driver-head"><span>${icon("icon-coin")}</span><div><small>Beneficio medio fiable</small><strong>${s.metrics.average_profit_per_reliable_order == null ? "-" : euro.format(s.metrics.average_profit_per_reliable_order)}</strong></div></div>
@@ -387,7 +391,8 @@ export function createDashboardViews(ctx) {
       hint: `${row.order_count || 0} pedidos · ${number(row.units).toFixed(0)} uds`,
       value: percent(row.units_change_percent, 0),
       extra: "",
-      avatar: materialThumb(row)
+      avatar: materialThumb(row),
+      tone: changeTone(row.units_change_percent)
     })) : mode === "operation" ? (finance.top_suppliers || []).map((row, index) => ({
       title: row.supplier_name,
       hint: `${row.invoice_count} gastos registrados`,
@@ -401,7 +406,7 @@ export function createDashboardViews(ctx) {
       extra: euro.format(row.profit),
       avatar: `<span class="dashboard-rank-index">#</span>`
     }));
-    $("#dashboardSpendList").innerHTML = `<div class="dashboard-rank-list">${rows.map((row, index) => `<div class="dashboard-rank-row">${row.avatar || `<span class="dashboard-rank-index">${index + 1}</span>`}<span><strong>${text(row.title)}</strong><small>${row.hint}</small></span><b>${row.value}</b><em>${row.extra}</em></div>`).join("") || `<div class="empty-state small">Todavía no hay datos suficientes para esta lectura.</div>`}</div>`;
+    $("#dashboardSpendList").innerHTML = `<div class="dashboard-rank-list">${rows.map((row, index) => `<div class="dashboard-rank-row">${row.avatar || `<span class="dashboard-rank-index">${index + 1}</span>`}<span><strong>${text(row.title)}</strong><small>${row.hint}</small></span><b class="${row.tone ? `dashboard-change-pill is-${row.tone}` : ""}">${row.value}</b><em>${row.extra}</em></div>`).join("") || `<div class="empty-state small">Todavía no hay datos suficientes para esta lectura.</div>`}</div>`;
   }
 
   return { renderDashboardCharts, renderDashboard };

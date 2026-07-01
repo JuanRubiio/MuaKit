@@ -10555,6 +10555,17 @@ textarea {
   white-space: nowrap;
 }
 
+.next-editable-line-actions .icon-only {
+  width: 38px;
+  min-width: 38px;
+  padding: 0;
+}
+
+.next-editable-line-actions .icon-only svg {
+  width: 17px;
+  height: 17px;
+}
+
 .danger-text {
   color: #b43b54;
 }
@@ -10794,16 +10805,30 @@ textarea {
   --dash-amber: #bd7c1d;
 }
 
+#dashboard.view.active {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
 #dashboard .dashboard-overview-head {
+  grid-column: 1;
   margin-bottom: 0;
 }
 
 #dashboard .dashboard-commandbar {
+  grid-column: 2;
+  align-self: end;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
   margin: 0;
+}
+
+#dashboard #dashboardCards,
+#dashboard .dashboard-mode-switch,
+#dashboard .dashboard-layout {
+  grid-column: 1 / -1;
 }
 
 #dashboard .dashboard-mode-switch {
@@ -10911,6 +10936,7 @@ textarea {
 #dashboard .dashboard-delta { font-weight: 700; }
 #dashboard .dashboard-delta.is-positive { color: var(--dash-green); }
 #dashboard .dashboard-delta.is-negative { color: var(--dash-rose); }
+#dashboard .dashboard-delta.is-neutral { color: var(--muted); }
 
 #dashboard .dashboard-dashboard { display: grid; gap: 14px; }
 #dashboard .dashboard-hero-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(340px, .85fr); gap: 14px; }
@@ -11139,6 +11165,28 @@ textarea {
 #dashboard .dashboard-rank-row em { min-width: 54px; color: var(--dash-green); font-size: 11px; font-style: normal; font-weight: 700; text-align: right; }
 #dashboard .dashboard-rank-row em.is-negative { color: var(--dash-rose); }
 #dashboard .dashboard-rank-row em.is-neutral { color: var(--muted); }
+#dashboard .dashboard-change-pill {
+  min-width: 52px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #71665d;
+  background: #f4f0ec;
+  border: 1px solid #e3d9cf;
+  text-align: center;
+}
+#dashboard .dashboard-change-pill.is-positive {
+  color: #087c6d;
+  background: #eaf7f4;
+  border-color: #bde0d8;
+}
+#dashboard .dashboard-change-pill.is-negative {
+  color: #bd3f61;
+  background: #fff0f3;
+  border-color: #efbfcc;
+}
+#dashboard .dashboard-change-pill.is-neutral {
+  color: #71665d;
+}
 
 #dashboard .dashboard-chart-tooltip {
   display: grid;
@@ -11176,6 +11224,9 @@ textarea {
 }
 
 @media (max-width: 720px) {
+  #dashboard.view.active { grid-template-columns: 1fr; }
+  #dashboard .dashboard-overview-head,
+  #dashboard .dashboard-commandbar { grid-column: 1; }
   #dashboard .dashboard-commandbar { display: grid; margin: 0; }
   #dashboard .dashboard-mode-switch { width: 100%; margin: 0; }
   #dashboard .dashboard-filter-panel,

@@ -29,6 +29,8 @@
       <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
       <symbol id="icon-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></symbol>
       <symbol id="icon-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v6h8V4"/><path d="M9 18h6"/></symbol>
+      <symbol id="icon-split" viewBox="0 0 24 24"><path d="M5 4v6a4 4 0 0 0 4 4h1"/><path d="M5 20v-6a4 4 0 0 1 4-4h1"/><path d="M14 7h5v5"/><path d="M14 17h5v-5"/></symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></symbol>
       <symbol id="icon-calendar" viewBox="0 0 24 24"><path d="M7 3v4M17 3v4M4 9h16"/><rect x="4" y="5" width="16" height="16" rx="2"/></symbol>
       <symbol id="icon-tag" viewBox="0 0 24 24"><path d="M3 12V5h7l9 9-7 7-9-9Z"/><circle cx="8" cy="8" r="1.4"/></symbol>
       <symbol id="icon-hash" viewBox="0 0 24 24"><path d="M9 3 7 21M17 3l-2 18M4 9h16M3 15h16"/></symbol>
@@ -60,6 +62,7 @@
       <symbol id="icon-map" viewBox="0 0 24 24"><path d="M8 5 3 7v13l5-2 8 2 5-2V5l-5 2z"/><path d="M8 5v13M16 7v13"/><path d="M11 10.5c0-1.7 1.3-3 3-3s3 1.3 3 3c0 2.3-3 5-3 5s-3-2.7-3-5Z"/><circle cx="14" cy="10.5" r=".8"/></symbol>
       <symbol id="icon-flame" viewBox="0 0 24 24"><path d="M12 21c4.1 0 7-2.9 7-6.8 0-3-1.7-5.2-4-7.2.1 2.7-1.1 4.3-2.3 5.2.2-3.1-1.4-6.2-4.1-8.2.2 3.5-2.6 5.3-3.4 8.4C4.1 16.8 7.3 21 12 21Z"/><path d="M12 18c1.8 0 3-1.2 3-2.9 0-1.2-.6-2.2-1.7-3.1 0 1.2-.5 2-1.2 2.5.1-1.5-.6-2.7-1.8-3.6.1 1.7-1.3 2.7-1.3 4.2C9 16.8 10.2 18 12 18Z"/></symbol>
       <symbol id="icon-gem" viewBox="0 0 24 24"><path d="M6.5 4h11L22 9l-10 12L2 9z"/><path d="M2 9h20"/><path d="M8 4 6 9l6 12 6-12-2-5"/><path d="M8 4h8"/></symbol>
+      <symbol id="icon-megaphone" viewBox="0 0 24 24"><path d="M4 13h3l10-5v8L7 11H4z"/><path d="M7 13l2 6h3l-2.4-5.2"/><path d="M19 9.5a4 4 0 0 1 0 5"/><path d="M21 7a7 7 0 0 1 0 10"/></symbol>
     </svg>
 
     <header class="sidebar app-nav">
@@ -154,7 +157,11 @@
 
         <section id="invoices" class="view">
           <div class="invoice-page">
-            <header class="invoice-overview-head">
+            <header class="invoice-overview-head entity-overview-head">
+              <div>
+                <p class="eyebrow">OPERACIONES</p>
+                <h1>Gastos</h1>
+              </div>
               <div class="row-actions">
                 <button type="button" class="button-with-icon" data-new-invoice><svg><use href="#icon-plus"></use></svg><span>Nueva factura</span></button>
               </div>
