@@ -10497,13 +10497,13 @@ textarea {
 }
 
 .next-lines .next-editable-line {
-  grid-template-columns: auto minmax(172px, 1.45fr) 62px 76px minmax(140px, 1fr) 96px 96px 96px 104px minmax(160px, auto);
+  grid-template-columns: auto minmax(160px, 1.35fr) 60px 72px minmax(132px, 1fr) 88px 88px 88px 100px max-content;
   align-items: end;
   gap: 8px;
 }
 
 .next-lines .next-editable-line.is-marketing {
-  grid-template-columns: auto minmax(168px, 1.35fr) 60px 74px minmax(132px, 1fr) 94px 94px 94px 92px 102px minmax(152px, auto);
+  grid-template-columns: auto minmax(150px, 1.25fr) 58px 70px minmax(124px, 1fr) 82px 82px 82px 88px 96px max-content;
 }
 
 .next-editable-line label {
@@ -10528,9 +10528,11 @@ textarea {
 .next-editable-line-actions {
   display: flex;
   flex-wrap: nowrap;
-  justify-content: flex-start;
+  justify-content: flex-end;
   align-items: end;
   gap: 6px;
+  width: max-content;
+  justify-self: end;
 }
 
 .next-line-select {
@@ -10555,6 +10557,23 @@ textarea {
 .next-editable-line-actions .icon-only svg {
   width: 17px;
   height: 17px;
+}
+
+@media (max-width: 1400px) {
+  .next-lines .next-editable-line.is-marketing .next-editable-line-actions .button-with-icon {
+    width: 38px;
+    min-width: 38px;
+    padding: 0;
+  }
+
+  .next-lines .next-editable-line.is-marketing .next-editable-line-actions .button-with-icon span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 }
 
 .danger-text {
