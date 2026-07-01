@@ -11161,8 +11161,9 @@ textarea {
 #dashboard .dashboard-rank-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #dashboard .dashboard-rank-row strong { font-size: 12px; }
 #dashboard .dashboard-rank-row small { color: var(--muted); font-size: 10px; }
-#dashboard .dashboard-rank-row b { font-size: 13px; }
+#dashboard .dashboard-rank-row b { justify-self: end; font-size: 13px; }
 #dashboard .dashboard-rank-row em { min-width: 54px; color: var(--dash-green); font-size: 11px; font-style: normal; font-weight: 700; text-align: right; }
+#dashboard .dashboard-rank-row em:empty { display: none; }
 #dashboard .dashboard-rank-row em.is-negative { color: var(--dash-rose); }
 #dashboard .dashboard-rank-row em.is-neutral { color: var(--muted); }
 #dashboard .dashboard-change-pill {

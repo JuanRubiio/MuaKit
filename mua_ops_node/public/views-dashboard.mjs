@@ -8,8 +8,9 @@ export function createDashboardViews(ctx) {
       if (options.neutral && options.empty) return `<span class="dashboard-delta is-neutral">${text(options.empty)}</span>`;
       return options.empty || "";
     }
+    const badDirection = options.inverse ? value > 0 : value < 0;
     const suffix = options.pp ? " pp" : "%";
-    return `<span class="dashboard-delta ${value >= 0 ? "is-positive" : "is-negative"}">${value >= 0 ? "↑" : "↓"} ${Math.abs(number(value)).toFixed(options.digits ?? 1)}${suffix}</span>`;
+    return `<span class="dashboard-delta ${badDirection ? "is-negative" : "is-positive"}">${value >= 0 ? "↑" : "↓"} ${Math.abs(number(value)).toFixed(options.digits ?? 1)}${suffix}</span>`;
   };
   const categoryLabel = (value) => ({
     materiales: "Materiales",
@@ -175,7 +176,7 @@ export function createDashboardViews(ctx) {
       legend: { top: 0, textStyle: { color: "#766e68" }, data: ["Ticket medio"] },
       xAxis: { type: "category", data: labels, ...commonAxis() },
       yAxis: { type: "value", axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) }, splitLine: commonAxis().splitLine },
-      series: [{ name: "Ticket medio", type: "line", smooth: true, symbolSize: 7, areaStyle: { color: "rgba(204,125,19,.08)" }, lineStyle: { width: 3, color: colors.sales_ticket }, itemStyle: { color: colors.sales_ticket }, data: (sales.series || []).map((row) => row.average_ticket) }]
+      series: [{ name: "Ticket medio", type: "line", smooth: true, connectNulls: true, symbolSize: 7, areaStyle: { color: "rgba(204,125,19,.08)" }, lineStyle: { width: 3, color: colors.sales_ticket }, itemStyle: { color: colors.sales_ticket }, data: (sales.series || []).map((row) => row.average_ticket) }]
     });
   }
 
@@ -287,7 +288,7 @@ export function createDashboardViews(ctx) {
       ["Pedidos", `${s.metrics.total_orders || 0}`, delta(salesComparison.orders_change_percent), "icon-kit", "green"],
       ["Ticket medio", euro.format(s.metrics.average_ticket || 0), delta(salesComparison.ticket_change_percent), "icon-tag", "neutral"],
       ["Beneficio medio fiable", s.metrics.average_profit_per_reliable_order == null ? "-" : euro.format(s.metrics.average_profit_per_reliable_order), delta(salesComparison.average_profit_per_reliable_order_change_percent, { empty: `${percent(p.metrics.reliable_coverage_percent)} cobertura fiable` }), "icon-coin", "green"],
-      ["Marketing por pedido", s.metrics.marketing_per_order == null ? "-" : euro.format(s.metrics.marketing_per_order), delta(salesComparison.marketing_per_order_change_percent, { empty: "Sin periodo previo", neutral: true }), "icon-megaphone", "rose"]
+      ["Marketing por pedido", s.metrics.marketing_per_order == null ? "-" : euro.format(s.metrics.marketing_per_order), delta(salesComparison.marketing_per_order_change_percent, { empty: "Sin periodo previo", neutral: true, inverse: true }), "icon-megaphone", "rose"]
     ] : mode === "profitability" ? [
       ["Ventas fiables", euro.format(p.metrics.net_sales), delta(comparison.net_sales_change_percent, { empty: `${p.metrics.reliable_orders || 0} pedidos` }), "icon-chart", "green"],
       ["Beneficio estimado", euro.format(p.metrics.total_profit), delta(comparison.total_profit_change_percent, { empty: "Venta menos coste real" }), "icon-coin", "green"],
