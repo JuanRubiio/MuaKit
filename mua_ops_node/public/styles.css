@@ -5339,15 +5339,6 @@ textarea {
 
 .orders-overview-head {}
 
-#ordersUpdatedMeta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-#ordersUpdatedMeta svg,
 .orders-summary-icon svg,
 .orders-formula svg {
   width: 16px;
@@ -11822,7 +11813,7 @@ textarea {
 .dashboard-freshness i {
   width: 7px;
   height: 7px;
-  background: var(--dash-green);
+  background: var(--dash-green, #087c6d);
   border-radius: 50%;
   box-shadow: 0 0 0 4px #dff4ef;
 }
@@ -11841,7 +11832,7 @@ textarea {
   border-color: #efc8d0;
 }
 .dashboard-freshness.is-danger i {
-  background: var(--dash-rose);
+  background: var(--dash-rose, #bd3f61);
   box-shadow: 0 0 0 4px #f7dce3;
 }
 .dashboard-freshness.is-syncing {
