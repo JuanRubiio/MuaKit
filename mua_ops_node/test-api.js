@@ -400,6 +400,37 @@ España Visa +++ 6704 (Apple Pay) 20,00 €`;
   const capcutLines = detectedCapCutLines(capcutFields.lines, capcutFields);
   assert(capcutLines.length === 1 && capcutLines[0].quantity === 2, "CapCut subscriptions should become a single line with seat quantity");
   assert(!capcutLines[0].description.includes("Apple Pay") && capcutLines[0].line_total === 20, "CapCut payment rows must not become expense lines");
+  const compactCapcutFields = detectFields(capcutText.replace("Subtotal 16,53 €", "Subtotal 1653€"));
+  assert(compactCapcutFields.subtotal === 16.53, "CapCut compact OCR subtotals should be restored from the paid total and VAT");
+  const appleIcloudText = `15 de enero de 2026
+Secuencia: 1-12793147473
+ID de pedido: MXG4XQ4LS5
+Documento: 650077581715
+Cuenta de Apple: cristina@example.com
+iCloud 999€
+iCloud+ con 2 TB (Mensual) Incluye el VAT del 21% 173€
+Se renueva el 15 de febrero de 2026
+Pagos y facturación
+Cristina Guerrero Heras Subtotal 826€
+Ayala Se ha cargado un 21 % de VAT 173€
+España Visa +++ 6704 (Apple Pay) 9,99 €`;
+  const appleIcloudFields = detectFields(appleIcloudText);
+  assert(appleIcloudFields.invoice_number === "650077581715" && appleIcloudFields.invoice_date === "2026-01-15", "Apple iCloud document numbers and Spanish dates should be detected");
+  assert(appleIcloudFields.subtotal === 8.26 && appleIcloudFields.tax === 1.73 && appleIcloudFields.total === 9.99, "Apple iCloud compact OCR amounts should be converted to euros");
+  assert(inferExpenseCategory(appleIcloudText, "otros", ["otros"]) === "software", "Apple iCloud invoices should be classified as software");
+  const appleIcloudLines = detectedInvoiceLines(appleIcloudFields.lines, appleIcloudFields);
+  assert(appleIcloudLines.length === 1 && appleIcloudLines[0].description.includes("iCloud") && appleIcloudLines[0].line_total === 9.99, "Apple iCloud subscriptions should become one editable expense line");
+  const appleStoreText = `Tu factura
+¡Gracias por tu compra!
+FACTURA FECHA DE EMISIÓN
+04906-34141827 8 jun 2026
+Resumen de la factura
+ARTÍCULO IMPORTE
+Precio de la suscripción 12,00 €
+Cobrado: 12,00 €`;
+  const appleStoreFields = detectFields(appleStoreText);
+  assert(appleStoreFields.invoice_number === "04906-34141827" && appleStoreFields.invoice_date === "2026-06-08" && appleStoreFields.total === 12, "Apple App Store receipts should read invoice number, issue date and paid total");
+  assert(detectedInvoiceLines(appleStoreFields.lines, appleStoreFields)[0].description === "Precio de la suscripción", "Apple App Store product descriptions should stay clean");
   const evidence = fieldEvidence({ suggested_supplier_name: "Meta", invoice_number: "FBADS-394", invoice_date: "2026-04-04", total: 18.51 }, [{ page: 1, text: "Meta Platforms\nFactura FBADS-394\nTotal 18,51 EUR" }]);
   assert(evidence.supplier?.page === 1 && evidence.invoice_number?.text.includes("FBADS-394"), "Detected fields should retain document evidence");
   const safeAccounting = accountingQuality({ suggested_supplier_id: 1, invoice_number: "A-1", invoice_date: "2026-01-01", total: 10, category: "software" }, [{ line_total: 10, human_decision: "accepted" }], {});

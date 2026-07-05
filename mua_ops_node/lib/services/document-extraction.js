@@ -39,6 +39,24 @@ function aliExpressMoney(value, referenceTotal = null) {
   return parsed;
 }
 
+function compactEuroMoney(value, expected = null) {
+  const raw = String(value || "").trim();
+  if (!/\d/.test(raw)) return null;
+  const parsed = amount(raw);
+  if (parsed === null) return null;
+  if (/[,.]/.test(raw)) return parsed;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 2) return parsed;
+  const candidates = [parsed, Number((parsed / 10).toFixed(2)), Number((parsed / 100).toFixed(2))];
+  if (expected !== null && Number.isFinite(Number(expected))) {
+    const expectedAmount = Number(Number(expected).toFixed(2));
+    const closest = candidates.sort((a, b) => Math.abs(a - expectedAmount) - Math.abs(b - expectedAmount))[0];
+    return Math.abs(closest - expectedAmount) <= 0.05 ? expectedAmount : closest;
+  }
+  if (digits.length >= 3) return Number((parsed / 100).toFixed(2));
+  return parsed;
+}
+
 function aliExpressFields(lines) {
   if (!lines.some((line) => /aliexpress/i.test(line))) return null;
   const findLine = (pattern) => lines.find((line) => pattern.test(line)) || "";
@@ -118,9 +136,10 @@ function capcutFields(lines) {
   const capcutLine = findLine(/\bcapcut\b.*[0-9][0-9.,]*\s*€/i);
   const paymentLine = findLine(/\bapple pay\b.*[0-9][0-9.,]*\s*€/i);
   const total = amount(paymentLine.match(/([0-9][0-9.,]*)\s*€/i)?.[1] || capcutLine.match(/([0-9][0-9.,]*)\s*€/i)?.[1]);
-  const subtotal = amount(findLine(/\bsubtotal\b/i).match(/subtotal\s+([0-9][0-9.,]*)\s*€/i)?.[1]);
   const taxRaw = findLine(/\bVAT\b/i).match(/(?:VAT(?: del \d+ ?%)?\s*)([0-9][0-9.,]*)\s*€/i)?.[1];
   const tax = aliExpressMoney(taxRaw, total);
+  const rawSubtotal = findLine(/\bsubtotal\b/i).match(/subtotal\s+([0-9][0-9.,]*)\s*€/i)?.[1];
+  const subtotal = compactEuroMoney(rawSubtotal, total !== null && tax !== null ? Number((total - tax).toFixed(2)) : null);
   return {
     invoice_number: documentNumber,
     invoice_date: leadingDateMatch ? isoDate(leadingDateMatch[1], leadingDateMatch[2], leadingDateMatch[3])
@@ -131,7 +150,59 @@ function capcutFields(lines) {
     shipping: 0,
     tax,
     total,
-    currency: "EUR"
+    currency: "EUR",
+    supplier_hint: "capcut"
+  };
+}
+
+function appleFields(lines) {
+  const text = lines.join("\n");
+  const normalizedText = normalize(text);
+  if (/\bcapcut\b/.test(normalizedText)) return null;
+  if (!/\b(cuenta de apple|app store|icloud|cloud|apple pay|tu factura)\b/.test(normalizedText)) return null;
+  const findLine = (pattern) => lines.find((line) => pattern.test(line)) || "";
+  const findAfter = (pattern) => {
+    const index = lines.findIndex((line) => pattern.test(line));
+    return index >= 0 ? lines[index + 1] || "" : "";
+  };
+  const leadingDate = lines.find((line) => /^\d{1,2}\s+de\s+[a-záéíóú]+\s+de\s+\d{4}$/i.test(line)) || "";
+  const leadingDateMatch = leadingDate.match(/^(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})$/i);
+  const invoiceDateRow = findAfter(/factura\s+fecha\s+de\s+emisi[oó]n/i);
+  const invoiceDateMatch = invoiceDateRow.match(/([A-Z0-9-]{5,})\s+(\d{1,2})\s+([a-záéíóú]{3,})\.?\s+(\d{4})/i);
+  const slashDateMatch = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/);
+  const documentNumber = findLine(/^\s*documento\s*:/i).match(/:\s*([A-Z0-9-]{6,})/i)?.[1]
+    || findAfter(/n[uú]mero del documento/i).match(/\b([0-9]{10,})\b/)?.[1]
+    || invoiceDateMatch?.[1]
+    || "";
+  const totalLine = findLine(/^\s*total\b/i);
+  const paidLine = findLine(/\b(?:apple pay|cobrado)\b.*[0-9][0-9.,]*\s*€/i);
+  const standaloneTotal = lines.find((line) => /^[0-9][0-9.,]*\s*€$/i.test(line)) || "";
+  const productLine = lines.find((line) => /\b(?:icloud|cloud|meta verified|precio de la suscripci[oó]n)\b/i.test(line) && /[0-9][0-9.,]*\s*€/i.test(line) && !/\b(?:incluye|iva|vat|total|subtotal)\b/i.test(line)) || "";
+  const totalRaw = totalLine.match(/([0-9][0-9.,]*)\s*€/i)?.[1]
+    || paidLine.match(/([0-9][0-9.,]*)\s*€/i)?.[1]
+    || standaloneTotal.match(/([0-9][0-9.,]*)\s*€/i)?.[1]
+    || productLine.match(/([0-9][0-9.,]*)\s*€/i)?.[1]
+    || "";
+  const total = compactEuroMoney(totalRaw);
+  const taxRaw = lines.find((line) => /\b(?:VAT|IVA)\b/i.test(line))?.match(/([0-9][0-9.,]*)\s*€/i)?.[1] || "";
+  const tax = compactEuroMoney(taxRaw);
+  const subtotalRaw = findLine(/\bsubtotal\b/i).match(/subtotal\s+([0-9][0-9.,]*)\s*€/i)?.[1] || "";
+  const subtotal = compactEuroMoney(subtotalRaw, total !== null && tax !== null ? Number((total - tax).toFixed(2)) : null)
+    ?? (total !== null && tax !== null ? Number((total - tax).toFixed(2)) : total);
+  let invoiceDate = "";
+  if (leadingDateMatch) invoiceDate = isoDate(leadingDateMatch[1], leadingDateMatch[2], leadingDateMatch[3]);
+  else if (invoiceDateMatch) invoiceDate = isoDate(invoiceDateMatch[2], invoiceDateMatch[3], invoiceDateMatch[4]);
+  else if (slashDateMatch) invoiceDate = `${slashDateMatch[3]}-${String(slashDateMatch[2]).padStart(2, "0")}-${String(slashDateMatch[1]).padStart(2, "0")}`;
+  return {
+    invoice_number: documentNumber,
+    invoice_date: invoiceDate,
+    subtotal,
+    discount: 0,
+    shipping: 0,
+    tax: tax || 0,
+    total,
+    currency: "EUR",
+    supplier_hint: "apple"
   };
 }
 
@@ -334,6 +405,33 @@ function detectedCapCutLines(lines, fields = {}) {
   }] : [];
 }
 
+function detectedAppleLines(lines, fields = {}) {
+  const normalizedText = normalize(lines.join(" "));
+  if (/\bcapcut\b/.test(normalizedText)) return [];
+  if (!/\b(cuenta de apple|app store|icloud|cloud|apple pay|tu factura)\b/.test(normalizedText)) return [];
+  const productLine = lines.find((line) => /\b(?:icloud|cloud|meta verified|precio de la suscripci[oó]n)\b/i.test(line) && !/\b(?:incluye|iva|vat|total|subtotal)\b/i.test(line)) || "";
+  if (!productLine) return [];
+  const total = Number(fields.total ?? compactEuroMoney(productLine.match(/([0-9][0-9.,]*)\s*€/i)?.[1]) ?? 0);
+  if (!total) return [];
+  const detailLine = lines.find((line) => /\b(?:mensual|mensualmente|subscription|suscripci[oó]n|icloud\+)\b/i.test(line) && !/[0-9][0-9.,]*\s*€/i.test(line)) || "";
+  const descriptionParts = [
+    cleanAliExpressDescription(productLine.replace(/\s*[0-9][0-9.,]*\s*€\s*$/i, "")),
+    cleanAliExpressDescription(detailLine.replace(/\b(?:incluye|se renueva)\b.*$/i, ""))
+  ].filter(Boolean);
+  const description = [...new Set(descriptionParts)].join(" · ");
+  return [{
+    description,
+    quantity: 1,
+    package_count: 1,
+    units_per_package: 1,
+    total_units: 1,
+    price_per_package: Number(total.toFixed(2)),
+    unit_price: Number(total.toFixed(2)),
+    line_total: Number(total.toFixed(2)),
+    original_text: [productLine, detailLine].filter(Boolean).join(" ")
+  }];
+}
+
 function nativePageText(items) {
   const rows = new Map();
   for (const item of items) {
@@ -353,6 +451,7 @@ function detectFields(text) {
   const aliExpress = aliExpressFields(lines);
   const etsy = etsyFields(lines);
   const shein = sheinFields(lines);
+  const apple = appleFields(lines);
   const capcut = capcutFields(lines);
   const numericDate = text.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/)?.[1] || "";
   const namedDate = text.match(/\b(?:paid on|bill created|fecha)\s+([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{4})/i);
@@ -377,7 +476,7 @@ function detectFields(text) {
   const selectedTotal = totalCandidates.at(-1) || null;
   const rateMatch = text.match(/\b1\s+(USD|EUR)\s*=\s*([0-9][0-9.,]*)\s+(EUR|USD)\b/i);
   const exchangeRate = rateMatch ? { from: rateMatch[1].toUpperCase(), rate: amount(rateMatch[2]), to: rateMatch[3].toUpperCase() } : null;
-  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(etsy || {}), ...(shein || {}), ...(capcut || {}) };
+  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(etsy || {}), ...(shein || {}), ...(apple || {}), ...(capcut || {}) };
 }
 
 function detectedInvoiceLines(lines, fields = {}) {
@@ -387,6 +486,8 @@ function detectedInvoiceLines(lines, fields = {}) {
   if (etsyLines.length) return etsyLines;
   const sheinLines = detectedSheinLines(lines, fields);
   if (sheinLines.length) return sheinLines;
+  const appleLines = detectedAppleLines(lines, fields);
+  if (appleLines.length) return appleLines;
   const capcutLines = detectedCapCutLines(lines, fields);
   if (capcutLines.length) return capcutLines;
   const excluded = /\b(total|subtotal|vat|iva|tax|payment|paid|billing|bill|address|overview|page \d|learn more|recipient|credit|discount|shipping|mastercard|floor|dublin|spain|transacci[oó]n|umbral de pago|emitido una factura)\b|=|\(\d+\s+items?\)/i;
@@ -438,7 +539,7 @@ function inferExpenseCategory(text, supplierCategory = "", historicalCategories 
   if (/\betsy\b/.test(normalized) && /\bpedido n\b|\bpurchases\b/.test(normalized) && /\b(plata|colgante|collar|cadena|anillo|joya|resina)\b/.test(normalized)) return "materiales";
   if (/\binfinite styles services\b/.test(normalized) && /\bvat invoice\b/.test(normalized) && /\binvoice detail\b/.test(normalized)) return "materiales";
   const signals = [
-    ["software", /\b(apps?|software|subscription|suscripcion|license|licencia|hosting|domain|shopify|canva|capcut|globo product options)\b/],
+    ["software", /\b(apps?|software|subscription|suscripcion|license|licencia|hosting|domain|shopify|canva|capcut|apple|app store|icloud|cloud|globo product options)\b/],
     ["envios", /\b(shipping|shipment|postage|correo|correos|envio|transporte)\b/],
     ["marketing", /\b(marketing|advertising|publicidad|campaign|campana|meta ads|google ads)\b/],
     ["servicios", /\b(agency|agencia|consulting|consultoria|professional service|servicio profesional)\b/],
@@ -575,11 +676,14 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   function suggest(fields) {
     const suppliers = query("SELECT id, name, category FROM suppliers WHERE is_deleted=0");
     const normalizedText = normalize(fields.lines.slice(0, 100).join(" "));
-    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], canva: ["canva"], capcut: ["capcut"] };
+    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"] };
+    const supplierHint = normalize(fields.supplier_hint);
     const supplier = suppliers
       .map((item) => {
         const names = [normalize(item.name), ...(aliases[normalize(item.name)] || []).map(normalize)];
-        return { item, score: names.reduce((score, name) => score + (name && normalizedText.includes(name) ? name.length : 0), 0) };
+        const textScore = names.reduce((score, name) => score + (name && normalizedText.includes(name) ? name.length : 0), 0);
+        const hintScore = supplierHint && names.includes(supplierHint) ? 1000 : 0;
+        return { item, score: textScore + hintScore };
       })
       .sort((a, b) => b.score - a.score)[0];
     const matchedSupplier = supplier?.score ? supplier.item : null;
