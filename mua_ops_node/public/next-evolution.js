@@ -5,11 +5,14 @@
   const materialDefault = materialPage ? Array.from(materialPage.children).filter((node) => !node.matches(".next-domain-tabs,#replenishmentPanel,#purchasePlannerPanel,.materials-overview-head")) : [];
   let replenishmentRows = [];
   let replenishmentParameters = {};
-  let replenishmentFilters = { decision: "buy", query: "", supplier: "" };
+  let replenishmentFilters = { decision: "buy", query: "", supplier: "", confidence: "", family: "", sort: "risk_desc" };
   const replenishmentQuantities = new Map();
   const selectedReplenishmentIds = new Set();
   let replenishmentSelectionInitialized = false;
   let expandedReplenishmentId = null;
+  let replenishmentPage = 1;
+  const replenishmentPageSize = 10;
+  const replenishmentCharts = new Map();
   let currentPurchasePlan = null;
   let expensePoll = null;
   let importUploading = false;
@@ -438,6 +441,129 @@
   }
 
 
+  function replenishmentConfidenceText(value) {
+    return ({ high: "Alta", medium: "Media", low: "Baja", manual: "Manual", incomplete: "Incompleta" })[value] || "Media";
+  }
+
+  function replenishmentPriorityText(value) {
+    return ({ critical: "Rotura", high: "Urgente", medium: "Vigilar", low: "Cubierto", configuration: "Configurar" })[value] || "Revisar";
+  }
+
+  function replenishmentTrendMeta(value) {
+    return {
+      accelerating: { label: "Demanda al alza", icon: "trending-up", className: "accelerating" },
+      slowing: { label: "Demanda a la baja", icon: "trending-down", className: "slowing" },
+      stable: { label: "Demanda estable", icon: "minus", className: "stable" }
+    }[value] || { label: "Demanda estable", icon: "minus", className: "stable" };
+  }
+
+  function replenishmentCoverageDays(row, quantity = 0) {
+    const daily = number(row.weighted_daily_demand || row.daily_demand);
+    if (!daily) return 0;
+    return Math.round((number(row.effective_stock) + number(quantity)) / daily);
+  }
+
+  function replenishmentMaterialThumb(row) {
+    if (row.image_url) return `<img src="${text(row.image_url)}" alt="">`;
+    return `<span><svg><use href="#icon-cube"></use></svg></span>`;
+  }
+
+  function replenishmentFilteredRows() {
+    const query = replenishmentFilters.query.toLocaleLowerCase("es");
+    const priorityRank = { critical: 0, high: 1, medium: 2, configuration: 3, low: 4 };
+    const rows = replenishmentRows.filter((row) => (!replenishmentFilters.decision || row.decision === replenishmentFilters.decision)
+      && (!replenishmentFilters.supplier || row.supplier_name === replenishmentFilters.supplier)
+      && (!replenishmentFilters.family || (row.family || row.category) === replenishmentFilters.family)
+      && (!replenishmentFilters.confidence || row.confidence === replenishmentFilters.confidence)
+      && (!query || [row.name, row.supplier_name, row.family, row.category].join(" ").toLocaleLowerCase("es").includes(query)));
+    const sort = replenishmentFilters.sort || "risk_desc";
+    return rows.sort((a, b) => {
+      if (sort === "cost_desc") return number(b.unit_cost) * number(replenishmentQuantities.get(Number(b.id))) - number(a.unit_cost) * number(replenishmentQuantities.get(Number(a.id)));
+      if (sort === "demand_desc") return number(b.weighted_daily_demand || b.daily_demand) - number(a.weighted_daily_demand || a.daily_demand);
+      if (sort === "name_asc") return String(a.name || "").localeCompare(String(b.name || ""), "es");
+      return (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9) || number(b.suggested_quantity) - number(a.suggested_quantity);
+    });
+  }
+
+  function getReplenishmentChart(node) {
+    if (!window.echarts || !node) return null;
+    const current = replenishmentCharts.get(node.id);
+    if (current) return current;
+    const chart = window.echarts.init(node, null, { renderer: "canvas" });
+    replenishmentCharts.set(node.id, chart);
+    return chart;
+  }
+
+  function renderReplenishmentCharts() {
+    if (!window.echarts) return;
+    const live = new Set();
+    document.querySelectorAll("[data-replenishment-demand-chart]").forEach((node) => {
+      const id = Number(node.dataset.replenishmentDemandChart);
+      const row = replenishmentRows.find((item) => Number(item.id) === id);
+      if (!row) return;
+      live.add(node.id);
+      const chart = getReplenishmentChart(node);
+      const history = Array.isArray(row.demand_history) ? row.demand_history : [];
+      const labels = history.length ? history.map((item) => text(item.label || item.week)) : ["30d", "90d"];
+      const direct = history.length ? history.map((item) => number(item.direct)) : [number(row.consumption_30), number(row.consumption_90)];
+      const sets = history.length ? history.map((item) => number(item.sets)) : [0, 0];
+      const total = history.length ? history.map((item) => number(item.total)) : [number(row.consumption_30), number(row.consumption_90)];
+      chart.setOption({
+        animation: false,
+        grid: { left: 42, right: 14, top: 24, bottom: 34 },
+        color: ["#0b8778", "#d08a28", "#cf304b"],
+        tooltip: { trigger: "axis", valueFormatter: (value) => `${number(value).toFixed(1)} ud` },
+        legend: { top: 0, right: 0, itemWidth: 10, itemHeight: 6, textStyle: { fontSize: 10 } },
+        xAxis: { type: "category", data: labels, axisTick: { show: false }, axisLabel: { color: "#6f6762", fontSize: 10 } },
+        yAxis: { type: "value", min: 0, axisLabel: { color: "#6f6762", fontSize: 10 }, splitLine: { lineStyle: { color: "#eee6de" } } },
+        series: [
+          { name: "Pedidos", type: "bar", stack: "usage", data: direct, barMaxWidth: 20, itemStyle: { borderRadius: [4, 4, 0, 0] } },
+          { name: "Sets", type: "bar", stack: "usage", data: sets, barMaxWidth: 20, itemStyle: { borderRadius: [4, 4, 0, 0] } },
+          { name: "Total", type: "line", data: total, smooth: true, symbolSize: 5, lineStyle: { width: 2 } }
+        ]
+      });
+      chart.resize();
+    });
+    document.querySelectorAll("[data-replenishment-projection-chart]").forEach((node) => {
+      const id = Number(node.dataset.replenishmentProjectionChart);
+      const row = replenishmentRows.find((item) => Number(item.id) === id);
+      if (!row) return;
+      live.add(node.id);
+      const chart = getReplenishmentChart(node);
+      const quantity = number(replenishmentQuantities.get(id));
+      const daily = number(row.weighted_daily_demand || row.daily_demand);
+      const stock = number(row.effective_stock);
+      const arrival = Math.max(0, number(row.projection?.arrival_day || row.lead_days || 0));
+      const safety = number(row.projection?.safety_level || replenishmentParameters.safety_days || 0);
+      const horizon = Math.max(30, Math.min(90, number(row.projection?.horizon_days || 72)));
+      const points = Array.from(new Set([0, arrival, horizon, ...Array.from({ length: Math.floor(horizon / 6) + 1 }, (_, index) => index * 6).filter((day) => day <= horizon)])).sort((a, b) => a - b);
+      const labels = points.map((day) => `${day}d`);
+      const withoutPurchase = points.map((day) => Math.max(0, stock - daily * day));
+      const withPurchase = points.map((day) => Math.max(0, stock + (day >= arrival ? quantity : 0) - daily * day));
+      const safetyLine = points.map(() => safety);
+      chart.setOption({
+        animation: false,
+        grid: { left: 42, right: 18, top: 24, bottom: 34 },
+        tooltip: { trigger: "axis", valueFormatter: (value) => `${number(value).toFixed(1)} ud` },
+        legend: { top: 0, right: 0, itemWidth: 12, itemHeight: 6, textStyle: { fontSize: 10 } },
+        xAxis: { type: "category", data: labels, axisTick: { show: false }, axisLabel: { color: "#6f6762", fontSize: 10 } },
+        yAxis: { type: "value", min: 0, axisLabel: { color: "#6f6762", fontSize: 10 }, splitLine: { lineStyle: { color: "#eee6de" } } },
+        series: [
+          { name: "Sin comprar", type: "line", data: withoutPurchase, smooth: true, symbolSize: 4, lineStyle: { width: 2, type: "dashed", color: "#cf304b" }, itemStyle: { color: "#cf304b" } },
+          { name: "Con compra", type: "line", data: withPurchase, smooth: true, symbolSize: 4, lineStyle: { width: 2, color: "#0b8778" }, itemStyle: { color: "#0b8778" }, markLine: { symbol: "none", label: { formatter: "Llegada", color: "#0b8778" }, lineStyle: { color: "#0b8778", type: "dashed" }, data: [{ xAxis: `${arrival}d` }] } },
+          { name: "Seguridad", type: "line", data: safetyLine, symbol: "none", lineStyle: { color: "#d08a28", type: "dotted" } }
+        ]
+      });
+      chart.resize();
+    });
+    for (const [id, chart] of replenishmentCharts.entries()) {
+      if (!live.has(id)) {
+        chart.dispose();
+        replenishmentCharts.delete(id);
+      }
+    }
+  }
+
   function renderReplenishment() {
     const actions = [
       { key: "buy", decision: "buy", label: "Comprar ahora" },
@@ -445,19 +571,13 @@
       { key: "review", decision: "configure", label: "Revisar" },
       { key: "healthy", decision: "healthy", label: "Cubierto" }
     ];
-    const priorityLabels = { critical: "Rotura", high: "Urgente", medium: "Proximo", low: "Cubierto", configuration: "Configurar" };
-    const trendLabels = {
-      accelerating: { label: "Demanda al alza", icon: "trending-up", tone: "up" },
-      slowing: { label: "Demanda a la baja", icon: "trending-down", tone: "down" },
-      stable: { label: "Demanda estable", icon: "minus", tone: "stable" }
-    };
     const actionable = replenishmentRows.filter((row) => row.decision === "buy");
     const planReady = actionable.filter((row) => row.can_plan);
     const estimated = planReady.reduce((sum, row) => sum + number(row.unit_cost) * number(replenishmentQuantities.get(Number(row.id))), 0);
     const unpriced = planReady.filter((row) => !row.cost_known).length;
     const atRisk = replenishmentRows.filter((row) => row.risk_before_arrival).length;
     const blocked = replenishmentRows.filter((row) => row.decision === "configure" || (row.decision === "buy" && !row.can_plan)).length;
-    const metricCard = (tone, icon, label, value, hint) => `<article class="replenishment-kpi tone-${tone}"><span class="kpi-icon"><svg><use href="#icon-${icon}"></use></svg></span><div><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></div></article>`;
+    const metricCard = (tone, icon, label, value, hint) => `<article class="replenishment-kpi tone-${tone}"><span class="replenishment-kpi-icon"><svg><use href="#icon-${icon}"></use></svg></span><div><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></div></article>`;
     $("#replenishmentMetrics").innerHTML = [
       metricCard("danger", "alert", "Riesgo de rotura", atRisk, "Se agotan antes de la llegada"),
       metricCard("success", "package", "Compra recomendada", planReady.length, "Materiales con evidencia fiable"),
@@ -467,14 +587,10 @@
 
     const suppliers = [...new Set(replenishmentRows.map((row) => row.supplier_name).filter(Boolean))].sort();
     const families = [...new Set(replenishmentRows.map((row) => row.family || row.category).filter(Boolean))].sort();
-    const priorityRank = { critical: 0, high: 1, medium: 2, configuration: 3, low: 4 };
-    const visible = replenishmentRows.filter((row) => (!replenishmentFilters.decision || row.decision === replenishmentFilters.decision)
-      && (!replenishmentFilters.supplier || row.supplier_name === replenishmentFilters.supplier)
-      && (!replenishmentFilters.family || (row.family || row.category) === replenishmentFilters.family)
-      && (!replenishmentFilters.confidence || row.confidence === replenishmentFilters.confidence)
-      && (!replenishmentFilters.query || `${row.name} ${row.supplier_name || ""}`.toLocaleLowerCase("es").includes(replenishmentFilters.query.toLocaleLowerCase("es"))))
-      .sort((a, b) => (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9) || number(b.suggested_quantity) - number(a.suggested_quantity));
-
+    const visible = replenishmentFilteredRows();
+    const totalPages = Math.max(1, Math.ceil(visible.length / replenishmentPageSize));
+    replenishmentPage = Math.min(Math.max(1, replenishmentPage), totalPages);
+    const pageRows = visible.slice((replenishmentPage - 1) * replenishmentPageSize, replenishmentPage * replenishmentPageSize);
     const selected = [...selectedReplenishmentIds];
     const selectedSpend = selected.reduce((sum, id) => {
       const row = replenishmentRows.find((item) => Number(item.id) === id);
@@ -483,32 +599,46 @@
     const activeAction = actions.find((action) => action.decision === replenishmentFilters.decision)?.key || "buy";
 
     $("#replenishmentTools").innerHTML = `<div class="next-replenishment-tabs">${actions.map((action) => `<button type="button" class="ghost ${activeAction === action.key ? "is-active" : ""}" data-replenishment-action="${action.key}">${action.label} <span>${replenishmentRows.filter((row) => row.decision === action.decision).length}</span></button>`).join("")}</div>
-      <div class="next-replenishment-filters"><label>Buscar<input type="search" data-replenishment-filter="query" value="${text(replenishmentFilters.query)}" placeholder="Material o proveedor"></label><label>Proveedor<select data-replenishment-filter="supplier"><option value="">Todos</option>${suppliers.map((supplier) => `<option ${supplier === replenishmentFilters.supplier ? "selected" : ""}>${text(supplier)}</option>`).join("")}</select></label><label>Confianza<select data-replenishment-filter="confidence"><option value="">Todas</option><option value="high" ${replenishmentFilters.confidence === "high" ? "selected" : ""}>Alta</option><option value="medium" ${replenishmentFilters.confidence === "medium" ? "selected" : ""}>Media</option><option value="low" ${replenishmentFilters.confidence === "low" ? "selected" : ""}>Baja</option></select></label><label>Familia<select data-replenishment-filter="family"><option value="">Todas</option>${families.map((family) => `<option ${family === replenishmentFilters.family ? "selected" : ""}>${text(family)}</option>`).join("")}</select></label></div>
+      <div class="replenishment-filter-panel"><div class="next-replenishment-filters"><label>Buscar<input type="search" data-replenishment-filter="query" value="${text(replenishmentFilters.query)}" placeholder="Material o proveedor"></label><label>Proveedor<select data-replenishment-filter="supplier"><option value="">Todos</option>${suppliers.map((supplier) => `<option ${supplier === replenishmentFilters.supplier ? "selected" : ""}>${text(supplier)}</option>`).join("")}</select></label><label>Confianza<select data-replenishment-filter="confidence"><option value="">Todas</option><option value="high" ${replenishmentFilters.confidence === "high" ? "selected" : ""}>Alta</option><option value="medium" ${replenishmentFilters.confidence === "medium" ? "selected" : ""}>Media</option><option value="manual" ${replenishmentFilters.confidence === "manual" ? "selected" : ""}>Manual</option><option value="low" ${replenishmentFilters.confidence === "low" ? "selected" : ""}>Baja</option></select></label><label>Familia<select data-replenishment-filter="family"><option value="">Todas</option>${families.map((family) => `<option ${family === replenishmentFilters.family ? "selected" : ""}>${text(family)}</option>`).join("")}</select></label><label>Ordenar por<select data-replenishment-filter="sort"><option value="risk_desc" ${replenishmentFilters.sort === "risk_desc" ? "selected" : ""}>Riesgo</option><option value="cost_desc" ${replenishmentFilters.sort === "cost_desc" ? "selected" : ""}>Mayor inversion</option><option value="demand_desc" ${replenishmentFilters.sort === "demand_desc" ? "selected" : ""}>Mayor demanda</option><option value="name_asc" ${replenishmentFilters.sort === "name_asc" ? "selected" : ""}>Nombre A-Z</option></select></label></div></div>
       <div class="next-selection-bar"><button type="button" class="ghost" data-select-reliable-replenishment>Seleccionar recomendaciones fiables</button><div><strong>${selected.length} seleccionados</strong><span>${fmt(selectedSpend)} estimados</span></div><button id="createPurchasePlan" type="button" class="button-with-icon" ${selected.length ? "" : "disabled"}><svg><use href="#icon-plus"></use></svg><span>Preparar plan de compra</span></button></div>`;
 
-    $("#replenishmentList").innerHTML = visible.length ? visible.map((row) => {
+    const listHead = `<div class="replenishment-list-head"><span></span><span>Material</span><span>Stock</span><span>Demanda</span><span>Cobertura</span><span>Sugerido</span><span>Confianza</span><span>Motivo</span><span></span></div>`;
+    const listRows = pageRows.map((row) => {
       const id = Number(row.id);
       const quantity = number(replenishmentQuantities.get(id));
       const coverage = row.coverage_days === null ? "Sin calcular" : `${number(row.coverage_days).toFixed(row.coverage_days < 10 ? 1 : 0)} dias`;
       const blocker = row.blockers?.includes("supplier") ? "Falta proveedor" : row.blockers?.includes("stock") ? "Falta stock" : "";
-      const trend = trendLabels[row.trend] || trendLabels.stable;
+      const trend = replenishmentTrendMeta(row.trend);
       const expanded = expandedReplenishmentId === id;
       const stockGoal = Math.ceil(number(row.calculated_target_stock));
       const deficit = Math.max(0, number(row.calculated_target_stock) - number(row.effective_stock));
-      const projectedCoverage = number(row.weighted_daily_demand) > 0 ? Math.round((number(row.effective_stock) + quantity) / number(row.weighted_daily_demand)) : 0;
+      const projectedCoverage = replenishmentCoverageDays(row, quantity);
+      const supplierIcon = row.supplier_name ? entityIconMarkup(row.supplier_name, { type: "supplier", className: "supplier-avatar compact", label: row.supplier_name }) : "";
       return `<article class="next-replenishment-row-v2 priority-${row.priority} ${expanded ? "is-expanded" : ""}">
         <label class="next-replenishment-check"><input type="checkbox" data-replenishment-select="${row.id}" ${selectedReplenishmentIds.has(id) ? "checked" : ""} ${row.can_plan ? "" : "disabled"}><span></span></label>
-        <div class="next-replenishment-material"><strong>${text(row.name)}</strong><small>${text(row.supplier_name || "Sin proveedor")} · ${text(row.family || row.category || "material")}</small><p>${text(row.reason)}</p></div>
+        <div class="replenishment-material-cell"><div class="replenishment-material-thumb">${replenishmentMaterialThumb(row)}</div><span><strong>${text(row.name)}</strong><small>${supplierIcon}${text(row.supplier_name || "Sin proveedor")}</small><em>${text(row.family || row.category || "material")}${row.subfamily ? ` · ${text(row.subfamily)}` : ""}</em></span></div>
         <div class="replenishment-stock-cell"><small>Stock disponible</small><strong>${row.stock_known ? `${number(row.effective_stock)} ${text(row.unit_label)}` : "Sin stock"}</strong><span>Objetivo ${stockGoal}</span></div>
-        <div class="replenishment-demand-cell"><small>Consumo 30 / 90 dias</small><strong>${number(row.consumption_30).toFixed(0)} / ${number(row.consumption_90).toFixed(0)}</strong><span class="next-trend trend-${trend.tone}" title="${text(trend.label)}"><svg><use href="#icon-${trend.icon}"></use></svg><span>${text(trend.label)}</span></span></div>
+        <div class="replenishment-demand-cell"><small>Consumo 30 / 90 dias</small><strong>${number(row.consumption_30).toFixed(0)} / ${number(row.consumption_90).toFixed(0)}</strong><span class="next-trend trend-${trend.className}" title="${text(trend.label)}"><svg><use href="#icon-${trend.icon}"></use></svg></span></div>
         <div class="replenishment-coverage-cell"><small>Cobertura / llegada</small><strong>${coverage}</strong><span>Llega en ${number(row.lead_days)} dias</span></div>
-        <div class="next-replenishment-quantity"><small>Cantidad sugerida</small><input type="number" min="0" step="${number(row.purchase_pack_size) || 1}" value="${quantity}" data-replenishment-quantity="${row.id}" ${row.decision === "buy" ? "" : "disabled"}><span>${row.cost_known ? `${fmt(quantity * number(row.unit_cost))} · ${fmt(number(row.unit_cost))}/ud` : "Sin coste registrado"}</span></div>
-        <div class="replenishment-confidence"><small>Confianza</small><span class="status-pill tone-${row.confidence || "medium"}">${text(row.confidence === "high" ? "Alta" : row.confidence === "low" ? "Baja" : "Media")}</span><span>${text(row.cost_known ? "Demanda observada" : "Sin coste")}</span></div>
-        <div class="replenishment-reason"><small>Motivo principal</small><strong>${text(blocker || (row.decision === "monitor" ? "Seguimiento" : row.reason_code ? row.reason_code.replaceAll("_", " ") : "Stock agotado"))}</strong><span class="status-pill tone-${row.priority}">${text(priorityLabels[row.priority] || "Revisar")}</span></div>
-        <button type="button" class="ghost icon-button" data-toggle-replenishment="${row.id}" aria-label="Ver detalle"><svg><use href="#icon-${expanded ? "chevron-up" : "arrow-right"}"></use></svg></button>
-        ${expanded ? `<div class="replenishment-detail"><div class="replenishment-detail-head"><div><strong>Por que recomendamos ${quantity} ${text(row.unit_label)}</strong><span>${text(row.explanation || row.reason || "La cobertura no alcanza el plazo de entrega configurado.")}</span></div><button type="button" class="ghost" data-open-material="${row.id}"><svg><use href="#icon-eye"></use></svg><span>Ver ficha completa</span></button></div><div class="replenishment-detail-grid"><section><h4>Demanda ultimas 12 semanas</h4><div class="replenishment-echart" data-chart="demand"><span>Pedidos</span><b>${number(row.consumption_30).toFixed(0)}</b><span>Sets</span><b>${number(row.set_consumption_30 || 0).toFixed(0)}</b></div></section><section><h4>Proyeccion de stock</h4><div class="replenishment-echart" data-chart="projection"><span>Sin comprar</span><b>${coverage}</b><span>Con compra</span><b>${projectedCoverage} dias</b></div></section></div><div class="replenishment-formula"><span>Objetivo <strong>${stockGoal}</strong></span><span>-</span><span>Stock <strong>${number(row.effective_stock)}</strong></span><span>=</span><span>Deficit <strong>${deficit.toFixed(1)}</strong></span><span>→</span><span>Comprar <strong>${quantity}</strong></span></div><div class="replenishment-simulator"><div><small>Simulador</small><strong>Prueba otra cantidad sin modificar el calculo base.</strong></div><label>Cantidad<input type="number" min="0" step="${number(row.purchase_pack_size) || 1}" value="${quantity}" data-replenishment-simulator="${row.id}"></label><div><small>Cobertura resultante</small><strong>${projectedCoverage} dias</strong></div><button type="button" data-use-replenishment-simulator="${row.id}">Usar esta cantidad</button></div></div>` : ""}
+        <div class="next-replenishment-quantity"><small>Cantidad sugerida</small><div class="replenishment-quantity-inline"><input type="number" min="0" step="${number(row.purchase_pack_size) || 1}" value="${quantity}" data-replenishment-quantity="${row.id}" ${row.decision === "buy" ? "" : "disabled"}><strong>${text(row.unit_label)}</strong></div><span>${row.cost_known ? `${fmt(quantity * number(row.unit_cost))} · ${fmt(number(row.unit_cost))}/ud` : "Sin coste registrado"}</span></div>
+        <div class="replenishment-confidence"><small>Confianza</small><span class="status-pill confidence-${row.confidence || "medium"}">${text(replenishmentConfidenceText(row.confidence))}</span><span>${text(row.cost_known ? "Demanda observada" : "Sin coste")}</span></div>
+        <div class="replenishment-reason"><small>Motivo principal</small><strong>${text(blocker || (row.decision === "monitor" ? "Seguimiento" : row.reason_code ? row.reason_code.replaceAll("_", " ") : "Stock agotado"))}</strong><span class="status-pill tone-${row.priority}">${text(replenishmentPriorityText(row.priority))}</span></div>
+        <button type="button" class="ghost icon-button replenishment-expand" data-toggle-replenishment="${row.id}" aria-label="Ver detalle"><svg><use href="#icon-${expanded ? "chevron-up" : "arrow-right"}"></use></svg></button>
+        ${expanded ? `<div class="replenishment-detail">
+          <div class="replenishment-formula-head"><div><strong>Por que recomendamos ${quantity} ${text(row.unit_label)}</strong><span>${text(row.explanation || row.reason || "La cobertura no alcanza el plazo de entrega configurado.")}</span></div><button type="button" class="secondary-btn replenishment-material-link" data-open-material="${row.id}"><svg><use href="#icon-eye"></use></svg><span>Ver ficha completa</span></button></div>
+          <div class="replenishment-chart-grid">
+            <section class="replenishment-chart-card"><div class="replenishment-chart-head"><div><strong>Demanda ultimas 12 semanas</strong><span>Consumo real por pedidos y sets aplicados.</span></div><div class="replenishment-chart-legend"><span class="is-direct">Pedidos</span><span class="is-set">Sets</span><span class="is-demand">Total</span></div></div><div id="replenishmentDemandChart-${id}" class="replenishment-echart" data-replenishment-demand-chart="${id}"></div></section>
+            <section class="replenishment-chart-card"><div class="replenishment-chart-head"><div><strong>Proyeccion de stock</strong><span>Escenario constante con la demanda ponderada actual.</span></div><div class="replenishment-chart-legend"><span class="is-without">Sin comprar</span><span class="is-with">Con compra</span><span class="is-safety">Seguridad</span></div></div><div id="replenishmentProjectionChart-${id}" class="replenishment-echart" data-replenishment-projection-chart="${id}"></div><div class="replenishment-projection-summary"><span><small>Rotura prevista</small><strong>${row.coverage_days === null ? "Sin dato" : `${Math.max(0, Math.round(number(row.coverage_days)))} dias`}</strong></span><span><small>Cobertura tras compra</small><strong>${projectedCoverage} dias</strong></span><span><small>Llegada estimada</small><strong>${number(row.lead_days)} dias</strong></span></div></section>
+          </div>
+          <div class="replenishment-formula-flow"><span><em>Objetivo calculado</em><strong>${stockGoal}</strong><em>${number(row.formula?.horizon_days || 0) || "Horizonte"} dias de horizonte</em></span><b>-</b><span><em>Stock disponible</em><strong>${number(row.effective_stock)}</strong><em>${row.stock_source ? `Fuente ${text(row.stock_source)}` : "Fuente Shopify"}</em></span><b>=</b><span><em>Deficit neto</em><strong>${deficit.toFixed(1)}</strong><em>Antes de redondear</em></span><b>→</b><span class="is-result"><em>Comprar</em><strong>${quantity}</strong><em>Pack ${number(row.purchase_pack_size) || 1} · minimo ${number(row.minimum_order_quantity) || 1}</em></span></div>
+          <div class="replenishment-source-notes"><span>Consumo: pedidos + sets activos</span><span>Plazo: ${number(row.lead_days)} dias</span><span>Seguridad: ${number(replenishmentParameters.safety_days || 7)} dias</span></div>
+          <div class="replenishment-simulator"><div><small>Simulador</small><strong>Prueba otra cantidad sin modificar el calculo base.</strong></div><label>Cantidad<input type="number" min="0" step="${number(row.purchase_pack_size) || 1}" value="${quantity}" data-replenishment-simulator="${row.id}"></label><span><small>Cobertura resultante</small><strong>${projectedCoverage} dias</strong></span><button type="button" data-use-replenishment-simulator="${row.id}">Usar esta cantidad</button></div>
+        </div>` : ""}
       </article>`;
-    }).join("") : `<div class="empty-state">No hay materiales en esta decision con los filtros aplicados.</div>`;
+    }).join("");
+    const pagination = visible.length > replenishmentPageSize ? `<div class="replenishment-pagination"><div class="replenishment-pagination-meta"><strong>${visible.length} recomendaciones</strong><span>Pagina ${replenishmentPage} de ${totalPages}</span></div><div class="replenishment-pagination-actions"><button type="button" class="ghost" data-replenishment-page="${Math.max(1, replenishmentPage - 1)}" ${replenishmentPage === 1 ? "disabled" : ""}>Anterior</button>${Array.from({ length: totalPages }, (_, index) => index + 1).filter((page) => page === 1 || page === totalPages || Math.abs(page - replenishmentPage) <= 1).map((page, index, pages) => `${index && page - pages[index - 1] > 1 ? "<span>...</span>" : ""}<button type="button" class="ghost ${page === replenishmentPage ? "is-active" : ""}" data-replenishment-page="${page}">${page}</button>`).join("")}<button type="button" class="ghost" data-replenishment-page="${Math.min(totalPages, replenishmentPage + 1)}" ${replenishmentPage === totalPages ? "disabled" : ""}>Siguiente</button></div></div>` : "";
+    $("#replenishmentList").innerHTML = visible.length ? `${listHead}${listRows}${pagination}` : `<div class="empty-state">No hay materiales en esta decision con los filtros aplicados.</div>`;
+    requestAnimationFrame(renderReplenishmentCharts);
   }
 
   async function loadPurchasePlans() {
@@ -647,6 +777,11 @@
         const actionToDecision = { buy: "buy", monitor: "monitor", review: "configure", healthy: "healthy" };
         replenishmentFilters.decision = actionToDecision[button.dataset.replenishmentAction] || "buy";
         expandedReplenishmentId = null;
+        replenishmentPage = 1;
+        renderReplenishment();
+      }
+      if (button.dataset.replenishmentPage) {
+        replenishmentPage = Number(button.dataset.replenishmentPage);
         renderReplenishment();
       }
       if (button.dataset.toggleReplenishment) {
@@ -693,6 +828,7 @@
   document.body.addEventListener("change", async (event) => {
     if (event.target.matches("[data-replenishment-filter]")) {
       replenishmentFilters[event.target.dataset.replenishmentFilter] = event.target.value;
+      replenishmentPage = 1;
       renderReplenishment();
       return;
     }
@@ -736,6 +872,7 @@
   document.body.addEventListener("input", (event) => {
     if (event.target.matches('[data-replenishment-filter="query"]')) {
       replenishmentFilters.query = event.target.value;
+      replenishmentPage = 1;
       clearTimeout(importFilterTimer);
       importFilterTimer = setTimeout(renderReplenishment, 180);
       return;

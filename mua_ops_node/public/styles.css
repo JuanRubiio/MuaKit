@@ -11460,6 +11460,26 @@ textarea {
   box-shadow: 0 12px 30px rgba(80, 35, 42, .06);
 }
 
+#replenishmentPanel .replenishment-expand {
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  align-self: center;
+  justify-self: end;
+  padding: 0;
+}
+
+#replenishmentPanel .replenishment-expand svg,
+.replenishment-material-link svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 #replenishmentPanel .next-replenishment-row-v2.is-expanded .replenishment-expand svg { transform: rotate(90deg); }
 
 .replenishment-detail {
@@ -11470,6 +11490,15 @@ textarea {
   padding: 16px;
   border-top: 1px solid #ebcbd1;
   background: #fffafa;
+}
+
+.replenishment-formula-head .replenishment-material-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  white-space: nowrap;
 }
 
 .replenishment-material-cell {
@@ -11491,12 +11520,53 @@ textarea {
 }
 
 .replenishment-material-thumb {
+  display: grid;
+  place-items: center;
   width: 46px;
   height: 46px;
   border-radius: 10px;
   overflow: hidden;
   background: #fff;
   border: 1px solid #ece5de;
+}
+
+.replenishment-material-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.replenishment-material-thumb span {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: #0b8778;
+  background: #f1fbf8;
+}
+
+.replenishment-material-thumb svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.replenishment-material-cell small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.replenishment-material-cell .supplier-avatar.compact {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  font-size: 9px;
 }
 
 .replenishment-quantity-inline {
@@ -11509,6 +11579,23 @@ textarea {
 .replenishment-quantity-inline strong {
   color: #756b65;
   font-size: 11px;
+}
+
+#replenishmentPanel .next-trend {
+  width: 30px;
+  height: 26px;
+  justify-content: center;
+  padding: 0;
+}
+
+#replenishmentPanel .next-trend svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .replenishment-stock-cell,
