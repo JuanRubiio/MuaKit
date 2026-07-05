@@ -463,6 +463,43 @@
     return Math.round((number(row.effective_stock) + number(quantity)) / daily);
   }
 
+  function replenishmentWeeklyDemand(row) {
+    const daily = number(row.weighted_daily_demand || row.daily_demand);
+    if (daily > 0) return daily * 7;
+    const recent = number(row.consumption_30) / 30;
+    const baseline = number(row.consumption_90) / 90;
+    return (recent * 0.7 + baseline * 0.3) * 7;
+  }
+
+  function replenishmentReasonText(row, quantity = 0) {
+    if (row.blockers?.includes("supplier")) return "Falta proveedor";
+    if (row.blockers?.includes("stock")) return "Falta stock";
+    if (!row.stock_known) return "Sin stock conocido";
+    const stock = number(row.effective_stock);
+    const target = number(row.calculated_target_stock);
+    const coverage = row.coverage_days === null ? null : number(row.coverage_days);
+    const leadDays = number(row.lead_days);
+    if (stock <= 0 && number(quantity) > 0) return "Stock agotado";
+    if (row.decision === "healthy" || (number(quantity) <= 0 && stock >= target)) return "Stock suficiente";
+    if (coverage !== null && leadDays && coverage <= leadDays) return "Riesgo de rotura";
+    if (row.trend === "accelerating") return "Demanda al alza";
+    if (row.decision === "monitor") return "Vigilar cobertura";
+    if (row.reason_code) return String(row.reason_code).replaceAll("_", " ");
+    return "Revisar cobertura";
+  }
+
+  function replenishmentDetailTitle(row, quantity = 0) {
+    return number(quantity) > 0 ? `Por que recomendamos ${number(quantity)} ${text(row.unit_label)}` : "No recomendamos compra ahora";
+  }
+
+  function replenishmentDetailExplanation(row, quantity = 0) {
+    if (number(quantity) <= 0 && row.stock_known) {
+      const coverage = row.coverage_days === null ? "sin limite calculado" : `${Math.round(number(row.coverage_days))} dias`;
+      return `La cobertura actual es de ${coverage} frente a ${number(row.lead_days)} dias de plazo. No hay deficit hasta el objetivo calculado.`;
+    }
+    return row.explanation || row.reason || "La cobertura no alcanza el plazo de entrega configurado.";
+  }
+
   function replenishmentMaterialThumb(row) {
     if (row.image_url) return `<img src="${text(row.image_url)}" alt="">`;
     return `<span><svg><use href="#icon-cube"></use></svg></span>`;
@@ -508,10 +545,11 @@
       const direct = history.length ? history.map((item) => number(item.direct)) : [number(row.consumption_30), number(row.consumption_90)];
       const sets = history.length ? history.map((item) => number(item.sets)) : [0, 0];
       const total = history.length ? history.map((item) => number(item.total)) : [number(row.consumption_30), number(row.consumption_90)];
+      const weeklyAverage = replenishmentWeeklyDemand(row);
       chart.setOption({
         animation: false,
         grid: { left: 42, right: 14, top: 24, bottom: 34 },
-        color: ["#0b8778", "#d08a28", "#cf304b"],
+        color: ["#0b8778", "#d08a28", "#cf304b", "#8f7d70"],
         tooltip: { trigger: "axis", valueFormatter: (value) => `${number(value).toFixed(1)} ud` },
         legend: { top: 0, right: 0, itemWidth: 10, itemHeight: 6, textStyle: { fontSize: 10 } },
         xAxis: { type: "category", data: labels, axisTick: { show: false }, axisLabel: { color: "#6f6762", fontSize: 10 } },
@@ -519,7 +557,8 @@
         series: [
           { name: "Pedidos", type: "bar", stack: "usage", data: direct, barMaxWidth: 20, itemStyle: { borderRadius: [4, 4, 0, 0] } },
           { name: "Sets", type: "bar", stack: "usage", data: sets, barMaxWidth: 20, itemStyle: { borderRadius: [4, 4, 0, 0] } },
-          { name: "Total", type: "line", data: total, smooth: true, symbolSize: 5, lineStyle: { width: 2 } }
+          { name: "Total", type: "line", data: total, smooth: true, symbolSize: 5, lineStyle: { width: 2 } },
+          { name: "Media semanal", type: "line", data: labels.map(() => weeklyAverage), symbol: "none", lineStyle: { width: 1.8, type: "dashed", color: "#8f7d70" }, itemStyle: { color: "#8f7d70" } }
         ]
       });
       chart.resize();
@@ -614,21 +653,26 @@
       const deficit = Math.max(0, number(row.calculated_target_stock) - number(row.effective_stock));
       const projectedCoverage = replenishmentCoverageDays(row, quantity);
       const supplierIcon = row.supplier_name ? entityIconMarkup(row.supplier_name, { type: "supplier", className: "supplier-avatar compact", label: row.supplier_name }) : "";
+      const weeklyDemand = replenishmentWeeklyDemand(row);
+      const demandLabel = weeklyDemand > 0 ? `${weeklyDemand.toFixed(1)} ud/sem` : "Sin demanda";
+      const reasonText = replenishmentReasonText(row, quantity);
+      const detailTitle = replenishmentDetailTitle(row, quantity);
+      const detailExplanation = replenishmentDetailExplanation(row, quantity);
       return `<article class="next-replenishment-row-v2 priority-${row.priority} ${expanded ? "is-expanded" : ""}">
         <label class="next-replenishment-check"><input type="checkbox" data-replenishment-select="${row.id}" ${selectedReplenishmentIds.has(id) ? "checked" : ""} ${row.can_plan ? "" : "disabled"}><span></span></label>
         <div class="replenishment-material-cell"><div class="replenishment-material-thumb">${replenishmentMaterialThumb(row)}</div><span><strong>${text(row.name)}</strong><small>${supplierIcon}${text(row.supplier_name || "Sin proveedor")}</small><em>${text(row.family || row.category || "material")}${row.subfamily ? ` · ${text(row.subfamily)}` : ""}</em></span></div>
         <div class="replenishment-stock-cell"><small>Stock disponible</small><strong>${row.stock_known ? `${number(row.effective_stock)} ${text(row.unit_label)}` : "Sin stock"}</strong><span>Objetivo ${stockGoal}</span></div>
-        <div class="replenishment-demand-cell"><small>Consumo 30 / 90 dias</small><strong>${number(row.consumption_30).toFixed(0)} / ${number(row.consumption_90).toFixed(0)}</strong><span class="next-trend trend-${trend.className}" title="${text(trend.label)}"><svg><use href="#icon-${trend.icon}"></use></svg></span></div>
+        <div class="replenishment-demand-cell"><small>Media semanal</small><strong>${text(demandLabel)}</strong><span class="next-trend trend-${trend.className}" title="${text(trend.label)}"><svg><use href="#icon-${trend.icon}"></use></svg></span><em>30d ${number(row.consumption_30).toFixed(0)} / 90d ${number(row.consumption_90).toFixed(0)}</em></div>
         <div class="replenishment-coverage-cell"><small>Cobertura / llegada</small><strong>${coverage}</strong><span>Llega en ${number(row.lead_days)} dias</span></div>
         <div class="next-replenishment-quantity"><small>Cantidad sugerida</small><div class="replenishment-quantity-inline"><input type="number" min="0" step="${number(row.purchase_pack_size) || 1}" value="${quantity}" data-replenishment-quantity="${row.id}" ${row.decision === "buy" ? "" : "disabled"}><strong>${text(row.unit_label)}</strong></div><span>${row.cost_known ? `${fmt(quantity * number(row.unit_cost))} · ${fmt(number(row.unit_cost))}/ud` : "Sin coste registrado"}</span></div>
         <div class="replenishment-confidence"><small>Confianza</small><span class="status-pill confidence-${row.confidence || "medium"}">${text(replenishmentConfidenceText(row.confidence))}</span><span>${text(row.cost_known ? "Demanda observada" : "Sin coste")}</span></div>
-        <div class="replenishment-reason"><small>Motivo principal</small><strong>${text(blocker || (row.decision === "monitor" ? "Seguimiento" : row.reason_code ? row.reason_code.replaceAll("_", " ") : "Stock agotado"))}</strong><span class="status-pill tone-${row.priority}">${text(replenishmentPriorityText(row.priority))}</span></div>
+        <div class="replenishment-reason"><small>Motivo principal</small><strong>${text(blocker || reasonText)}</strong><span class="status-pill tone-${row.priority}">${text(replenishmentPriorityText(row.priority))}</span></div>
         <button type="button" class="ghost icon-button replenishment-expand" data-toggle-replenishment="${row.id}" aria-label="Ver detalle"><svg><use href="#icon-${expanded ? "chevron-up" : "arrow-right"}"></use></svg></button>
         ${expanded ? `<div class="replenishment-detail">
-          <div class="replenishment-formula-head"><div><strong>Por que recomendamos ${quantity} ${text(row.unit_label)}</strong><span>${text(row.explanation || row.reason || "La cobertura no alcanza el plazo de entrega configurado.")}</span></div><button type="button" class="secondary-btn replenishment-material-link" data-open-material="${row.id}"><svg><use href="#icon-eye"></use></svg><span>Ver ficha completa</span></button></div>
+          <div class="replenishment-formula-head"><div><strong>${text(detailTitle)}</strong><span>${text(detailExplanation)}</span></div><button type="button" class="secondary-btn replenishment-material-link" data-open-material="${row.id}"><svg><use href="#icon-eye"></use></svg><span>Ver ficha completa</span></button></div>
           <div class="replenishment-chart-grid">
-            <section class="replenishment-chart-card"><div class="replenishment-chart-head"><div><strong>Demanda ultimas 12 semanas</strong><span>Consumo real por pedidos y sets aplicados.</span></div><div class="replenishment-chart-legend"><span class="is-direct">Pedidos</span><span class="is-set">Sets</span><span class="is-demand">Total</span></div></div><div id="replenishmentDemandChart-${id}" class="replenishment-echart" data-replenishment-demand-chart="${id}"></div></section>
-            <section class="replenishment-chart-card"><div class="replenishment-chart-head"><div><strong>Proyeccion de stock</strong><span>Escenario constante con la demanda ponderada actual.</span></div><div class="replenishment-chart-legend"><span class="is-without">Sin comprar</span><span class="is-with">Con compra</span><span class="is-safety">Seguridad</span></div></div><div id="replenishmentProjectionChart-${id}" class="replenishment-echart" data-replenishment-projection-chart="${id}"></div><div class="replenishment-projection-summary"><span><small>Rotura prevista</small><strong>${row.coverage_days === null ? "Sin dato" : `${Math.max(0, Math.round(number(row.coverage_days)))} dias`}</strong></span><span><small>Cobertura tras compra</small><strong>${projectedCoverage} dias</strong></span><span><small>Llegada estimada</small><strong>${number(row.lead_days)} dias</strong></span></div></section>
+            <section class="replenishment-chart-card"><div class="replenishment-chart-head"><div><strong>Demanda ultimas 12 semanas</strong><span>Consumo real, sets y media ponderada: ${text(demandLabel)}.</span></div></div><div id="replenishmentDemandChart-${id}" class="replenishment-echart" data-replenishment-demand-chart="${id}"></div></section>
+            <section class="replenishment-chart-card"><div class="replenishment-chart-head"><div><strong>Proyeccion de stock</strong><span>Escenario constante con la demanda ponderada actual.</span></div></div><div id="replenishmentProjectionChart-${id}" class="replenishment-echart" data-replenishment-projection-chart="${id}"></div><div class="replenishment-projection-summary"><span><small>Rotura prevista</small><strong>${row.coverage_days === null ? "Sin dato" : `${Math.max(0, Math.round(number(row.coverage_days)))} dias`}</strong></span><span><small>Cobertura tras compra</small><strong>${projectedCoverage} dias</strong></span><span><small>Llegada estimada</small><strong>${number(row.lead_days)} dias</strong></span></div></section>
           </div>
           <div class="replenishment-formula-flow"><span><em>Objetivo calculado</em><strong>${stockGoal}</strong><em>${number(row.formula?.horizon_days || 0) || "Horizonte"} dias de horizonte</em></span><b>-</b><span><em>Stock disponible</em><strong>${number(row.effective_stock)}</strong><em>${row.stock_source ? `Fuente ${text(row.stock_source)}` : "Fuente Shopify"}</em></span><b>=</b><span><em>Deficit neto</em><strong>${deficit.toFixed(1)}</strong><em>Antes de redondear</em></span><b>→</b><span class="is-result"><em>Comprar</em><strong>${quantity}</strong><em>Pack ${number(row.purchase_pack_size) || 1} · minimo ${number(row.minimum_order_quantity) || 1}</em></span></div>
           <div class="replenishment-source-notes"><span>Consumo: pedidos + sets activos</span><span>Plazo: ${number(row.lead_days)} dias</span><span>Seguridad: ${number(replenishmentParameters.safety_days || 7)} dias</span></div>

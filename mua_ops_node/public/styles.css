@@ -11616,6 +11616,13 @@ textarea {
   line-height: 1.15;
 }
 
+.replenishment-demand-cell em {
+  color: #827871;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 1.2;
+}
+
 .replenishment-confidence strong,
 .replenishment-reason .status-pill {
   justify-self: start;
