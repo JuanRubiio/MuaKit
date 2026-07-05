@@ -1523,6 +1523,14 @@ async function refreshAfterShopifySync(result = {}) {
   window.dispatchEvent(new CustomEvent("mua:shopify-synced", { detail: result }));
 }
 
+window.muaRefreshExpenses = async function muaRefreshExpenses() {
+  await Promise.all([loadInvoices(), loadCosts(), loadSummary(), loadDashboardFinance()]);
+};
+
+window.addEventListener("mua:expenses-changed", () => {
+  window.muaRefreshExpenses?.().catch((error) => toast(error.message));
+});
+
 async function maybeRunShopifyAutoSync() {
   if (!state.shopifySyncStatus?.sync_enabled) return;
   if (document.visibilityState !== "visible") return;
@@ -2154,6 +2162,7 @@ function bindEvents() {
       if (t.dataset.closeLineForm !== undefined) await openInvoice(state.selectedInvoiceId, { openForm: false });
       if (t.dataset.closeInvoiceDetail !== undefined) closeInvoicePanels();
       if (t.dataset.editInvoiceDetails) {
+        $("#invoiceDetailPanel")?.classList.add("hidden");
         const detail = await api(`/api/invoices/${t.dataset.editInvoiceDetails}`);
         showInvoiceEditor(detail);
       }
@@ -2541,7 +2550,5 @@ init().catch((error) => {
   clientLog("app_init_error", { message: error.message }, "error");
   toast(error.message);
 });
-
-
 
 

@@ -73,6 +73,13 @@
   };
   const reviewableRows = () => expenseImportRows.filter((row) => ["ready", "review", "error"].includes(row.status));
   const eligibleImportRows = (rows = filteredImportRows()) => rows.filter((row) => row.accounting_quality?.batch_eligible && ["ready", "review"].includes(row.status));
+  async function refreshRegisteredExpenses() {
+    if (typeof window.muaRefreshExpenses === "function") {
+      await window.muaRefreshExpenses();
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("mua:expenses-changed"));
+  }
   const filteredImportRows = () => {
     const query = importFilters.query.toLocaleLowerCase("es");
     return expenseImportRows.filter((row) => {
@@ -550,7 +557,7 @@
         const result = await api("/api/expense-imports/batch-confirm", { method: "POST", body: JSON.stringify({ ids: [...selectedImportIds] }) });
         selectedImportIds.clear();
         toast(`${result.confirmed.length} borradores creados${result.rejected.length ? ` · ${result.rejected.length} requieren revisión` : ""}`);
-        await loadImports();
+        await Promise.all([loadImports(), refreshRegisteredExpenses()]);
       }
       if (Object.prototype.hasOwnProperty.call(button.dataset, "selectAllEligibleImports")) {
         const eligibleRows = eligibleImportRows();
@@ -571,7 +578,7 @@
         const nextId = reviewableRows().find((row) => Number(row.id) !== Number(button.dataset.confirmImport))?.id;
         const result = await api(`/api/expense-imports/${button.dataset.confirmImport}/confirm`, { method: "POST", body: JSON.stringify({}) });
         toast(`Factura borrador #${result.invoice_id} creada`);
-        await loadImports();
+        await Promise.all([loadImports(), refreshRegisteredExpenses()]);
         if (nextId && expenseImportRows.some((row) => Number(row.id) === Number(nextId))) await openImport(nextId); else showImportList();
       }
       if (button.dataset.addImportLine) {
