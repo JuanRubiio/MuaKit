@@ -431,6 +431,34 @@ Cobrado: 12,00 €`;
   const appleStoreFields = detectFields(appleStoreText);
   assert(appleStoreFields.invoice_number === "04906-34141827" && appleStoreFields.invoice_date === "2026-06-08" && appleStoreFields.total === 12, "Apple App Store receipts should read invoice number, issue date and paid total");
   assert(detectedInvoiceLines(appleStoreFields.lines, appleStoreFields)[0].description === "Precio de la suscripción", "Apple App Store product descriptions should stay clean");
+  const correosText = `SOCIEDAD EST. CORREOS Y TELÃ‰GRAFOS, S.A., S.M.E.
+FACTURA
+NIF CONTRATO CLIENTE FECHA NÂº FACTURA
+25737299T 54090896 9981562306 30.06.2026 4004726887
+Resumen
+Base imponible sujeta a impuesto (IVA) 23,66
+Importe Bruto 32,77
+Importe bonificaciÃ³n -9,11
+Tipo impositivo: EXENTO
+Cuota: 0,00
+Base imponible sujeta a impuesto (IVA) 370,79
+Importe Bruto 608,01
+Importe bonificaciÃ³n -237,22
+Tipo impositivo: 21,00 %
+Cuota: 77,87
+Totales
+Total importe bruto 640,78
+Total importe bonificaciÃ³n -246,33
+Total importe neto antes de impuesto 394,45
+Total impuesto 77,87
+Total factura en Euros 472,32
+Detalle de envÃ­os
+Producto Contrato PaÃ­s Peso Importe`;
+  const correosFields = detectFields(correosText);
+  assert(correosFields.invoice_number === "4004726887" && correosFields.invoice_date === "2026-06-30", "Correos invoice number and date should be detected from the header");
+  assert(correosFields.subtotal === 640.78 && correosFields.discount === 246.33 && correosFields.tax === 77.87 && correosFields.total === 472.32, "Correos summary totals should stay at invoice level");
+  assert(correosFields.category === "envios" && correosFields.supplier_hint === "correos" && correosFields.suppress_lines, "Correos invoices should be classified as shipping and avoid detail lines");
+  assert(detectedInvoiceLines(correosFields.lines, correosFields).length === 0, "Correos detail invoices should not generate suggested lines");
   const evidence = fieldEvidence({ suggested_supplier_name: "Meta", invoice_number: "FBADS-394", invoice_date: "2026-04-04", total: 18.51 }, [{ page: 1, text: "Meta Platforms\nFactura FBADS-394\nTotal 18,51 EUR" }]);
   assert(evidence.supplier?.page === 1 && evidence.invoice_number?.text.includes("FBADS-394"), "Detected fields should retain document evidence");
   const safeAccounting = accountingQuality({ suggested_supplier_id: 1, invoice_number: "A-1", invoice_date: "2026-01-01", total: 10, category: "software" }, [{ line_total: 10, human_decision: "accepted" }], {});

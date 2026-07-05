@@ -31,6 +31,11 @@ function isoDate(day, monthName, year) {
   return month ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}` : "";
 }
 
+function numericDateToIso(value) {
+  const match = String(value || "").match(/\b(\d{1,2})[./-](\d{1,2})[./-](\d{4})\b/);
+  return match ? `${match[3]}-${String(match[2]).padStart(2, "0")}-${String(match[1]).padStart(2, "0")}` : "";
+}
+
 function aliExpressMoney(value, referenceTotal = null) {
   const raw = String(value || "").trim();
   const parsed = amount(raw);
@@ -203,6 +208,33 @@ function appleFields(lines) {
     total,
     currency: "EUR",
     supplier_hint: "apple"
+  };
+}
+
+function correosFieldsSafe(lines) {
+  const text = lines.join("\n");
+  const normalizedText = normalize(text);
+  if (!/\bcorreos\b/.test(normalizedText) || !/\bfactura\b/.test(normalizedText) || !/\bnif contrato cliente fecha\b/.test(normalizedText)) return null;
+  const findLine = (pattern) => lines.find((line) => pattern.test(line)) || "";
+  const invoiceMatch = text.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{4})\s+([0-9]{6,})\b/);
+  const value = (pattern) => amount(findLine(pattern).match(/(-?[0-9][0-9.,]*)\s*$/)?.[1]);
+  const gross = value(/^total importe bruto\b/i);
+  const discount = value(/^total importe bonificaci/i);
+  const net = value(/^total importe neto antes de impuesto\b/i);
+  const tax = value(/^total impuesto\b/i);
+  const total = value(/^total factura en euros\b/i) ?? value(/^total impuestos incluidos\b/i);
+  return {
+    invoice_number: invoiceMatch?.[2] || "",
+    invoice_date: numericDateToIso(invoiceMatch?.[1] || ""),
+    subtotal: gross ?? net,
+    discount: discount !== null ? Math.abs(discount) : 0,
+    shipping: 0,
+    tax: tax || 0,
+    total,
+    currency: "EUR",
+    category: "envios",
+    supplier_hint: "correos",
+    suppress_lines: true
   };
 }
 
@@ -451,6 +483,7 @@ function detectFields(text) {
   const aliExpress = aliExpressFields(lines);
   const etsy = etsyFields(lines);
   const shein = sheinFields(lines);
+  const correos = correosFieldsSafe(lines);
   const apple = appleFields(lines);
   const capcut = capcutFields(lines);
   const numericDate = text.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/)?.[1] || "";
@@ -476,10 +509,11 @@ function detectFields(text) {
   const selectedTotal = totalCandidates.at(-1) || null;
   const rateMatch = text.match(/\b1\s+(USD|EUR)\s*=\s*([0-9][0-9.,]*)\s+(EUR|USD)\b/i);
   const exchangeRate = rateMatch ? { from: rateMatch[1].toUpperCase(), rate: amount(rateMatch[2]), to: rateMatch[3].toUpperCase() } : null;
-  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(etsy || {}), ...(shein || {}), ...(apple || {}), ...(capcut || {}) };
+  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(apple || {}), ...(capcut || {}) };
 }
 
 function detectedInvoiceLines(lines, fields = {}) {
+  if (fields.suppress_lines) return [];
   const aliExpressLines = detectedAliExpressLines(lines, fields);
   if (aliExpressLines.length) return aliExpressLines;
   const etsyLines = detectedEtsyLines(lines, fields);
