@@ -160,6 +160,37 @@ function capcutFields(lines) {
   };
 }
 
+function canvaFields(lines) {
+  const text = lines.join("\n");
+  const normalizedText = normalize(text);
+  if (!/\bcanva\b/.test(normalizedText)) return null;
+  const findLine = (pattern) => lines.find((line) => pattern.test(line)) || "";
+  const amountFromLine = (pattern) => amount(findLine(pattern).match(/([0-9][0-9.,]*)\s*(?:\u20ac|EUR|â‚¬)/i)?.[1]);
+  const headerIndex = lines.findIndex((line) => /fecha de factura/i.test(line) && /(?:nro\.?\s+de factura|invoice number)/i.test(line));
+  const headerValueMatch = (headerIndex >= 0 ? lines[headerIndex + 1] || "" : text)
+    .match(/(\d{1,2})\s+de\s+([a-zÃ¡Ã©Ã­Ã³Ãº]+)\s+de\s+(\d{4})\s+([A-Z0-9-]{6,})/i);
+  const invoiceNumber = headerValueMatch?.[4]
+    || text.match(/\b(?:nro\.?\s+de factura|numero de factura|invoice number)\s*[:#]?\s*([A-Z0-9-]{6,})/i)?.[1]
+    || "";
+  const invoiceDate = headerValueMatch ? isoDate(headerValueMatch[1], headerValueMatch[2], headerValueMatch[3]) : "";
+  const total = amountFromLine(/^\s*importe total\b/i)
+    ?? amountFromLine(/^\s*total\b/i)
+    ?? amount(findLine(/\bcanva\b.*[0-9][0-9.,]*\s*(?:\u20ac|EUR|â‚¬)/i).match(/([0-9][0-9.,]*)\s*(?:\u20ac|EUR|â‚¬)/i)?.[1]);
+  const tax = amountFromLine(/^\s*impuestos incluidos\b/i) || 0;
+  return {
+    invoice_number: invoiceNumber,
+    invoice_date: invoiceDate,
+    subtotal: total,
+    discount: 0,
+    shipping: 0,
+    tax,
+    total,
+    currency: "EUR",
+    category: "software",
+    supplier_hint: "canva"
+  };
+}
+
 function appleFields(lines) {
   const text = lines.join("\n");
   const normalizedText = normalize(text);
@@ -437,6 +468,25 @@ function detectedCapCutLines(lines, fields = {}) {
   }] : [];
 }
 
+function detectedCanvaLines(lines, fields = {}) {
+  if (!lines.some((line) => /\bcanva\b/i.test(line))) return [];
+  const productLine = lines.find((line) => /\bcanva\b/i.test(line) && /[0-9][0-9.,]*\s*(?:\u20ac|EUR|â‚¬)/i.test(line) && !/\b(?:pty|ltd|vat|total|importe|impuestos|tax)\b/i.test(line)) || "";
+  const total = Number(fields.total ?? amount(productLine.match(/([0-9][0-9.,]*)\s*(?:\u20ac|EUR|â‚¬)/i)?.[1]) ?? 0);
+  if (!productLine || !total) return [];
+  const description = cleanAliExpressDescription(productLine.replace(/\s*[0-9][0-9.,]*\s*(?:\u20ac|EUR|â‚¬)\s*$/i, ""));
+  return [{
+    description: description || "Canva",
+    quantity: 1,
+    package_count: 1,
+    units_per_package: 1,
+    total_units: 1,
+    price_per_package: Number(total.toFixed(2)),
+    unit_price: Number(total.toFixed(2)),
+    line_total: Number(total.toFixed(2)),
+    original_text: productLine
+  }];
+}
+
 function detectedAppleLines(lines, fields = {}) {
   const normalizedText = normalize(lines.join(" "));
   if (/\bcapcut\b/.test(normalizedText)) return [];
@@ -484,6 +534,7 @@ function detectFields(text) {
   const etsy = etsyFields(lines);
   const shein = sheinFields(lines);
   const correos = correosFieldsSafe(lines);
+  const canva = canvaFields(lines);
   const apple = appleFields(lines);
   const capcut = capcutFields(lines);
   const numericDate = text.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/)?.[1] || "";
@@ -509,7 +560,7 @@ function detectFields(text) {
   const selectedTotal = totalCandidates.at(-1) || null;
   const rateMatch = text.match(/\b1\s+(USD|EUR)\s*=\s*([0-9][0-9.,]*)\s+(EUR|USD)\b/i);
   const exchangeRate = rateMatch ? { from: rateMatch[1].toUpperCase(), rate: amount(rateMatch[2]), to: rateMatch[3].toUpperCase() } : null;
-  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(apple || {}), ...(capcut || {}) };
+  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}) };
 }
 
 function detectedInvoiceLines(lines, fields = {}) {
@@ -520,6 +571,8 @@ function detectedInvoiceLines(lines, fields = {}) {
   if (etsyLines.length) return etsyLines;
   const sheinLines = detectedSheinLines(lines, fields);
   if (sheinLines.length) return sheinLines;
+  const canvaLines = detectedCanvaLines(lines, fields);
+  if (canvaLines.length) return canvaLines;
   const appleLines = detectedAppleLines(lines, fields);
   if (appleLines.length) return appleLines;
   const capcutLines = detectedCapCutLines(lines, fields);
@@ -845,4 +898,4 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   return { enqueue, process, status: () => ({ available: true, languages: ["spa", "eng"], model_path: langPath, pending: queue.length, running }) };
 }
 
-module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };
+module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };

@@ -3,7 +3,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const initSqlJs = require("sql.js");
-const { amount: parsedAmount, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
+const { amount: parsedAmount, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
 const { cleanOriginalName, accountingQuality } = require("./lib/routes/expense-imports");
 const { ORDER_TYPES, detectOrderType, inferRecipeOrderType, isOrderTypeMarkerTitle } = require("./lib/services/order-typologies");
 
@@ -402,6 +402,25 @@ España Visa +++ 6704 (Apple Pay) 20,00 €`;
   assert(!capcutLines[0].description.includes("Apple Pay") && capcutLines[0].line_total === 20, "CapCut payment rows must not become expense lines");
   const compactCapcutFields = detectFields(capcutText.replace("Subtotal 16,53 €", "Subtotal 1653€"));
   assert(compactCapcutFields.subtotal === 16.53, "CapCut compact OCR subtotals should be restored from the paid total and VAT");
+  const canvaText = `Factura fiscal
+Fecha de factura Nro. de factura
+8 de julio de 2026 04936-17085274
+Para Dirección de facturación
+Suscripciones
+Canva Pro 12,00 €
+iAHOyLNOiT4
+8 de julio de 2026
+Los pagos se procesan de manera internacional. Se pueden aplicar Total 12,00 €
+tarifas bancarias adicionales.
+Impuestos incluidos 2,08 €
+Importe total 12,00 €
+Canva Pty. Ltd. ABN 80 158 929 938, VAT EU372042198`;
+  const canvaFields = detectFields(canvaText);
+  assert(canvaFields.invoice_number === "04936-17085274" && canvaFields.invoice_date === "2026-07-08", "Canva PDF invoice date and number should be read from the combined header row");
+  assert(canvaFields.total === 12 && canvaFields.tax === 2.08 && canvaFields.category === "software", "Canva totals should stay at invoice level and be classified as software");
+  assert(inferExpenseCategory(canvaText, "materiales", ["materiales"]) === "software", "Canva invoices should override supplier defaults as software");
+  const canvaLines = detectedCanvaLines(canvaFields.lines, canvaFields);
+  assert(canvaLines.length === 1 && canvaLines[0].description === "Canva Pro" && canvaLines[0].line_total === 12, "Canva subscriptions should create one product line and exclude included taxes");
   const appleIcloudText = `15 de enero de 2026
 Secuencia: 1-12793147473
 ID de pedido: MXG4XQ4LS5
