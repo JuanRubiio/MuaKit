@@ -297,7 +297,7 @@ export function createDashboardViews(ctx) {
       ["Ticket medio", euro.format(p.metrics.average_ticket), delta(comparison.average_ticket_change_percent, { empty: `${p.metrics.total_orders || 0} pedidos` }), "icon-tag", "neutral"]
     ] : [
       ["Ingreso neto", euro.format(k.period_net_received), delta(comparison.income_change_percent, { empty: "Sin periodo previo", neutral: true }), "icon-chart", "green"],
-      ["Gasto comprometido", euro.format(k.period_expense), delta(comparison.expense_change_percent, { empty: "Sin periodo previo", neutral: true }), "icon-file", "rose"],
+      ["Gasto comprometido", euro.format(k.period_expense), delta(comparison.expense_change_percent, { empty: "Sin periodo previo", neutral: true, inverse: true }), "icon-file", "rose"],
       ["Balance operativo", euro.format(k.period_balance), delta(comparison.balance_change_percent, { empty: "Sin periodo previo", neutral: true }), "icon-activity", k.period_balance >= 0 ? "green" : "rose"],
       ["Margen ponderado", percent(k.weighted_margin_percent), delta(comparison.weighted_margin_change_points, { pp: true, empty: "Sin periodo previo", neutral: true }), "icon-coin", marginTone(k.weighted_margin_percent, p.thresholds)],
       ["Ticket medio", euro.format(p.metrics.average_ticket), delta(comparison.average_ticket_change_percent), "icon-tag", "neutral"]
