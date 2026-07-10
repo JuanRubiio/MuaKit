@@ -210,8 +210,9 @@ async function run() {
     const importReview = page.locator("[data-open-expense-import]:visible").first();
     if (await importReview.count()) {
       await importReview.click();
-      await page.locator("#invoiceForm:not(.hidden)").waitFor({ state: "visible", timeout: 2500 });
-      await page.locator("#invoiceDetailPanel.hidden").waitFor({ state: "attached", timeout: 2500 });
+      await page.locator("#expenseImportDetail:not(.hidden)").waitFor({ state: "visible", timeout: 5000 });
+      await page.locator("#invoiceForm.hidden").waitFor({ state: "attached", timeout: 5000 });
+      await page.locator("#invoiceDetailPanel.hidden").waitFor({ state: "attached", timeout: 5000 });
       const importViewer = page.locator("#expenseImportDetail .document-viewer");
       if (!(await importViewer.count()) || await importViewer.getAttribute("open") !== null) {
         throw new Error("La validacion OCR no ofrece el visor documental cerrado por defecto");
@@ -247,15 +248,17 @@ async function run() {
     }
     await page.locator('[data-expense-section="registered"]').click();
     const firstInvoice = page.locator("[data-view-invoice]:visible").first();
-    if (await firstInvoice.count()) {
+    if (await page.locator("[data-view-invoice]").count()) {
+      await firstInvoice.waitFor({ state: "visible", timeout: 3000 });
       await firstInvoice.click();
-      await page.waitForTimeout(500);
+      await page.locator("#invoiceDetailPanel:not(.hidden)").waitFor({ state: "visible", timeout: 5000 });
       const invoicePanelVisible = await page.locator("#invoiceDetailPanel:not(.hidden)").count();
       if (!invoicePanelVisible) {
         throw new Error("No se abrio el detalle de factura");
       }
       await page.locator("#invoiceDetailPanel [data-edit-invoice-details]").click();
-      await page.waitForTimeout(350);
+      await page.locator("#invoiceForm:not(.hidden)").waitFor({ state: "visible", timeout: 5000 });
+      await page.locator("#invoiceDetailPanel.hidden").waitFor({ state: "attached", timeout: 5000 });
       if (!(await page.locator("#invoiceForm:not(.hidden)").count()) || await page.locator("#invoiceDetailPanel:not(.hidden)").count()) {
         throw new Error("La edición de factura no sustituye correctamente al detalle");
       }
