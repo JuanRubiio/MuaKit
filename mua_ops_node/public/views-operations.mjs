@@ -977,8 +977,8 @@ export function createOperationViews(ctx) {
               }).join("")}
             </div>` : `<div class="empty-state small">Este pedido todavia no tiene lineas sincronizadas. Usa completar desglose en la portada.</div>`}
           </section>
-          <section class="panel supplier-linked-panel"><div class="panel-head compact"><div><h2>Set fijo aplicado</h2><p>Componentes que se suman automaticamente a este pedido.</p></div></div><div class="orders-line-list">
-            ${fixedSetRows(set).map((item) => `<article class="supplier-linked-item"><span class="supplier-linked-thumb">${img(item.material_image_url)}</span><span><strong>${text(item.material_name || "Componente")}</strong><small>${text(item.quantity)} por pedido</small></span><span>${item.total_cost == null ? badge("Sin coste", "warn") : euro.format(number(item.total_cost))}</span></article>`).join("") || `<div class="empty-state small">No hay set fijo aplicado.</div>`}
+          <section class="panel supplier-linked-panel order-fixed-set-card"><div class="panel-head compact"><div><h2>Set fijo aplicado</h2><p>Componentes que se suman automaticamente a este pedido.</p></div><strong>${euro.format(number(order.fixed_set_cost))}</strong></div><div class="orders-line-list order-fixed-set-list">
+            ${fixedSetRows(set).map((item) => `<article class="supplier-linked-item order-fixed-set-item"><span class="supplier-linked-thumb">${img(item.material_image_url)}</span><span><strong>${text(item.material_name || "Componente")}</strong><small>${text(item.quantity)} por pedido</small></span><span>${item.total_cost == null ? badge("Sin coste", "warn") : euro.format(number(item.total_cost))}</span></article>`).join("") || `<div class="empty-state small">No hay set fijo aplicado.</div>`}
           </div></section>
         </div>
         <aside class="invoice-workspace-side"><section class="panel invoice-check-card"><div class="panel-head compact"><div><h2>Incidencias</h2><p>Bloqueos para confiar en el margen.</p></div></div><div class="orders-issues-list">
