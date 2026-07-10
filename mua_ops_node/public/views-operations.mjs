@@ -617,16 +617,26 @@ export function createOperationViews(ctx) {
       if (!order?.can_generate_preparation_sheet) selectedPreparationOrders.delete(id);
     }
     const itemCount = selected.reduce((sum, order) => sum + number(order.preparation_items_count || 0), 0);
+    const candidateItems = candidates.reduce((sum, order) => sum + number(order.preparation_items_count || 0), 0);
+    const selectedPreview = selected.slice(0, 3).map((order) => text(order.order_number || `Pedido #${order.id}`)).join(", ");
     bar.classList.remove("hidden");
     bar.innerHTML = `
-      <div>
-        <strong>${selected.length ? `${selected.length} pedidos seleccionados` : `${candidates.length} pedidos no preparados`}</strong>
-        <small>${selected.length ? `${itemCount} elementos apareceran en la hoja` : "Selecciona pedidos para imprimir una hoja de preparacion"}</small>
+      <div class="orders-preparation-copy">
+        <span class="orders-preparation-icon" aria-hidden="true"><svg><use href="#icon-clipboard"></use></svg></span>
+        <div>
+          <strong>${selected.length ? `${selected.length} pedidos listos para imprimir` : `${candidates.length} pedidos no preparados`}</strong>
+          <small>${selected.length ? `${itemCount} elementos de joyeria y extras${selectedPreview ? ` · ${selectedPreview}${selected.length > 3 ? "..." : ""}` : ""}` : `${candidateItems} elementos preparables disponibles en la vista`}</small>
+        </div>
+      </div>
+      <div class="orders-preparation-stats" aria-hidden="true">
+        <span><b>${candidates.length}</b><small>No preparados</small></span>
+        <span><b>${selected.length}</b><small>Seleccionados</small></span>
+        <span><b>${selected.length ? itemCount : candidateItems}</b><small>Elementos</small></span>
       </div>
       <div class="row-actions">
         <button type="button" class="ghost" data-select-preparation-candidates>Seleccionar visibles</button>
         ${selected.length ? `<button type="button" class="ghost" data-clear-preparation-selection>Limpiar</button>` : ""}
-        <button type="button" class="primary" data-generate-preparation-sheet ${selected.length ? "" : "disabled"}>Generar PDF</button>
+        <button type="button" class="primary button-with-icon" data-generate-preparation-sheet ${selected.length ? "" : "disabled"}><svg><use href="#icon-file"></use></svg><span>Generar PDF</span></button>
       </div>
     `;
   }
@@ -674,7 +684,7 @@ export function createOperationViews(ctx) {
       ["Cobertura tipológica", rows.length ? `${Math.round((classified / rows.length) * 100)}%` : "-", `${classified} pedidos clasificados - ${number(metrics.configured_order_type_count || 0)}/${number(metrics.total_order_type_count || orderTypeOptions().length)} sets`, "icon-tag", "accent"],
       ["Margen fiable", metrics.average_margin_percent == null ? "-" : `${number(metrics.average_margin_percent).toFixed(1)}%`, `${text(metrics.complete_orders || complete.length)} pedidos explicables`, "icon-percent", "gold"],
       ["Con plata", silver, `${metrics.silver_average_ticket ? euro.format(number(metrics.silver_average_ticket)) : euro.format(avg(rows.filter((order) => order.contains_silver).map((order) => order.net_amount)))} ticket medio`, "icon-gem", "accent"],
-      ["No preparados", number(metrics.preparation_not_prepared_orders ?? rows.filter((order) => order.preparation_status === "not_prepared").length), `${number(metrics.preparation_sheet_generated_orders ?? rows.filter((order) => order.preparation_status === "sheet_generated").length)} con hoja generada`, "icon-shopping-bag", "rose"]
+      ["No preparados", number(metrics.preparation_not_prepared_orders ?? rows.filter((order) => order.preparation_status === "not_prepared").length), `${number(metrics.preparation_sheet_generated_orders ?? rows.filter((order) => order.preparation_status === "sheet_generated").length)} con hoja generada`, "icon-clipboard", "rose"]
     ];
     $("#ordersSummaryCards").innerHTML = cards.map(([label, value, hint, icon, tone]) => `
       <article class="orders-summary-card tone-${tone}">
@@ -834,7 +844,7 @@ export function createOperationViews(ctx) {
         const selected = selectedPreparationOrders.has(String(order.id));
         return `
           <article class="orders-table-row">
-            <span class="orders-preparation-cell"><input type="checkbox" class="orders-preparation-check" data-preparation-order="${order.id}" ${selected ? "checked" : ""} ${order.can_generate_preparation_sheet ? "" : "disabled"} aria-label="Seleccionar ${text(order.order_number || "pedido")}"></span>
+            <span class="orders-preparation-cell"><label class="orders-preparation-check-wrap ${order.can_generate_preparation_sheet ? "" : "is-disabled"}"><input type="checkbox" class="orders-preparation-check" data-preparation-order="${order.id}" ${selected ? "checked" : ""} ${order.can_generate_preparation_sheet ? "" : "disabled"} aria-label="Seleccionar ${text(order.order_number || "pedido")}"><span aria-hidden="true"></span></label></span>
             <span><strong>${text(order.order_number || `Pedido #${order.id}`)}</strong><small>${text(order.channel || "canal")}</small></span>
             <span>${text(order.order_date || "-")}</span>
             <span>${orderTypeBadge(order)}${orderMetalBadge(order)}<small>${text(orderSetLabel(order))}</small></span>
@@ -930,8 +940,12 @@ export function createOperationViews(ctx) {
               <div><h2>Elementos para preparar</h2><p>Joyas, toppings y extras del pedido. No incluye el set fijo.</p></div>
               ${badge(prep.label, prep.tone)}
             </div>
-            ${(order.preparation_items || []).length ? `<div class="orders-preparation-items">
+            ${(order.preparation_items || []).length ? `<div class="orders-preparation-summary">
+              <span><svg><use href="#icon-package"></use></svg><strong>${number(order.preparation_items_count || (order.preparation_items || []).length)}</strong><small>elementos</small></span>
+              <span><svg><use href="#icon-check-circle"></use></svg><strong>Checklist</strong><small>solo contenido del pedido</small></span>
+            </div><div class="orders-preparation-items">
               ${(order.preparation_items || []).map((item) => `<article>
+                <i class="orders-preparation-item-check" aria-hidden="true"></i>
                 <span class="supplier-linked-thumb">${img(item.image_url)}</span>
                 <span><strong>${text(item.title || item.material_name || "Elemento")}</strong><small>${text([item.material_name, item.sku].filter(Boolean).join(" - ") || "sin SKU")}</small></span>
                 <em>${text(item.quantity || 1)} ud</em>

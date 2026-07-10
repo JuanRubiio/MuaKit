@@ -111,36 +111,120 @@ function pdfEscape(value = "") {
 function createSimplePdf({ title = "Hoja de preparacion", batches = [] }) {
   const pageWidth = 595;
   const pageHeight = 842;
-  const margin = 44;
-  const bottom = 54;
-  const lines = [];
-  lines.push({ text: title, size: 18, bold: true });
-  lines.push({ text: `Generada: ${new Date().toLocaleString("es-ES")}`, size: 9 });
-  lines.push({ text: "" });
-  for (const order of batches) {
-    lines.push({ text: `${order.order_number || `Pedido #${order.order_id}`}  |  ${order.order_date || ""}`, size: 13, bold: true });
-    if (order.order_type) lines.push({ text: `Tipologia: ${order.order_type}`, size: 9 });
-    for (const item of order.items || []) {
-      const qty = Number(item.quantity || 1);
-      const label = `${qty} x ${item.material_name || item.title || "Elemento"}${item.sku ? ` (${item.sku})` : ""}`;
-      lines.push({ text: label, size: 10, checkbox: true });
-    }
-    lines.push({ text: "" });
-  }
-  const pages = [];
-  let current = [];
+  const margin = 36;
+  const bottom = 38;
+  const contentWidth = pageWidth - margin * 2;
+  const pageContents = [];
+  let content = "";
   let y = pageHeight - margin;
-  for (const line of lines) {
-    const height = line.text ? (line.size || 10) + 9 : 12;
-    if (y - height < bottom && current.length) {
-      pages.push(current);
-      current = [];
-      y = pageHeight - margin;
+  let pageNumber = 0;
+  const generatedAt = new Date().toLocaleString("es-ES");
+  const totalOrders = batches.length;
+  const totalItems = batches.reduce((sum, order) => sum + (order.items || []).length, 0);
+  const totalUnits = batches.reduce((sum, order) => sum + (order.items || []).reduce((inner, item) => inner + Number(item.quantity || 1), 0), 0);
+  const color = {
+    ink: "0.09 0.08 0.07",
+    muted: "0.42 0.39 0.35",
+    border: "0.83 0.79 0.73",
+    accent: "0.05 0.50 0.43",
+    accentSoft: "0.89 0.97 0.95",
+    rose: "0.75 0.22 0.36",
+    paper: "0.99 0.98 0.96",
+    gold: "0.74 0.50 0.16"
+  };
+  const truncate = (value, max = 84) => {
+    const str = String(value || "");
+    return str.length > max ? `${str.slice(0, Math.max(0, max - 3))}...` : str;
+  };
+  const rect = (x, yy, width, height, fill = null, stroke = null, lineWidth = 0.8) => {
+    if (fill) content += `q ${fill} rg ${x} ${yy} ${width} ${height} re f Q\n`;
+    if (stroke) content += `q ${stroke} RG ${lineWidth} w ${x} ${yy} ${width} ${height} re S Q\n`;
+  };
+  const textAt = (value, x, yy, size = 10, bold = false, fill = color.ink) => {
+    content += `BT /${bold ? "F2" : "F1"} ${size} Tf ${fill} rg ${x} ${yy} Td (${pdfEscape(value)}) Tj ET\n`;
+  };
+  const finishPage = () => {
+    if (content) pageContents.push(content);
+  };
+  const newPage = () => {
+    finishPage();
+    pageNumber += 1;
+    content = "";
+    y = pageHeight - margin;
+    rect(0, pageHeight - 78, pageWidth, 78, "0.99 0.98 0.96");
+    rect(margin, pageHeight - 66, 5, 36, color.rose);
+    textAt("Mua Ops", margin + 16, pageHeight - 42, 16, true);
+    textAt(title, margin + 16, pageHeight - 58, 9, false, color.muted);
+    textAt(`Pagina ${pageNumber}`, pageWidth - margin - 55, pageHeight - 45, 9, false, color.muted);
+    y = pageHeight - 98;
+  };
+  const ensure = (height) => {
+    if (y - height < bottom) newPage();
+  };
+  const statCard = (x, yy, width, label, value, hint) => {
+    rect(x, yy, width, 50, "1 1 1", color.border);
+    textAt(label, x + 10, yy + 31, 8, false, color.muted);
+    textAt(value, x + 10, yy + 15, 15, true);
+    if (hint) textAt(hint, x + 10, yy + 5, 7, false, color.muted);
+  };
+
+  newPage();
+  textAt("Hoja de preparacion de pedidos", margin, y, 22, true);
+  y -= 18;
+  textAt(`Generada: ${generatedAt}`, margin, y, 9, false, color.muted);
+  y -= 22;
+  const cardGap = 10;
+  const cardWidth = (contentWidth - cardGap * 2) / 3;
+  statCard(margin, y - 50, cardWidth, "Pedidos", String(totalOrders), "solo no preparados");
+  statCard(margin + cardWidth + cardGap, y - 50, cardWidth, "Lineas", String(totalItems), "joyas y extras");
+  statCard(margin + (cardWidth + cardGap) * 2, y - 50, cardWidth, "Unidades", String(totalUnits), "a comprobar");
+  y -= 74;
+  rect(margin, y - 36, contentWidth, 36, color.accentSoft, "0.72 0.89 0.85");
+  textAt("Uso recomendado", margin + 12, y - 15, 10, true, color.accent);
+  textAt("Marca cada casilla al preparar el paquete. El set fijo no aparece aqui.", margin + 118, y - 15, 9, false, color.ink);
+  y -= 56;
+
+  for (const order of batches) {
+    const items = order.items || [];
+    const orderTitle = order.order_number || `Pedido #${order.order_id}`;
+    const orderHeight = 70 + Math.max(items.length, 1) * 39 + 22;
+    ensure(Math.min(orderHeight, 230));
+    rect(margin, y - 42, contentWidth, 42, color.paper, color.border);
+    textAt(truncate(orderTitle, 44), margin + 12, y - 17, 14, true);
+    textAt(`Fecha: ${order.order_date || "-"}`, margin + 12, y - 32, 8, false, color.muted);
+    textAt(`Tipologia: ${truncate(order.order_type || "Sin clasificar", 34)}`, margin + 154, y - 32, 8, false, color.muted);
+    textAt(`${items.length} elementos`, pageWidth - margin - 92, y - 23, 11, true, color.accent);
+    y -= 52;
+
+    if (!items.length) {
+      rect(margin + 10, y - 30, contentWidth - 20, 30, "1 1 1", color.border);
+      textAt("Sin elementos preparables detectados.", margin + 22, y - 18, 9, false, color.muted);
+      y -= 42;
+    } else {
+      for (const item of items) {
+        ensure(58);
+        const qty = Number(item.quantity || 1);
+        const titleText = truncate(item.material_name || item.title || "Elemento", 62);
+        const detail = truncate([item.title && item.material_name ? item.title : "", item.sku ? `SKU ${item.sku}` : ""].filter(Boolean).join(" · "), 70);
+        rect(margin + 10, y - 31, contentWidth - 20, 32, "1 1 1", color.border);
+        rect(margin + 22, y - 22, 13, 13, null, color.accent, 1.2);
+        textAt(`${qty}x`, margin + 46, y - 16, 12, true, color.accent);
+        textAt(titleText, margin + 76, y - 15, 10, true);
+        if (detail) textAt(detail, margin + 76, y - 27, 7, false, color.muted);
+        y -= 38;
+      }
     }
-    current.push(line);
-    y -= height;
+    rect(margin + 10, y - 30, contentWidth - 20, 30, "1 1 1", "0.88 0.84 0.78");
+    textAt("Notas de preparacion:", margin + 22, y - 18, 8, false, color.muted);
+    y -= 48;
   }
-  if (current.length) pages.push(current);
+
+  if (!batches.length) {
+    rect(margin, y - 54, contentWidth, 54, "1 1 1", color.border);
+    textAt("No hay pedidos seleccionados para esta hoja.", margin + 18, y - 24, 11, true, color.muted);
+    y -= 68;
+  }
+  finishPage();
 
   const objects = [];
   const add = (body) => {
@@ -148,31 +232,17 @@ function createSimplePdf({ title = "Hoja de preparacion", batches = [] }) {
     return objects.length;
   };
   const fontId = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const boldFontId = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
   const pageIds = [];
   const contentIds = [];
-  for (const page of pages) {
-    let content = "";
-    let lineY = pageHeight - margin;
-    for (const line of page) {
-      if (!line.text) {
-        lineY -= 12;
-        continue;
-      }
-      const x = line.checkbox ? margin + 20 : margin;
-      if (line.checkbox) {
-        content += `0.8 w ${margin} ${lineY - 2} 10 10 re S\n`;
-      }
-      const size = line.size || 10;
-      content += `BT /F1 ${size} Tf ${x} ${lineY} Td (${pdfEscape(line.text)}) Tj ET\n`;
-      lineY -= size + 9;
-    }
-    const contentId = add(`<< /Length ${Buffer.byteLength(content, "latin1")} >>\nstream\n${content}endstream`);
+  for (const page of pageContents) {
+    const contentId = add(`<< /Length ${Buffer.byteLength(page, "latin1")} >>\nstream\n${page}endstream`);
     contentIds.push(contentId);
     pageIds.push(null);
   }
-  const pagesIdPlaceholder = objects.length + pages.length + 1;
-  for (let index = 0; index < pages.length; index += 1) {
-    const pageId = add(`<< /Type /Page /Parent ${pagesIdPlaceholder} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentIds[index]} 0 R >>`);
+  const pagesIdPlaceholder = objects.length + pageContents.length + 1;
+  for (let index = 0; index < pageContents.length; index += 1) {
+    const pageId = add(`<< /Type /Page /Parent ${pagesIdPlaceholder} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> >> /Contents ${contentIds[index]} 0 R >>`);
     pageIds[index] = pageId;
   }
   const pagesId = add(`<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`);
