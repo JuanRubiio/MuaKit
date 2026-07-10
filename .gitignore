@@ -8,6 +8,7 @@ etsy/
 tools/__pycache__/
 server.out.log
 server.err.log
+recovery/
 
 *.sqlite
 *.sqlite-shm
