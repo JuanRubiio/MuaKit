@@ -1196,11 +1196,14 @@
                       <label>Tipología<select id="orderTypeFilter"><option value="">Todas</option></select></label>
                       <label>Set aplicado<select id="orderSetFilter"><option value="">Todos</option></select></label>
                       <label>Metal<select id="orderMetalFilter"><option value="">Todos</option><option value="silver">Con plata</option><option value="standard">Sin plata</option></select></label>
+                      <label>Preparación<select id="orderPreparationFilter"><option value="">Todas</option><option value="not_prepared">No preparado</option><option value="sheet_generated">Hoja generada</option><option value="prepared">Preparado</option></select></label>
                       <label>Canal<select id="orderChannelFilter"><option value="">Todos</option><option value="shopify">Shopify</option><option value="etsy">Etsy</option></select></label>
                       <label>Estado<select id="orderStatusFilter"><option value="">Todos</option><option value="complete">Completo</option><option value="missing">Incompletos</option><option value="missing_set">Sin set</option><option value="low_margin">Margen bajo</option></select></label>
                       <label>Orden<select id="orderSort"><option value="date_desc">Fecha reciente</option><option value="margin_asc">Menor margen</option><option value="profit_desc">Mayor beneficio</option><option value="sale_desc">Mayor venta</option></select></label>
                     </div>
                   </section>
+
+                  <section id="ordersPreparationBar" class="orders-preparation-bar hidden" aria-live="polite"></section>
 
                   <section class="panel orders-list-panel">
                     <div class="panel-head compact">

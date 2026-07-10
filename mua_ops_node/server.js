@@ -1010,6 +1010,52 @@ const SCHEMA_MIGRATIONS = [
         `, { recipeId: recipe.id, orderType: recipe.order_type });
       }
     }
+  },
+  {
+    id: "019_order_preparation_sheets",
+    name: "Create order preparation sheet tracking",
+    up: ({ ensureColumn, exec }) => {
+      ensureColumn("sales_orders", "preparation_sheet_generated_at", "TEXT");
+      ensureColumn("sales_orders", "preparation_sheet_batch_id", "INTEGER");
+      exec(`
+        CREATE TABLE IF NOT EXISTS order_preparation_batches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          reference TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'generated',
+          order_count INTEGER NOT NULL DEFAULT 0,
+          item_count INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS order_preparation_batch_orders (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          batch_id INTEGER NOT NULL REFERENCES order_preparation_batches(id) ON DELETE CASCADE,
+          order_id INTEGER NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
+          order_number TEXT NOT NULL DEFAULT '',
+          order_date TEXT DEFAULT '',
+          order_type TEXT DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(batch_id, order_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS order_preparation_batch_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          batch_id INTEGER NOT NULL REFERENCES order_preparation_batches(id) ON DELETE CASCADE,
+          order_id INTEGER NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
+          order_line_id INTEGER REFERENCES sales_order_lines(id),
+          title TEXT NOT NULL DEFAULT '',
+          material_id INTEGER REFERENCES materials(id),
+          material_name TEXT DEFAULT '',
+          material_category TEXT DEFAULT '',
+          quantity REAL NOT NULL DEFAULT 1,
+          sku TEXT DEFAULT '',
+          image_url TEXT DEFAULT '',
+          notes TEXT DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    }
   }
 ];
 

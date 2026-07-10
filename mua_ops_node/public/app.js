@@ -2145,6 +2145,22 @@ function bindEvents() {
         resetPagination("kits");
         renderKits();
       }
+      if (t.dataset.selectPreparationCandidates !== undefined) {
+        viewModules.operations?.selectVisiblePreparationCandidates?.();
+      }
+      if (t.dataset.clearPreparationSelection !== undefined) {
+        viewModules.operations?.clearPreparationSelection?.();
+      }
+      if (t.dataset.generatePreparationSheet !== undefined) {
+        t.disabled = true;
+        try {
+          const result = await viewModules.operations?.generatePreparationSheet?.();
+          await Promise.all([loadKits(), loadDashboardFinance()]);
+          toast(`Hoja generada para ${result?.order_ids?.length || 0} pedidos`);
+        } finally {
+          t.disabled = false;
+        }
+      }
       if (t.dataset.resetForm) resetForm(t.dataset.resetForm);
       if (t.dataset.viewSupplier) {
         const item = state.suppliers.find((s) => s.id == t.dataset.viewSupplier);
@@ -2368,6 +2384,9 @@ function bindEvents() {
     if (event.target.matches("[data-set-type-filter]")) {
       viewModules.operations?.setOrderSetTypeFilter?.(event.target.value || "");
     }
+    if (event.target.matches("[data-preparation-order]")) {
+      viewModules.operations?.togglePreparationOrder?.(event.target.dataset.preparationOrder, event.target.checked);
+    }
     if (event.target.matches("[data-order-line-include]")) {
       const input = event.target;
       api(`/api/order-lines/${input.dataset.orderLineInclude}/include`, {
@@ -2435,6 +2454,7 @@ function bindEvents() {
     ["#orderTypeFilter", renderKits, "kits"],
     ["#orderSetFilter", renderKits, "kits"],
     ["#orderMetalFilter", renderKits, "kits"],
+    ["#orderPreparationFilter", renderKits, "kits"],
     ["#orderSort", renderKits, "kits"],
   ].forEach(([selector, handler, pageKey]) => {
     const node = $(selector);

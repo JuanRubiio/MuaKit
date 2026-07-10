@@ -20,6 +20,178 @@ function orderLineIsSilver(line = {}) {
   return false;
 }
 
+function normalizedText(value = "") {
+  return normalizeOrderMaterial(value).replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function shopifyOrderIsPrepared(order = {}) {
+  const status = normalizedText(order.fulfillment_status || "");
+  if (!status) return false;
+  const preparedStatuses = new Set([
+    "fulfilled",
+    "preparado",
+    "preparada",
+    "completed",
+    "complete",
+    "shipped",
+    "enviado",
+    "entregado"
+  ]);
+  return preparedStatuses.has(status);
+}
+
+function orderPreparationStatus(order = {}) {
+  if (shopifyOrderIsPrepared(order)) return "prepared";
+  if (order.preparation_sheet_generated_at || order.preparation_sheet_batch_id) return "sheet_generated";
+  return "not_prepared";
+}
+
+function orderLineIsPreparationCandidate(line = {}) {
+  if (Number(line.is_type_marker || 0)) return false;
+  if (Number(line.quantity || 0) <= 0) return false;
+  const haystack = normalizedText([
+    line.title,
+    line.sku,
+    line.material_name,
+    line.material_category,
+    line.material_usage_type,
+    line.material_family,
+    line.material_subfamily
+  ].join(" "));
+  if (!haystack) return false;
+  const blockers = [
+    "kit mua",
+    "recuerdos de maternidad",
+    "recuerdos de mascota",
+    "flores y recuerdos de pareja",
+    "lugares y viajes",
+    "memorial",
+    "omoi",
+    "joya extra sin kit",
+    "caja",
+    "pipeta",
+    "lampara",
+    "papel tisu",
+    "nacar"
+  ];
+  if (blockers.some((token) => haystack.includes(token))) return false;
+  const positive = [
+    "joya",
+    "cadena",
+    "colgante",
+    "anillo",
+    "charm",
+    "letra",
+    "flor",
+    "topping",
+    "extra",
+    "pulsera",
+    "pendiente"
+  ];
+  if (positive.some((token) => haystack.includes(token))) return true;
+  return Boolean(line.material_id && !["packaging", "servicio", "software"].includes(normalizedText(line.material_category || "")));
+}
+
+function preparationStatusMeta(status) {
+  if (status === "prepared") return { label: "Preparado", tone: "ok" };
+  if (status === "sheet_generated") return { label: "Hoja generada", tone: "warn" };
+  return { label: "No preparado", tone: "danger" };
+}
+
+function pdfEscape(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+}
+
+function createSimplePdf({ title = "Hoja de preparacion", batches = [] }) {
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const margin = 44;
+  const bottom = 54;
+  const lines = [];
+  lines.push({ text: title, size: 18, bold: true });
+  lines.push({ text: `Generada: ${new Date().toLocaleString("es-ES")}`, size: 9 });
+  lines.push({ text: "" });
+  for (const order of batches) {
+    lines.push({ text: `${order.order_number || `Pedido #${order.order_id}`}  |  ${order.order_date || ""}`, size: 13, bold: true });
+    if (order.order_type) lines.push({ text: `Tipologia: ${order.order_type}`, size: 9 });
+    for (const item of order.items || []) {
+      const qty = Number(item.quantity || 1);
+      const label = `${qty} x ${item.material_name || item.title || "Elemento"}${item.sku ? ` (${item.sku})` : ""}`;
+      lines.push({ text: label, size: 10, checkbox: true });
+    }
+    lines.push({ text: "" });
+  }
+  const pages = [];
+  let current = [];
+  let y = pageHeight - margin;
+  for (const line of lines) {
+    const height = line.text ? (line.size || 10) + 9 : 12;
+    if (y - height < bottom && current.length) {
+      pages.push(current);
+      current = [];
+      y = pageHeight - margin;
+    }
+    current.push(line);
+    y -= height;
+  }
+  if (current.length) pages.push(current);
+
+  const objects = [];
+  const add = (body) => {
+    objects.push(body);
+    return objects.length;
+  };
+  const fontId = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const pageIds = [];
+  const contentIds = [];
+  for (const page of pages) {
+    let content = "";
+    let lineY = pageHeight - margin;
+    for (const line of page) {
+      if (!line.text) {
+        lineY -= 12;
+        continue;
+      }
+      const x = line.checkbox ? margin + 20 : margin;
+      if (line.checkbox) {
+        content += `0.8 w ${margin} ${lineY - 2} 10 10 re S\n`;
+      }
+      const size = line.size || 10;
+      content += `BT /F1 ${size} Tf ${x} ${lineY} Td (${pdfEscape(line.text)}) Tj ET\n`;
+      lineY -= size + 9;
+    }
+    const contentId = add(`<< /Length ${Buffer.byteLength(content, "latin1")} >>\nstream\n${content}endstream`);
+    contentIds.push(contentId);
+    pageIds.push(null);
+  }
+  const pagesIdPlaceholder = objects.length + pages.length + 1;
+  for (let index = 0; index < pages.length; index += 1) {
+    const pageId = add(`<< /Type /Page /Parent ${pagesIdPlaceholder} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentIds[index]} 0 R >>`);
+    pageIds[index] = pageId;
+  }
+  const pagesId = add(`<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`);
+  const catalogId = add(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((body, index) => {
+    offsets.push(Buffer.byteLength(pdf, "latin1"));
+    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(pdf, "latin1");
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return Buffer.from(pdf, "latin1");
+}
+
 function registerKitRoutes(app, ctx) {
   const {
     query,
@@ -108,6 +280,9 @@ function registerKitRoutes(app, ctx) {
         `SELECT l.*, m.name AS material_name, m.category AS material_category,
                 m.base_material AS material_base_material,
                 m.finish AS material_finish,
+                m.usage_type AS material_usage_type,
+                m.family AS material_family,
+                m.subfamily AS material_subfamily,
                 COALESCE(NULLIF(m.image_url_override, ''), (
                   SELECT sp.image_url
                   FROM shopify_products sp
@@ -135,6 +310,9 @@ function registerKitRoutes(app, ctx) {
       });
       const markerLines = allLines.filter((line) => Number(line.is_type_marker || 0));
       const lines = allLines.filter((line) => !Number(line.is_type_marker || 0));
+      const preparationItems = lines.filter(orderLineIsPreparationCandidate);
+      const preparationStatus = orderPreparationStatus(order);
+      const preparationMeta = preparationStatusMeta(preparationStatus);
       const includedLines = lines.filter((line) => Number(line.include_in_cost ?? 1) !== 0);
       const silverLines = lines.filter((line) => line.is_silver);
       const silverIncludedLines = includedLines.filter((line) => line.is_silver);
@@ -161,6 +339,21 @@ function registerKitRoutes(app, ctx) {
         has_manual_set_override: Boolean(selectedSet && recommendedSet && Number(selectedSet.id) !== Number(recommendedSet.id)),
         order_type_meta: orderTypeMeta(order.order_type),
         type_marker_lines: markerLines.map((line) => ({ id: line.id, title: line.title })),
+        preparation_status: preparationStatus,
+        preparation_status_label: preparationMeta.label,
+        preparation_status_tone: preparationMeta.tone,
+        preparation_items: preparationItems.map((line) => ({
+          id: line.id,
+          title: line.title,
+          sku: line.sku,
+          quantity: line.quantity,
+          material_id: line.material_id,
+          material_name: line.material_name,
+          material_category: line.material_category,
+          material_image_url: line.material_image_url
+        })),
+        preparation_items_count: preparationItems.length,
+        can_generate_preparation_sheet: preparationStatus === "not_prepared" && preparationItems.length > 0,
         fixed_set_options: fixedSets.map((set) => ({
           id: set.id,
           name: set.name,
@@ -218,11 +411,161 @@ function registerKitRoutes(app, ctx) {
         silver_average_ticket: avg(silverOrders.map((order) => order.net_amount)),
         standard_average_ticket: avg(standardOrders.map((order) => order.net_amount)),
         silver_average_profit: avg(silverOrders.filter((order) => order.profit != null).map((order) => order.profit)),
-        standard_average_profit: avg(standardOrders.filter((order) => order.profit != null).map((order) => order.profit))
+        standard_average_profit: avg(standardOrders.filter((order) => order.profit != null).map((order) => order.profit)),
+        preparation_not_prepared_orders: orders.filter((order) => order.preparation_status === "not_prepared").length,
+        preparation_sheet_generated_orders: orders.filter((order) => order.preparation_status === "sheet_generated").length,
+        preparation_prepared_orders: orders.filter((order) => order.preparation_status === "prepared").length,
+        preparation_ready_orders: orders.filter((order) => order.can_generate_preparation_sheet).length
       },
       order_types: ORDER_TYPES,
       orders
     });
+  });
+
+  app.post("/api/orders/preparation-sheets", (req, res) => {
+    const ids = Array.isArray(req.body?.order_ids)
+      ? Array.from(new Set(req.body.order_ids.map((id) => Number(id)).filter(Boolean)))
+      : [];
+    if (!ids.length) return badRequest(res, "Selecciona al menos un pedido no preparado", "ORDER_PREPARATION_EMPTY");
+
+    const selected = [];
+    for (const id of ids) {
+      const order = one("SELECT * FROM sales_orders WHERE id=$id AND is_deleted=0", { id });
+      if (!order) return badRequest(res, `Pedido ${id} no encontrado`, "ORDER_NOT_FOUND");
+      const prepStatus = orderPreparationStatus(order);
+      if (prepStatus !== "not_prepared") {
+        return badRequest(res, `${order.order_number || `Pedido #${id}`} no esta en estado No preparado`, "ORDER_NOT_PREPARABLE");
+      }
+      const lines = query(
+        `SELECT l.*, m.name AS material_name, m.category AS material_category,
+                m.usage_type AS material_usage_type, m.family AS material_family, m.subfamily AS material_subfamily,
+                COALESCE(NULLIF(m.image_url_override, ''), (
+                  SELECT sp.image_url
+                  FROM shopify_products sp
+                  WHERE sp.material_id = m.id AND sp.image_url != ''
+                  ORDER BY sp.shopify_available_qty DESC, sp.id
+                  LIMIT 1
+                )) AS material_image_url
+         FROM sales_order_lines l
+         LEFT JOIN materials m ON m.id=l.material_id
+         WHERE l.order_id=$id AND l.is_deleted=0
+         ORDER BY l.id`,
+        { id }
+      ).filter(orderLineIsPreparationCandidate);
+      if (!lines.length) {
+        return badRequest(res, `${order.order_number || `Pedido #${id}`} no tiene joyas, toppings o extras preparables`, "ORDER_PREPARATION_NO_ITEMS");
+      }
+      selected.push({ order, lines });
+    }
+
+    try {
+      exec("BEGIN TRANSACTION");
+      const reference = `PREP-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString().slice(-5)}`;
+      const itemCount = selected.reduce((sum, entry) => sum + entry.lines.length, 0);
+      const batchId = insert(
+        `INSERT INTO order_preparation_batches (reference, order_count, item_count)
+         VALUES ($reference, $orderCount, $itemCount)`,
+        { reference, orderCount: selected.length, itemCount }
+      );
+
+      for (const { order, lines } of selected) {
+        insert(
+          `INSERT INTO order_preparation_batch_orders (batch_id, order_id, order_number, order_date, order_type)
+           VALUES ($batchId, $orderId, $orderNumber, $orderDate, $orderType)`,
+          {
+            batchId,
+            orderId: order.id,
+            orderNumber: order.order_number || "",
+            orderDate: order.order_date || "",
+            orderType: order.order_type || ""
+          }
+        );
+        for (const line of lines) {
+          insert(
+            `INSERT INTO order_preparation_batch_items (
+               batch_id, order_id, order_line_id, title, material_id, material_name,
+               material_category, quantity, sku, image_url, notes
+             ) VALUES (
+               $batchId, $orderId, $lineId, $title, $materialId, $materialName,
+               $materialCategory, $quantity, $sku, $imageUrl, $notes
+             )`,
+            {
+              batchId,
+              orderId: order.id,
+              lineId: line.id,
+              title: line.title || "",
+              materialId: line.material_id || null,
+              materialName: line.material_name || "",
+              materialCategory: line.material_category || "",
+              quantity: n(line.quantity, 1),
+              sku: line.sku || "",
+              imageUrl: line.material_image_url || "",
+              notes: ""
+            }
+          );
+        }
+        const before = { ...order };
+        exec(
+          `UPDATE sales_orders
+           SET preparation_sheet_generated_at=CURRENT_TIMESTAMP,
+               preparation_sheet_batch_id=$batchId,
+               updated_at=CURRENT_TIMESTAMP
+           WHERE id=$id`,
+          { id: order.id, batchId }
+        );
+        const after = one("SELECT * FROM sales_orders WHERE id=$id", { id: order.id });
+        audit("sales_order", order.id, "preparation_sheet_generated", before, after);
+      }
+      const batch = one("SELECT * FROM order_preparation_batches WHERE id=$id", { id: batchId });
+      audit("order_preparation_batch", batchId, "create", null, batch);
+      exec("COMMIT");
+      saveDb();
+      return res.json({
+        batch,
+        pdf_url: `/api/orders/preparation-sheets/${batchId}.pdf`,
+        order_ids: selected.map((entry) => entry.order.id),
+        item_count: itemCount
+      });
+    } catch (error) {
+      try { exec("ROLLBACK"); } catch (_) {}
+      console.error("Error generating order preparation sheet", error);
+      return res.status(500).json({ error: "No se pudo generar la hoja de preparacion" });
+    }
+  });
+
+  app.get("/api/orders/preparation-sheets/:id.pdf", (req, res) => {
+    const batch = one("SELECT * FROM order_preparation_batches WHERE id=$id", { id: req.params.id });
+    if (!batch) return res.status(404).json({ error: "Hoja de preparacion no encontrada" });
+    const batchOrders = query(
+      `SELECT *
+       FROM order_preparation_batch_orders
+       WHERE batch_id=$id
+       ORDER BY order_date, order_number, id`,
+      { id: batch.id }
+    );
+    const items = query(
+      `SELECT *
+       FROM order_preparation_batch_items
+       WHERE batch_id=$id
+       ORDER BY order_id, id`,
+      { id: batch.id }
+    );
+    const itemsByOrder = new Map();
+    for (const item of items) {
+      const key = Number(item.order_id);
+      if (!itemsByOrder.has(key)) itemsByOrder.set(key, []);
+      itemsByOrder.get(key).push(item);
+    }
+    const pdf = createSimplePdf({
+      title: `Hoja de preparacion ${batch.reference || `#${batch.id}`}`,
+      batches: batchOrders.map((order) => ({
+        ...order,
+        items: itemsByOrder.get(Number(order.order_id)) || []
+      }))
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${batch.reference || `preparacion-${batch.id}`}.pdf"`);
+    res.send(pdf);
   });
 
   app.patch("/api/orders/:id/type", (req, res) => {

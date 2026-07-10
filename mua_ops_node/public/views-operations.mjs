@@ -24,6 +24,7 @@ export function createOperationViews(ctx) {
     shopifyFreshnessState
   } = ctx;
   let selectedOrderSetType = "";
+  const selectedPreparationOrders = new Set();
 
   async function loadSuppliers() {
     const includeDeleted = $("#suppliersDeleted")?.checked ? 1 : 0;
@@ -569,11 +570,13 @@ export function createOperationViews(ctx) {
     const type = $("#orderTypeFilter")?.value;
     const set = $("#orderSetFilter")?.value;
     const metal = $("#orderMetalFilter")?.value;
+    const preparation = $("#orderPreparationFilter")?.value;
     if (channel) rows = rows.filter((order) => order.channel === channel);
     if (type) rows = rows.filter((order) => String(order.order_type || "") === String(type));
     if (set) rows = rows.filter((order) => String(order.kit_recipe_id || order.fixed_set?.id || recommendedOrderSet(order)?.id || "") === String(set));
     if (metal === "silver") rows = rows.filter((order) => order.contains_silver);
     if (metal === "standard") rows = rows.filter((order) => !order.contains_silver);
+    if (preparation) rows = rows.filter((order) => String(order.preparation_status || "") === String(preparation));
     if (status === "complete") rows = rows.filter((order) => order.status === "complete");
     if (status === "missing") rows = rows.filter((order) => order.status !== "complete");
     if (status === "missing_set") rows = rows.filter((order) => order.status === "missing_set" || order.default_set_missing || order.set_type_mismatch);
@@ -584,6 +587,80 @@ export function createOperationViews(ctx) {
       sale_desc: (a, b) => number(b.net_amount) - number(a.net_amount),
       default: (a, b) => String(b.order_date || "").localeCompare(String(a.order_date || "")) || number(b.id) - number(a.id)
     });
+  }
+
+  function preparationMeta(order) {
+    const status = order?.preparation_status || "not_prepared";
+    if (status === "prepared") return { label: "Preparado", tone: "ok", hint: "Shopify lo marca enviado" };
+    if (status === "sheet_generated") return { label: "Hoja generada", tone: "warn", hint: "Pendiente de envio Shopify" };
+    return { label: "No preparado", tone: "rose", hint: "Disponible para hoja" };
+  }
+
+  function selectedPreparationRows() {
+    const ids = new Set([...selectedPreparationOrders].map(String));
+    return (state.ordersProfitability?.orders || []).filter((order) => ids.has(String(order.id)) && order.can_generate_preparation_sheet);
+  }
+
+  function renderPreparationBar(rows = filteredOrderRows()) {
+    const bar = $("#ordersPreparationBar");
+    if (!bar) return;
+    const candidates = rows.filter((order) => order.can_generate_preparation_sheet);
+    const selected = selectedPreparationRows();
+    if (!candidates.length && !selected.length) {
+      selectedPreparationOrders.clear();
+      bar.classList.add("hidden");
+      bar.innerHTML = "";
+      return;
+    }
+    for (const id of [...selectedPreparationOrders]) {
+      const order = (state.ordersProfitability?.orders || []).find((item) => String(item.id) === String(id));
+      if (!order?.can_generate_preparation_sheet) selectedPreparationOrders.delete(id);
+    }
+    const itemCount = selected.reduce((sum, order) => sum + number(order.preparation_items_count || 0), 0);
+    bar.classList.remove("hidden");
+    bar.innerHTML = `
+      <div>
+        <strong>${selected.length ? `${selected.length} pedidos seleccionados` : `${candidates.length} pedidos no preparados`}</strong>
+        <small>${selected.length ? `${itemCount} elementos apareceran en la hoja` : "Selecciona pedidos para imprimir una hoja de preparacion"}</small>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="ghost" data-select-preparation-candidates>Seleccionar visibles</button>
+        ${selected.length ? `<button type="button" class="ghost" data-clear-preparation-selection>Limpiar</button>` : ""}
+        <button type="button" class="primary" data-generate-preparation-sheet ${selected.length ? "" : "disabled"}>Generar PDF</button>
+      </div>
+    `;
+  }
+
+  function togglePreparationOrder(id, checked) {
+    const order = (state.ordersProfitability?.orders || []).find((item) => String(item.id) === String(id));
+    if (!order?.can_generate_preparation_sheet) return;
+    if (checked) selectedPreparationOrders.add(String(id));
+    else selectedPreparationOrders.delete(String(id));
+    renderPreparationBar();
+  }
+
+  function selectVisiblePreparationCandidates() {
+    filteredOrderRows().filter((order) => order.can_generate_preparation_sheet).forEach((order) => selectedPreparationOrders.add(String(order.id)));
+    renderKits();
+  }
+
+  function clearPreparationSelection() {
+    selectedPreparationOrders.clear();
+    renderKits();
+  }
+
+  async function generatePreparationSheet() {
+    const orderIds = selectedPreparationRows().map((order) => order.id);
+    if (!orderIds.length) throw new Error("Selecciona al menos un pedido no preparado.");
+    const result = await api("/api/orders/preparation-sheets", {
+      method: "POST",
+      body: JSON.stringify({ order_ids: orderIds })
+    });
+    selectedPreparationOrders.clear();
+    if (result?.pdf_url) window.open(result.pdf_url, "_blank", "noopener");
+    await loadKits();
+    renderKits();
+    return result;
   }
 
   function renderOrdersSummary(rows = state.ordersProfitability?.orders || []) {
@@ -597,7 +674,7 @@ export function createOperationViews(ctx) {
       ["Cobertura tipológica", rows.length ? `${Math.round((classified / rows.length) * 100)}%` : "-", `${classified} pedidos clasificados - ${number(metrics.configured_order_type_count || 0)}/${number(metrics.total_order_type_count || orderTypeOptions().length)} sets`, "icon-tag", "accent"],
       ["Margen fiable", metrics.average_margin_percent == null ? "-" : `${number(metrics.average_margin_percent).toFixed(1)}%`, `${text(metrics.complete_orders || complete.length)} pedidos explicables`, "icon-percent", "gold"],
       ["Con plata", silver, `${metrics.silver_average_ticket ? euro.format(number(metrics.silver_average_ticket)) : euro.format(avg(rows.filter((order) => order.contains_silver).map((order) => order.net_amount)))} ticket medio`, "icon-gem", "accent"],
-      ["Por revisar", number(metrics.incomplete_orders ?? rows.filter((order) => order.status !== "complete").length), "Tipología, set o costes", "icon-alert", "rose"]
+      ["No preparados", number(metrics.preparation_not_prepared_orders ?? rows.filter((order) => order.preparation_status === "not_prepared").length), `${number(metrics.preparation_sheet_generated_orders ?? rows.filter((order) => order.preparation_status === "sheet_generated").length)} con hoja generada`, "icon-shopping-bag", "rose"]
     ];
     $("#ordersSummaryCards").innerHTML = cards.map(([label, value, hint, icon, tone]) => `
       <article class="orders-summary-card tone-${tone}">
@@ -746,21 +823,26 @@ export function createOperationViews(ctx) {
     renderOrdersReview(state.ordersProfitability?.orders || []);
     renderFixedSetView();
     $("#ordersListMetaText").textContent = meta.total ? `Mostrando ${meta.startIndex + 1}-${meta.endIndex} de ${meta.total} pedidos filtrados.` : "No hay pedidos con esos filtros.";
+    renderPreparationBar(rows);
     list.innerHTML = `
-      <div class="orders-table-head"><span>Pedido</span><span>Fecha</span><span>Tipología</span><span>Contenido</span><span>Venta</span><span>Beneficio real</span><span>Margen</span><span>Estado</span><span>Acción</span></div>
+      <div class="orders-table-head"><span></span><span>Pedido</span><span>Fecha</span><span>Tipología</span><span>Contenido</span><span>Venta</span><span>Beneficio real</span><span>Margen</span><span>Preparación</span><span>Estado</span><span>Acción</span></div>
       ${meta.rows.length ? meta.rows.map((order) => {
         const status = orderStatusMeta(order.status);
         const marginTone = orderMarginTone(order);
         const statusTone = orderStatusTone(order);
+        const prep = preparationMeta(order);
+        const selected = selectedPreparationOrders.has(String(order.id));
         return `
           <article class="orders-table-row">
+            <span class="orders-preparation-cell"><input type="checkbox" class="orders-preparation-check" data-preparation-order="${order.id}" ${selected ? "checked" : ""} ${order.can_generate_preparation_sheet ? "" : "disabled"} aria-label="Seleccionar ${text(order.order_number || "pedido")}"></span>
             <span><strong>${text(order.order_number || `Pedido #${order.id}`)}</strong><small>${text(order.channel || "canal")}</small></span>
             <span>${text(order.order_date || "-")}</span>
             <span>${orderTypeBadge(order)}${orderMetalBadge(order)}<small>${text(orderSetLabel(order))}</small></span>
-            <span><strong>${(order.lines || []).length ? `${order.lines.length} lineas` : "Sin desglose"}</strong><small>${text((order.lines || []).slice(0, 2).map((line) => line.title).join(", ") || "Pendiente de sincronizar")}</small></span>
+            <span><strong>${(order.lines || []).length ? `${order.lines.length} lineas` : "Sin desglose"}</strong><small>${text(order.preparation_items_count ? `${order.preparation_items_count} elementos preparables` : ((order.lines || []).slice(0, 2).map((line) => line.title).join(", ") || "Pendiente de sincronizar"))}</small></span>
             <span>${euro.format(number(order.net_amount))}</span>
             <span><strong>${order.profit == null ? "-" : euro.format(number(order.profit))}</strong><small>Coste real ${order.real_cost == null ? "-" : euro.format(number(order.real_cost))}</small></span>
             <span class="orders-chip-cell">${badge(order.margin_percent == null ? "-" : `${number(order.margin_percent).toFixed(1)}%`, marginTone)}</span>
+            <span class="orders-chip-cell">${badge(prep.label, prep.tone)}<small>${text(prep.hint)}</small></span>
             <span class="orders-chip-cell">${badge(status.label, statusTone)}</span>
             <span class="row-actions slim"><button type="button" class="icon-action" data-open-order="${order.id}" title="Ver pedido"><svg><use href="#icon-eye"></use></svg></button></span>
           </article>
@@ -779,6 +861,7 @@ export function createOperationViews(ctx) {
     const setOptions = order.fixed_set_options || state.ordersProfitability?.fixed_sets || [];
     const panel = $("#kitDetailPanel");
     const status = orderStatusMeta(order.status);
+    const prep = preparationMeta(order);
     const issueList = [
       !(order.lines || []).length ? "Falta desglose Shopify del pedido." : "",
       order.missing_materials ? `${order.missing_materials} linea(s) sin material vinculado.` : "",
@@ -799,6 +882,7 @@ export function createOperationViews(ctx) {
         <div class="order-identity-band">
           <div class="order-identity-type">${orderTypeBadge(order)}</div>
           <div><small>Metal</small><strong>${order.contains_silver ? "Con plata" : "Sin plata"}</strong><em>${text(order.silver_profile || "standard")}</em></div>
+          <div><small>Preparación</small><strong>${text(prep.label)}</strong><em>${text(order.preparation_items_count || 0)} elementos para hoja</em></div>
           <div><small>Beneficio real</small><strong>${order.profit == null ? "-" : euro.format(number(order.profit))}</strong><em>Venta menos coste real</em></div>
           <div><small>Set recomendado</small><strong>${text(recommendedOrderSet(order)?.name || "Sin recomendación")}</strong><em>${text(orderSetLabel(order))}</em></div>
         </div>
@@ -841,6 +925,19 @@ export function createOperationViews(ctx) {
       </section>
       <div class="invoice-workspace-grid">
         <div class="invoice-workspace-main">
+          <section class="panel order-preparation-items-card">
+            <div class="panel-head compact">
+              <div><h2>Elementos para preparar</h2><p>Joyas, toppings y extras del pedido. No incluye el set fijo.</p></div>
+              ${badge(prep.label, prep.tone)}
+            </div>
+            ${(order.preparation_items || []).length ? `<div class="orders-preparation-items">
+              ${(order.preparation_items || []).map((item) => `<article>
+                <span class="supplier-linked-thumb">${img(item.image_url)}</span>
+                <span><strong>${text(item.title || item.material_name || "Elemento")}</strong><small>${text([item.material_name, item.sku].filter(Boolean).join(" - ") || "sin SKU")}</small></span>
+                <em>${text(item.quantity || 1)} ud</em>
+              </article>`).join("")}
+            </div>` : `<div class="empty-state small">Este pedido no tiene elementos preparables detectados.</div>`}
+          </section>
           <section class="panel invoice-editor-card"><div class="panel-head compact"><div><h2>Contenido Shopify</h2><p>Lineas del pedido, coste y material vinculado.</p></div></div>
             ${(order.lines || []).length ? `<div class="orders-material-table">
               <div class="orders-material-head"><span>Producto</span><span>Material</span><span>Cantidad</span><span>Coste ud</span><span>Total</span><span>Incluido</span></div>
@@ -916,6 +1013,10 @@ export function createOperationViews(ctx) {
     openOrderDetail,
     openKitWorkspace,
     bindKitItemForm,
-    setOrderSetTypeFilter
+    setOrderSetTypeFilter,
+    togglePreparationOrder,
+    selectVisiblePreparationCandidates,
+    clearPreparationSelection,
+    generatePreparationSheet
   };
 }
