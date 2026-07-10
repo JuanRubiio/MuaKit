@@ -11067,18 +11067,19 @@ textarea {
 #dashboard .dashboard-driver-list b { font-size: 10px; }
 #dashboard .dashboard-recommendation-list > div,
 #dashboard .dashboard-channel-list > div {
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  min-height: 48px;
 }
 #dashboard .dashboard-material-thumb,
 #dashboard .dashboard-entity-icon {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 38px;
+  height: 38px;
   overflow: hidden;
   background: #f8f5f2;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 8px;
 }
 #dashboard .dashboard-material-thumb img,
 #dashboard .dashboard-entity-icon img {
@@ -11089,9 +11090,20 @@ textarea {
 #dashboard .dashboard-entity-icon {
   align-self: center;
   justify-self: center;
-  flex: 0 0 28px;
+  flex: 0 0 38px;
   background: #edf8f5;
   border-color: #c9e5de;
+}
+#dashboard .dashboard-channel-list .dashboard-entity-icon {
+  background: #f4fbf9;
+}
+#dashboard .dashboard-recommendation-list strong,
+#dashboard .dashboard-channel-list strong {
+  font-size: 11px;
+}
+#dashboard .dashboard-recommendation-list small,
+#dashboard .dashboard-channel-list small {
+  font-size: 10px;
 }
 #dashboard .dashboard-recommendation-list em {
   grid-column: 1 / -1;
@@ -11262,10 +11274,61 @@ textarea {
 /* Final cascade for the Orders typology layout. */
 .orders-filter-panel .orders-filters { grid-template-columns: minmax(210px, 1.2fr) repeat(6, minmax(132px, 1fr)); }
 .orders-table-head,
-.orders-table-row { grid-template-columns: 1.05fr .78fr 1.55fr 1.45fr .72fr .78fr .72fr .9fr 44px; }
+.orders-table-row {
+  grid-template-columns:
+    minmax(92px, .72fr)
+    minmax(76px, .58fr)
+    minmax(190px, 1.4fr)
+    minmax(160px, 1.18fr)
+    minmax(78px, .58fr)
+    minmax(118px, .86fr)
+    minmax(84px, .62fr)
+    minmax(98px, .74fr)
+    48px;
+  column-gap: 14px;
+}
+.orders-table-row {
+  min-height: 86px;
+}
+.orders-table-row > span:nth-child(5),
+.orders-table-row > span:nth-child(6) {
+  overflow: hidden;
+}
+.orders-table-row > span:nth-child(5) {
+  font-weight: 700;
+}
+.orders-table-row > span:nth-child(6) strong {
+  font-size: 15px;
+}
+.orders-table-row > span:nth-child(9) {
+  justify-self: center;
+}
+.orders-chip-cell {
+  justify-content: flex-start;
+}
+.orders-chip-cell .badge {
+  justify-content: center;
+  min-width: 58px;
+  max-width: 100%;
+  white-space: nowrap;
+}
 
 @media (max-width: 1400px) {
   .orders-filter-panel .orders-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .orders-table-head,
+  .orders-table-row {
+    grid-template-columns:
+      minmax(88px, .7fr)
+      minmax(72px, .52fr)
+      minmax(170px, 1.25fr)
+      minmax(140px, 1fr)
+      minmax(72px, .54fr)
+      minmax(110px, .8fr)
+      minmax(78px, .6fr)
+      minmax(90px, .7fr)
+      44px;
+    column-gap: 10px;
+  }
 }
 
 @media (max-width: 760px) {

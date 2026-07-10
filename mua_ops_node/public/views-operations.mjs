@@ -456,6 +456,7 @@ export function createOperationViews(ctx) {
     if (status === "missing_lines") return { label: "Sin desglose", tone: "warn" };
     if (status === "missing_materials") return { label: "Sin material", tone: "danger" };
     if (status === "missing_costs") return { label: "Sin coste", tone: "warn" };
+    if (status === "missing_set") return { label: "Sin set", tone: "warn" };
     if (status === "low_margin") return { label: "Margen bajo", tone: "danger" };
     return { label: "Revisar", tone: "warn" };
   }
@@ -493,7 +494,7 @@ export function createOperationViews(ctx) {
     return order?.order_type_meta || orderTypeOptions().find((type) => type.code === order?.order_type) || {
       code: "",
       label: "Sin clasificar",
-      shortLabel: "Sin tipologia",
+      shortLabel: "Sin tipología",
       icon: "icon-alert"
     };
   }
@@ -504,7 +505,7 @@ export function createOperationViews(ctx) {
     return `
       <span class="order-type-badge ${typeClass}">
         <span class="order-type-icon"><svg><use href="#${text(meta.icon || "icon-tag")}"></use></svg></span>
-        <span><strong>${text(meta.shortLabel || meta.label || "Sin tipologia")}</strong><small>${text(meta.label || "Pendiente")}</small></span>
+        <span><strong>${text(meta.shortLabel || meta.label || "Sin tipología")}</strong><small>${text(meta.label || "Pendiente")}</small></span>
       </span>
     `;
   }
@@ -513,11 +514,24 @@ export function createOperationViews(ctx) {
     return order.contains_silver ? badge("Con plata", "ok") : badge("Sin plata", "neutral");
   }
 
+  function recommendedOrderSet(order) {
+    return order?.recommended_fixed_set || order?.recommended_set || null;
+  }
+
+  function appliedOrderSet(order) {
+    return order?.fixed_set || null;
+  }
+
   function orderSetLabel(order) {
-    const set = order.fixed_set || activeFixedSet();
-    const recommended = order.recommended_set;
-    const suffix = recommended && set && String(recommended.id) === String(set.id) ? "Set recomendado" : "Set manual";
-    return `${set?.name || "Sin set"} · ${suffix}`;
+    const set = appliedOrderSet(order);
+    const recommended = recommendedOrderSet(order);
+    if (order?.set_type_mismatch) return "Set no recomendado";
+    if (order?.default_set_missing) return "Sin set por tipología";
+    if (!set) return "Sin set aplicado";
+    if (recommended && String(recommended.id) === String(set.id)) return `${set.name} - Set recomendado`;
+    if (recommended) return `${set.name} - Set manual`;
+    const suffix = "Set por defecto";
+    return `${set.name} - ${suffix}`;
   }
 
   function refreshOrderFilterOptions() {
@@ -546,6 +560,7 @@ export function createOperationViews(ctx) {
         orderTypeMeta(order).label,
         orderTypeMeta(order).shortLabel,
         order.fixed_set?.name,
+        recommendedOrderSet(order)?.name,
         ...(order.lines || []).map((line) => `${line.title} ${line.material_name || ""}`)
       ].join(" ")).includes(search));
     }
@@ -556,11 +571,12 @@ export function createOperationViews(ctx) {
     const metal = $("#orderMetalFilter")?.value;
     if (channel) rows = rows.filter((order) => order.channel === channel);
     if (type) rows = rows.filter((order) => String(order.order_type || "") === String(type));
-    if (set) rows = rows.filter((order) => String(order.kit_recipe_id || order.fixed_set?.id || "") === String(set));
+    if (set) rows = rows.filter((order) => String(order.kit_recipe_id || order.fixed_set?.id || recommendedOrderSet(order)?.id || "") === String(set));
     if (metal === "silver") rows = rows.filter((order) => order.contains_silver);
     if (metal === "standard") rows = rows.filter((order) => !order.contains_silver);
     if (status === "complete") rows = rows.filter((order) => order.status === "complete");
     if (status === "missing") rows = rows.filter((order) => order.status !== "complete");
+    if (status === "missing_set") rows = rows.filter((order) => order.status === "missing_set" || order.default_set_missing || order.set_type_mismatch);
     if (status === "low_margin") rows = rows.filter((order) => order.status === "low_margin");
     return sortRows(rows, $("#orderSort")?.value, {
       margin_asc: (a, b) => (a.margin_percent == null ? 999 : number(a.margin_percent)) - (b.margin_percent == null ? 999 : number(b.margin_percent)),
@@ -578,10 +594,10 @@ export function createOperationViews(ctx) {
     const silver = number(metrics.silver_orders ?? rows.filter((order) => order.contains_silver).length);
     const cards = [
       ["Pedidos analizados", rows.length, "Pedidos sincronizados", "icon-kit", "accent"],
-      ["Cobertura tipológica", rows.length ? `${Math.round((classified / rows.length) * 100)}%` : "-", `${classified} pedidos clasificados`, "icon-tag", "accent"],
+      ["Cobertura tipológica", rows.length ? `${Math.round((classified / rows.length) * 100)}%` : "-", `${classified} pedidos clasificados - ${number(metrics.configured_order_type_count || 0)}/${number(metrics.total_order_type_count || orderTypeOptions().length)} sets`, "icon-tag", "accent"],
       ["Margen fiable", metrics.average_margin_percent == null ? "-" : `${number(metrics.average_margin_percent).toFixed(1)}%`, `${text(metrics.complete_orders || complete.length)} pedidos explicables`, "icon-percent", "gold"],
       ["Con plata", silver, `${metrics.silver_average_ticket ? euro.format(number(metrics.silver_average_ticket)) : euro.format(avg(rows.filter((order) => order.contains_silver).map((order) => order.net_amount)))} ticket medio`, "icon-gem", "accent"],
-      ["Por revisar", number(metrics.incomplete_orders ?? rows.filter((order) => order.status !== "complete").length), "Tipologia, set o costes", "icon-alert", "rose"]
+      ["Por revisar", number(metrics.incomplete_orders ?? rows.filter((order) => order.status !== "complete").length), "Tipología, set o costes", "icon-alert", "rose"]
     ];
     $("#ordersSummaryCards").innerHTML = cards.map(([label, value, hint, icon, tone]) => `
       <article class="orders-summary-card tone-${tone}">
@@ -592,16 +608,25 @@ export function createOperationViews(ctx) {
   }
 
   function renderFixedPreview() {
-    const set = activeFixedSet();
-    const rows = fixedSetRows(set);
-    $("#ordersFixedSubtitle").textContent = set ? `${set.name}${set.version ? ` - ${set.version}` : ""}` : "Sin set fijo activo.";
-    $("#ordersFixedPreview").innerHTML = rows.length ? `
-      <div class="orders-fixed-preview-list">
-        ${rows.slice(0, 2).map((item) => `<div class="orders-fixed-preview-item"><span>${text(item.material_name || "Sin material")}</span><strong>${item.total_cost == null ? "Sin coste" : euro.format(number(item.total_cost))}</strong></div>`).join("")}
-        ${rows.length > 2 ? `<div class="orders-fixed-preview-more">${text(rows.length - 2)} componentes mas</div>` : ""}
+    const sets = state.ordersProfitability?.fixed_sets || state.kits || [];
+    const types = orderTypeOptions();
+    const defaults = new Map(sets.filter((set) => set.order_type && Number(set.is_type_default || 0)).map((set) => [set.order_type, set]));
+    const configured = types.filter((type) => defaults.has(type.code));
+    const missing = types.filter((type) => !defaults.has(type.code));
+    $("#ordersFixedSubtitle").textContent = `${configured.length} de ${types.length || 0} tipologías configuradas`;
+    $("#ordersFixedPreview").innerHTML = types.length ? `
+      <div class="orders-type-default-list">
+        ${types.slice(0, 5).map((type) => {
+          const set = defaults.get(type.code);
+          return `<button type="button" data-set-type-filter="${text(type.code)}">
+            <span class="order-type-icon"><svg><use href="#${text(type.icon || "icon-tag")}"></use></svg></span>
+            <span><strong>${text(type.shortLabel || type.label)}</strong><small>${set ? `${text(set.name)} - ${text(set.included_item_count || 0)} componentes` : "Sin set por defecto"}</small></span>
+            <em>${set ? euro.format(number(set.known_cost)) : "Pendiente"}</em>
+          </button>`;
+        }).join("")}
       </div>
-      <div class="orders-fixed-total"><span>Total set fijo</span><strong>${euro.format(number(set?.known_cost))}</strong></div>
-    ` : `<div class="empty-state small">Define un set fijo para calcular el coste por pedido.</div>`;
+      ${missing.length ? `<div class="orders-fixed-preview-more">Faltan: ${text(missing.map((type) => type.shortLabel || type.label).join(", "))}</div>` : ""}
+    ` : `<div class="empty-state small">Define tipologías y sets fijos para calcular el coste por pedido.</div>`;
   }
 
   function renderOrdersReview(rows = state.ordersProfitability?.orders || []) {
@@ -610,13 +635,15 @@ export function createOperationViews(ctx) {
     const missingLines = rows.filter((order) => !(order.lines || []).length);
     const missingMaterials = rows.filter((order) => order.missing_materials);
     const missingCosts = rows.filter((order) => order.status === "missing_costs");
+    const missingSets = rows.filter((order) => order.status === "missing_set" || order.default_set_missing || order.set_type_mismatch);
     const lowMargin = rows.filter((order) => order.status === "low_margin");
-    const reviewable = rows.filter((order) => ["missing_lines", "missing_materials", "missing_costs", "low_margin"].includes(order.status));
+    const reviewable = rows.filter((order) => ["missing_lines", "missing_materials", "missing_costs", "missing_set", "low_margin"].includes(order.status) || order.default_set_missing || order.set_type_mismatch);
     const reliableCoverage = total ? Math.round((complete.length / total) * 100) : 0;
     const items = [
       ["complete", "Cobertura fiable", `${reliableCoverage}%`, `${complete.length} pedidos con margen usable`, "ok", "icon-check-circle"],
       ["missing", "Pedidos revisables", reviewable.length, `${total ? Math.round((reviewable.length / total) * 100) : 0}% del total necesita revision`, reviewable.length ? "warn" : "ok", "icon-alert"],
       ["missing_lines", "Sin desglose", missingLines.length, "Pedidos sin lineas Shopify sincronizadas", missingLines.length ? "warn" : "ok", "icon-file"],
+      ["missing_set", "Set pendiente", missingSets.length, "Tipología sin set por defecto", missingSets.length ? "warn" : "ok", "icon-layers"],
       ["missing_materials", "Bloqueo de coste", missingMaterials.length + missingCosts.length, `${missingMaterials.length} sin material · ${missingCosts.length} sin coste`, (missingMaterials.length + missingCosts.length) ? "danger" : "ok", "icon-link"],
       ["low_margin", "Presion de margen", lowMargin.length, "Pedidos por debajo del umbral operativo", lowMargin.length ? "danger" : "ok", "icon-chart"]
     ];
@@ -649,9 +676,9 @@ export function createOperationViews(ctx) {
     ` : "";
     $("#ordersFixedList").innerHTML = `
       <div class="orders-type-selector">
-        <label>Tipologia
+        <label>Tipología
           <select data-set-type-filter>
-            <option value="">Todas las tipologias</option>
+            <option value="">Todas las tipologías</option>
             ${typeOptions.map((type) => `<option value="${text(type.code)}" ${selectedOrderSetType === type.code ? "selected" : ""}>${text(type.label)}</option>`).join("")}
           </select>
         </label>
@@ -748,7 +775,7 @@ export function createOperationViews(ctx) {
     if (!order) return;
     $("#kitForm")?.classList.add("hidden");
     $("#kits .orders-page")?.classList.add("orders-focus-mode");
-    const set = order.fixed_set || activeFixedSet();
+    const set = appliedOrderSet(order);
     const setOptions = order.fixed_set_options || state.ordersProfitability?.fixed_sets || [];
     const panel = $("#kitDetailPanel");
     const status = orderStatusMeta(order.status);
@@ -756,6 +783,9 @@ export function createOperationViews(ctx) {
       !(order.lines || []).length ? "Falta desglose Shopify del pedido." : "",
       order.missing_materials ? `${order.missing_materials} linea(s) sin material vinculado.` : "",
       order.missing_line_costs ? `${order.missing_line_costs} material(es) sin coste registrado.` : "",
+      order.default_set_missing ? "Falta set por defecto para esta tipología." : "",
+      order.set_type_mismatch ? "El set aplicado pertenece a otra tipología." : "",
+      !set ? "No hay set fijo aplicado." : "",
       set?.missing_cost_items ? `${set.missing_cost_items} componente(s) del set sin coste.` : "",
       order.status === "low_margin" ? "Margen por debajo del umbral operativo." : ""
     ].filter(Boolean);
@@ -770,17 +800,17 @@ export function createOperationViews(ctx) {
           <div class="order-identity-type">${orderTypeBadge(order)}</div>
           <div><small>Metal</small><strong>${order.contains_silver ? "Con plata" : "Sin plata"}</strong><em>${text(order.silver_profile || "standard")}</em></div>
           <div><small>Beneficio real</small><strong>${order.profit == null ? "-" : euro.format(number(order.profit))}</strong><em>Venta menos coste real</em></div>
-          <div><small>Set recomendado</small><strong>${text(order.recommended_set?.name || "Sin recomendacion")}</strong><em>${text(orderSetLabel(order))}</em></div>
+          <div><small>Set recomendado</small><strong>${text(recommendedOrderSet(order)?.name || "Sin recomendación")}</strong><em>${text(orderSetLabel(order))}</em></div>
         </div>
         <div class="order-type-editor">
-          <label>Tipologia del pedido
+          <label>Tipología del pedido
             <select data-order-type-select="${order.id}">
               <option value="">Sin clasificar</option>
               ${orderTypeOptions().map((type) => `<option value="${text(type.code)}" ${String(type.code) === String(order.order_type || "") ? "selected" : ""}>${text(type.label)}</option>`).join("")}
             </select>
           </label>
-          <label class="check"><input type="checkbox" data-order-type-apply-set="${order.id}" checked> Aplicar set recomendado al guardar tipologia</label>
-          <div class="order-type-preview"><small>La tipologia decide el set fijo por defecto y separa pedidos con plata para leer margen y beneficio sin mezclar comportamientos distintos.</small></div>
+          <label class="check"><input type="checkbox" data-order-type-apply-set="${order.id}" checked> Aplicar set recomendado al guardar tipología</label>
+          <div class="order-type-preview"><small>La tipología decide el set fijo por defecto y separa pedidos con plata para leer margen y beneficio sin mezclar comportamientos distintos.</small></div>
         </div>
       </section>
       <section class="panel orders-audit-panel">

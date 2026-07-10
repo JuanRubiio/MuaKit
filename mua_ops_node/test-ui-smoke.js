@@ -210,7 +210,8 @@ async function run() {
     const importReview = page.locator("[data-open-expense-import]:visible").first();
     if (await importReview.count()) {
       await importReview.click();
-      await page.waitForTimeout(350);
+      await page.locator("#invoiceForm:not(.hidden)").waitFor({ state: "visible", timeout: 2500 });
+      await page.locator("#invoiceDetailPanel.hidden").waitFor({ state: "attached", timeout: 2500 });
       const importViewer = page.locator("#expenseImportDetail .document-viewer");
       if (!(await importViewer.count()) || await importViewer.getAttribute("open") !== null) {
         throw new Error("La validacion OCR no ofrece el visor documental cerrado por defecto");

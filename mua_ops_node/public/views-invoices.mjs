@@ -10,6 +10,7 @@ export function createInvoiceViews(ctx) {
     badge,
     statusLabel,
     docLink,
+    documentViewerMarkup,
     img,
     entityIconMarkup,
     hierarchySummary,
@@ -163,9 +164,11 @@ export function createInvoiceViews(ctx) {
   }
 
   async function openInvoice(id, options = {}) {
+    state.invoiceEditorActive = false;
     state.selectedInvoiceId = id;
     state.invoiceLineFormOpen = Boolean(options.openForm);
     const detail = await api(`/api/invoices/${id}`);
+    if (state.invoiceEditorActive && String(state.selectedInvoiceId) === String(id) && !options.openForm) return;
     const materialInvoice = isMaterialInvoiceCategory(detail.invoice.category);
     const activeLineCount = detail.lines.filter((line) => !line.is_deleted).length;
     renderInvoices();

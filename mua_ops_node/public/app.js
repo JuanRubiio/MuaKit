@@ -14,6 +14,8 @@ const state = {
   systemHealth: null,
   systemTestHealth: null,
   dashboardFinance: null,
+  dashboardLiveRefreshTimer: null,
+  dashboardLiveRefreshInFlight: false,
   dashboardSpendView: "suppliers",
   dashboardExpenseTrendView: "total",
   dashboardIncomeTrendView: "cobros",
@@ -265,6 +267,7 @@ function createViewContext() {
     entityIconMarkup,
     statusLabel,
     docLink,
+    documentViewerMarkup,
     hierarchySummary,
     materialPickerMarkup,
     syncMaterialPicker,
@@ -580,6 +583,7 @@ function renderPayoutFormReview() {
 }
 
 function closeInvoicePanels() {
+  state.invoiceEditorActive = false;
   $("#invoiceForm")?.classList.add("hidden");
   $("#invoiceDetailPanel")?.classList.add("hidden");
   $("#invoices .invoice-page")?.classList.remove("invoice-focus-mode");
@@ -686,7 +690,13 @@ function showInvoiceEditor(source = null) {
   const form = $("#invoiceForm");
   const invoice = source?.invoice || source;
   const lines = source?.lines || [];
-  $("#invoiceDetailPanel")?.classList.add("hidden");
+  state.invoiceEditorActive = true;
+  const ensureInvoiceEditorFocus = () => {
+    if (!state.invoiceEditorActive) return;
+    $("#invoiceDetailPanel")?.classList.add("hidden");
+    $("#invoiceForm")?.classList.remove("hidden");
+  };
+  ensureInvoiceEditorFocus();
   $("#invoices .invoice-page")?.classList.add("invoice-focus-mode");
   document.body.classList.add("invoice-focus-active");
   form.classList.remove("hidden");
@@ -732,6 +742,9 @@ function showInvoiceEditor(source = null) {
   }
   updateInvoiceFormPreview();
   renderInvoiceFormReview(invoice);
+  requestAnimationFrame(ensureInvoiceEditorFocus);
+  setTimeout(ensureInvoiceEditorFocus, 50);
+  setTimeout(ensureInvoiceEditorFocus, 250);
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -1271,6 +1284,24 @@ async function loadDashboardFinance() {
   if (state.dashboardGranularity) params.set("granularity", state.dashboardGranularity);
   state.dashboardFinance = await api(`/api/dashboard/finance${params.toString() ? `?${params}` : ""}`);
   renderDashboard();
+}
+
+function setupDashboardLiveRefresh() {
+  if (state.dashboardLiveRefreshTimer) clearInterval(state.dashboardLiveRefreshTimer);
+  const refreshDashboardIfVisible = async () => {
+    if (state.dashboardLiveRefreshInFlight) return;
+    if (document.visibilityState !== "visible") return;
+    if (!$("#dashboard")?.classList.contains("active")) return;
+    state.dashboardLiveRefreshInFlight = true;
+    try {
+      await loadDashboardFinance();
+    } catch (error) {
+      clientLog("dashboard_live_refresh_error", { message: error.message }, "error");
+    } finally {
+      state.dashboardLiveRefreshInFlight = false;
+    }
+  };
+  state.dashboardLiveRefreshTimer = setInterval(refreshDashboardIfVisible, 30000);
 }
 
 async function loadSettings() {
@@ -2103,8 +2134,13 @@ function bindEvents() {
         $$(".orders-tabs [data-orders-section]").forEach((button) => button.classList.toggle("is-active", button.dataset.ordersSection === section));
         $$("[data-orders-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.ordersPanel !== section));
       }
+      if (t.dataset.setTypeFilter !== undefined && t.tagName === "BUTTON") {
+        viewModules.operations?.setOrderSetTypeFilter?.(t.dataset.setTypeFilter || "");
+        document.querySelector('[data-orders-section="fixed"]')?.click();
+      }
       if (t.dataset.orderStatusFilter) {
-        const value = t.dataset.orderStatusFilter === "low_margin" ? "low_margin" : (t.dataset.orderStatusFilter === "complete" ? "complete" : "missing");
+        const allowed = ["low_margin", "complete", "missing_set"];
+        const value = allowed.includes(t.dataset.orderStatusFilter) ? t.dataset.orderStatusFilter : "missing";
         if ($("#orderStatusFilter")) $("#orderStatusFilter").value = value;
         resetPagination("kits");
         renderKits();
@@ -2165,6 +2201,9 @@ function bindEvents() {
         $("#invoiceDetailPanel")?.classList.add("hidden");
         const detail = await api(`/api/invoices/${t.dataset.editInvoiceDetails}`);
         showInvoiceEditor(detail);
+        $("#invoiceDetailPanel")?.classList.add("hidden");
+        $("#invoiceForm")?.classList.remove("hidden");
+        setTimeout(() => $("#invoiceDetailPanel")?.classList.add("hidden"), 0);
       }
       if (t.dataset.saveKitItem !== undefined) {
         const form = $("#kitItemForm");
@@ -2393,6 +2432,9 @@ function bindEvents() {
     ["#orderSearch", renderKits, "kits"],
     ["#orderChannelFilter", renderKits, "kits"],
     ["#orderStatusFilter", renderKits, "kits"],
+    ["#orderTypeFilter", renderKits, "kits"],
+    ["#orderSetFilter", renderKits, "kits"],
+    ["#orderMetalFilter", renderKits, "kits"],
     ["#orderSort", renderKits, "kits"],
   ].forEach(([selector, handler, pageKey]) => {
     const node = $(selector);
@@ -2518,6 +2560,7 @@ function bindEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       maybeRunShopifyAutoSync().catch((error) => clientLog("shopify_visibility_sync_error", { message: error.message }, "error"));
+      if ($("#dashboard")?.classList.contains("active")) loadDashboardFinance().catch((error) => clientLog("dashboard_visibility_refresh_error", { message: error.message }, "error"));
     }
   });
 }
@@ -2534,6 +2577,7 @@ async function init() {
   await loadViewModules();
   populateStaticFilters();
   bindEvents();
+  setupDashboardLiveRefresh();
   await refreshAll();
   clientLog("app_init_success", { path: location.pathname });
 }
@@ -2550,5 +2594,3 @@ init().catch((error) => {
   clientLog("app_init_error", { message: error.message }, "error");
   toast(error.message);
 });
-
-

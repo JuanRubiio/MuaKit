@@ -65,8 +65,9 @@ function registerKitRoutes(app, ctx) {
     }
   }
 
-  function profitabilityStatus({ hasLines, missingMaterials, missingLineCosts, orderSet, marginPercent }) {
+  function profitabilityStatus({ hasLines, missingMaterials, missingLineCosts, orderSet, marginPercent, missingTypeDefault, setTypeMismatch }) {
     if (!hasLines) return "missing_lines";
+    if (missingTypeDefault || setTypeMismatch || !orderSet) return "missing_set";
     if (missingMaterials) return "missing_materials";
     if (missingLineCosts || orderSet?.missing_cost_items) return "missing_costs";
     if (marginPercent != null && marginPercent < 55) return "low_margin";
@@ -95,8 +96,13 @@ function registerKitRoutes(app, ctx) {
        GROUP BY o.id
        ORDER BY o.order_date DESC, o.id DESC`
     ).map((order) => {
+      const selectedSet = fixedSetById.get(Number(order.kit_recipe_id)) || null;
       const recommendedSet = typeDefaults.get(order.order_type) || null;
-      const orderSet = fixedSetById.get(Number(order.kit_recipe_id)) || recommendedSet || activeSet;
+      const fallbackSet = !order.order_type ? activeSet : null;
+      const orderSet = selectedSet || recommendedSet || fallbackSet;
+      const missingTypeDefault = Boolean(order.order_type && !recommendedSet);
+      const setTypeMismatch = Boolean(order.order_type && selectedSet?.order_type && selectedSet.order_type !== order.order_type);
+      const fixedSetSource = selectedSet ? "manual" : recommendedSet ? "typology" : fallbackSet ? "global_default" : "missing";
       const fixedSetCost = n(orderSet?.known_cost);
       const allLines = query(
         `SELECT l.*, m.name AS material_name, m.category AS material_category,
@@ -140,14 +146,19 @@ function registerKitRoutes(app, ctx) {
       const realCost = (contentCost ?? 0) + fixedSetCost;
       const profit = n(order.net_amount) - realCost;
       const marginPercent = n(order.net_amount) ? (profit / n(order.net_amount)) * 100 : null;
-      const status = profitabilityStatus({ hasLines, missingMaterials, missingLineCosts, orderSet, marginPercent });
+      const status = profitabilityStatus({ hasLines, missingMaterials, missingLineCosts, orderSet, marginPercent, missingTypeDefault, setTypeMismatch });
       return {
         ...order,
         lines,
         fixed_set: orderSet,
         recommended_fixed_set: recommendedSet,
+        recommended_set: recommendedSet,
+        fixed_set_source: fixedSetSource,
+        default_set_missing: missingTypeDefault,
+        set_type_mismatch: setTypeMismatch,
+        requires_set_review: Boolean(missingTypeDefault || setTypeMismatch || (recommendedSet && selectedSet && Number(recommendedSet.id) !== Number(selectedSet.id))),
         set_matches_recommended: Boolean(recommendedSet && orderSet && Number(recommendedSet.id) === Number(orderSet.id)),
-        has_manual_set_override: Boolean(order.kit_recipe_id && recommendedSet && Number(order.kit_recipe_id) !== Number(recommendedSet.id)),
+        has_manual_set_override: Boolean(selectedSet && recommendedSet && Number(selectedSet.id) !== Number(recommendedSet.id)),
         order_type_meta: orderTypeMeta(order.order_type),
         type_marker_lines: markerLines.map((line) => ({ id: line.id, title: line.title })),
         fixed_set_options: fixedSets.map((set) => ({
@@ -196,7 +207,10 @@ function registerKitRoutes(app, ctx) {
         complete_orders: completeOrders.length,
         classified_orders: orders.filter((order) => order.order_type).length,
         unclassified_orders: orders.filter((order) => !order.order_type).length,
-        set_mismatch_orders: orders.filter((order) => order.recommended_fixed_set && !order.set_matches_recommended).length,
+        configured_order_type_count: typeDefaults.size,
+        total_order_type_count: ORDER_TYPES.length,
+        missing_type_default_orders: orders.filter((order) => order.default_set_missing).length,
+        set_mismatch_orders: orders.filter((order) => order.set_type_mismatch || (order.recommended_fixed_set && !order.set_matches_recommended)).length,
         silver_orders: silverOrders.length,
         standard_orders: standardOrders.length,
         silver_average_margin_percent: avg(silverOrders.filter((order) => order.margin_percent != null).map((order) => order.margin_percent)),

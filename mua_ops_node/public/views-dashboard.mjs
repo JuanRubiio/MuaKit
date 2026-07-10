@@ -247,7 +247,7 @@ export function createDashboardViews(ctx) {
       { label: "Gastos por cerrar", hint: "El importe ya está incluido en el balance", count: quality.draft_expenses || 0, icon: "icon-file", action: "invoices", context: "draft", tone: quality.draft_expenses ? "attention" : "ok" },
       { label: "Importaciones por validar", hint: `${quality.import_pending || 0} procesándose`, count: quality.import_review || 0, icon: "icon-refresh", action: "invoices", context: "imports", tone: quality.import_review ? "attention" : "ok" },
       { label: "Pedidos con margen en presión", hint: `Umbral saludable desde ${percent(finance.profitability?.thresholds?.healthy, 0)}`, count: (finance.profitability?.bands || []).filter((row) => row.band !== "healthy").reduce((sum, row) => sum + number(row.orders), 0), icon: "icon-percent", action: "kits", context: "low_margin", tone: finance.profitability?.low_margin_orders?.length ? "warn" : "ok" },
-      { label: "Ingresos pendientes", hint: "Cobros todavía no ejecutados", count: operational.pending_payouts?.length || 0, icon: "icon-wallet", action: "income", context: "pending", tone: operational.pending_payouts?.length ? "attention" : "ok" }
+      { label: "Ingresos pendientes", hint: "Cobros todavía no ejecutados", count: operational.pending_payout_count || finance.kpis?.global_pending_payout_count || 0, icon: "icon-wallet", action: "income", context: "pending", tone: (operational.pending_payout_count || finance.kpis?.global_pending_payout_count) ? "attention" : "ok" }
     ];
   }
 

@@ -925,6 +925,8 @@ Producto Contrato PaÃ­s Peso Importe`;
     const typedProfitability = profitability.orders.find((order) => order.id === profitableOrder.id);
     assert(typedProfitability.order_type_meta.label === "Recuerdos de maternidad", "Order profitability should expose readable typology metadata");
     assert(typedProfitability.recommended_fixed_set?.id === kitRecipe.id && typedProfitability.set_matches_recommended, "Order profitability should distinguish the recommended and applied set");
+    assert(typedProfitability.recommended_set?.id === kitRecipe.id, "Order profitability should preserve the recommended set compatibility alias");
+    assert(["manual", "typology"].includes(typedProfitability.fixed_set_source), "Order profitability should expose whether the applied set is manual or typology-driven");
     const missingCostLines = profitableOrder.lines.filter((orderLine) => orderLine.material_id && orderLine.unit_cost == null);
     assert(missingCostLines.length > 0, "Fixture order should include Shopify lines without registered cost");
     assert(missingCostLines.every((orderLine) => Number(orderLine.include_in_cost) === 0), "Shopify lines without cost should be excluded automatically");

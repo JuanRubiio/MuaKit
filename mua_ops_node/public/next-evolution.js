@@ -747,7 +747,7 @@
         action.innerHTML = `<button type="button" class="danger-button" data-discard-import="${button.dataset.requestDiscardImport}">Sí, eliminar definitivamente</button><button type="button" class="ghost" data-cancel-discard-import="${button.dataset.requestDiscardImport}">Cancelar</button><span>No se podrá recuperar el documento ni su lectura.</span>`;
       }
       if (button.dataset.cancelDiscardImport) await openImport(button.dataset.cancelDiscardImport);
-      if (button.dataset.discardImport) { await api(`/api/expense-imports/${button.dataset.discardImport}/discard`, { method: "POST" }); showImportList(); }
+      if (button.dataset.discardImport) { await api(`/api/expense-imports/${button.dataset.discardImport}/discard`, { method: "POST" }); await refreshRegisteredExpenses(); showImportList(); }
       if (button.dataset.confirmImport) {
         const nextId = reviewableRows().find((row) => Number(row.id) !== Number(button.dataset.confirmImport))?.id;
         const result = await api(`/api/expense-imports/${button.dataset.confirmImport}/confirm`, { method: "POST", body: JSON.stringify({}) });

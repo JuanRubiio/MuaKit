@@ -990,6 +990,26 @@ const SCHEMA_MIGRATIONS = [
         if (candidate) exec("UPDATE kit_recipes SET is_type_default=1 WHERE id=$id", { id: candidate.id });
       }
     }
+  },
+  {
+    id: "018_backfill_order_type_default_sets",
+    name: "Persist default fixed sets on classified Shopify orders",
+    up: ({ query, exec }) => {
+      const defaults = query(`
+        SELECT id, order_type
+        FROM kit_recipes
+        WHERE is_deleted=0 AND order_type!='' AND is_type_default=1
+      `);
+      for (const recipe of defaults) {
+        exec(`
+          UPDATE sales_orders
+          SET kit_recipe_id=$recipeId, updated_at=CURRENT_TIMESTAMP
+          WHERE is_deleted=0
+            AND kit_recipe_id IS NULL
+            AND order_type=$orderType
+        `, { recipeId: recipe.id, orderType: recipe.order_type });
+      }
+    }
   }
 ];
 
@@ -1504,14 +1524,26 @@ function classifySalesOrder(orderId) {
     exec("UPDATE sales_order_lines SET is_type_marker=1, include_in_cost=0 WHERE id=$id", { id: lineId });
   }
   if (order.order_type_source === "manual") return detection;
+  const recommendedRecipe = detection.code
+    ? one(`SELECT id
+           FROM kit_recipes
+           WHERE is_deleted=0 AND order_type=$orderType AND is_type_default=1
+           ORDER BY id DESC
+           LIMIT 1`, { orderType: detection.code })
+    : null;
   exec(`UPDATE sales_orders
         SET order_type=$orderType, order_type_source=$source, order_type_confidence=$confidence,
+            kit_recipe_id=CASE
+              WHEN kit_recipe_id IS NULL AND $recipeId IS NOT NULL THEN $recipeId
+              ELSE kit_recipe_id
+            END,
             updated_at=CURRENT_TIMESTAMP
         WHERE id=$id`, {
     id: orderId,
     orderType: detection.code,
     source: detection.code ? detection.source : "unclassified",
-    confidence: detection.confidence
+    confidence: detection.confidence,
+    recipeId: recommendedRecipe?.id || null
   });
   return detection;
 }
@@ -2535,6 +2567,11 @@ function dashboardProfitability(window, granularity, settings) {
   const fixedSets = kitRecipes();
   const activeSet = fixedSets.find((set) => Number(set.is_default || 0)) || fixedSets[0] || null;
   const fixedSetById = new Map(fixedSets.map((set) => [Number(set.id), set]));
+  const typeDefaults = new Map(
+    fixedSets
+      .filter((set) => set.order_type && Number(set.is_type_default || 0))
+      .map((set) => [set.order_type, set])
+  );
   const costMap = new Map(materialCosts().map((row) => [Number(row.material_id), row]));
   const linesByOrder = new Map();
   for (const line of query(
@@ -2556,7 +2593,7 @@ function dashboardProfitability(window, granularity, settings) {
      WHERE o.is_deleted=0
      ORDER BY o.order_date DESC, o.id DESC`
   ).map((order) => {
-    const orderSet = fixedSetById.get(Number(order.kit_recipe_id)) || activeSet;
+    const orderSet = fixedSetById.get(Number(order.kit_recipe_id)) || typeDefaults.get(order.order_type) || (!order.order_type ? activeSet : null);
     const fixedSetCost = n(orderSet?.known_cost);
     const lines = linesByOrder.get(Number(order.id)) || [];
     let contentCost = 0;
@@ -2578,7 +2615,7 @@ function dashboardProfitability(window, granularity, settings) {
       contentCost += lineCost;
       materialCostsByLine.push({ material_id: line.material_id, name: line.material_name, cost: lineCost });
     }
-    const reliable = lines.length > 0 && missingMaterials === 0 && missingCosts === 0 && !Number(orderSet?.missing_cost_items || 0);
+    const reliable = Boolean(orderSet) && lines.length > 0 && missingMaterials === 0 && missingCosts === 0 && !Number(orderSet?.missing_cost_items || 0);
     const realCost = contentCost + fixedSetCost;
     const netAmount = n(order.net_amount);
     const profit = netAmount - realCost;
@@ -3200,6 +3237,7 @@ function dashboardFinance(options = {}) {
   const previousExpense = previousInvoices.reduce((sum, invoice) => sum + n(invoice.total), 0);
   const previousNetReceived = previousPayouts.reduce((sum, payout) => sum + n(payout.net_amount), 0);
   const draftInvoices = allInvoices.filter((invoice) => invoice.status === "draft");
+  const globalPendingPayouts = allPayouts.filter((row) => !["paid", "executed"].includes(String(row.status || "")));
 
   const categorySpend = trackedCategories.map((category) => {
     const rows = invoices.filter((invoice) => invoice.category === category);
@@ -3411,6 +3449,7 @@ function dashboardFinance(options = {}) {
       period_fees_received: totalFeesReceived,
       payout_count: Number(income.payout_count || 0),
       pending_payout_count: Number(income.pending_count || 0),
+      global_pending_payout_count: globalPendingPayouts.length,
       period_balance: totalNetReceived - totalExpense,
       weighted_margin_percent: profitability.metrics.weighted_margin_percent,
       reliable_order_count: profitability.metrics.reliable_orders,
@@ -3502,6 +3541,7 @@ function dashboardFinance(options = {}) {
           status: row.status,
           net_amount: n(row.net_amount)
         })),
+      pending_payout_count: globalPendingPayouts.length,
       reorder_materials: reorderMaterials,
       materials_without_image: materialsWithoutImage,
       materials_without_cost: materialsWithoutCost,
