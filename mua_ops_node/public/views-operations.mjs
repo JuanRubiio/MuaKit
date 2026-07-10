@@ -852,7 +852,7 @@ export function createOperationViews(ctx) {
             <span>${euro.format(number(order.net_amount))}</span>
             <span><strong>${order.profit == null ? "-" : euro.format(number(order.profit))}</strong><small>Coste real ${order.real_cost == null ? "-" : euro.format(number(order.real_cost))}</small></span>
             <span class="orders-chip-cell">${badge(order.margin_percent == null ? "-" : `${number(order.margin_percent).toFixed(1)}%`, marginTone)}</span>
-            <span class="orders-chip-cell">${badge(prep.label, prep.tone)}<small>${text(prep.hint)}</small></span>
+            <span class="orders-prep-status-cell">${badge(prep.label, prep.tone)}<small>${text(prep.hint)}</small></span>
             <span class="orders-chip-cell">${badge(status.label, statusTone)}</span>
             <span class="row-actions slim"><button type="button" class="icon-action" data-open-order="${order.id}" title="Ver pedido"><svg><use href="#icon-eye"></use></svg></button></span>
           </article>
@@ -872,6 +872,8 @@ export function createOperationViews(ctx) {
     const panel = $("#kitDetailPanel");
     const status = orderStatusMeta(order.status);
     const prep = preparationMeta(order);
+    const preparationItems = order.preparation_items || [];
+    const preparationUnits = preparationItems.reduce((sum, item) => sum + number(item.quantity || 1), 0);
     const issueList = [
       !(order.lines || []).length ? "Falta desglose Shopify del pedido." : "",
       order.missing_materials ? `${order.missing_materials} linea(s) sin material vinculado.` : "",
@@ -940,17 +942,22 @@ export function createOperationViews(ctx) {
               <div><h2>Elementos para preparar</h2><p>Joyas, toppings y extras del pedido. No incluye el set fijo.</p></div>
               ${badge(prep.label, prep.tone)}
             </div>
-            ${(order.preparation_items || []).length ? `<div class="orders-preparation-summary">
-              <span><svg><use href="#icon-package"></use></svg><strong>${number(order.preparation_items_count || (order.preparation_items || []).length)}</strong><small>elementos</small></span>
-              <span><svg><use href="#icon-check-circle"></use></svg><strong>Checklist</strong><small>solo contenido del pedido</small></span>
+            ${preparationItems.length ? `<div class="orders-preparation-hero">
+              <span class="orders-preparation-hero-icon"><svg><use href="#icon-clipboard"></use></svg></span>
+              <span><strong>Checklist de preparacion</strong><small>Solo aparecen los articulos que se meten en el paquete: joyas, toppings y extras.</small></span>
+              <span class="orders-preparation-hero-count"><strong>${number(preparationUnits)}</strong><small>uds</small></span>
+            </div>
+            <div class="orders-preparation-summary">
+              <span><svg><use href="#icon-package"></use></svg><strong>${number(order.preparation_items_count || preparationItems.length)}</strong><small>lineas preparables</small></span>
+              <span><svg><use href="#icon-check-circle"></use></svg><strong>${text(prep.label)}</strong><small>${text(prep.hint)}</small></span>
             </div><div class="orders-preparation-items">
-              ${(order.preparation_items || []).map((item) => `<article>
+              ${preparationItems.map((item) => `<article>
                 <i class="orders-preparation-item-check" aria-hidden="true"></i>
                 <span class="supplier-linked-thumb">${img(item.image_url)}</span>
-                <span><strong>${text(item.title || item.material_name || "Elemento")}</strong><small>${text([item.material_name, item.sku].filter(Boolean).join(" - ") || "sin SKU")}</small></span>
-                <em>${text(item.quantity || 1)} ud</em>
+                <span class="orders-preparation-item-copy"><strong>${text(item.title || item.material_name || "Elemento")}</strong><small>${text([item.material_name, item.sku].filter(Boolean).join(" - ") || "sin SKU")}</small></span>
+                <span class="orders-preparation-qty"><strong>${text(item.quantity || 1)}</strong><small>ud</small></span>
               </article>`).join("")}
-            </div>` : `<div class="empty-state small">Este pedido no tiene elementos preparables detectados.</div>`}
+            </div><p class="orders-preparation-footnote">El set fijo se controla en rentabilidad, pero no se imprime en la hoja de preparacion.</p>` : `<div class="empty-state small">Este pedido no tiene elementos preparables detectados.</div>`}
           </section>
           <section class="panel invoice-editor-card"><div class="panel-head compact"><div><h2>Contenido Shopify</h2><p>Lineas del pedido, coste y material vinculado.</p></div></div>
             ${(order.lines || []).length ? `<div class="orders-material-table">
