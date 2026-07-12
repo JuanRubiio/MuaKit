@@ -529,6 +529,41 @@ Producto Contrato PaÃ­s Peso Importe`;
   assert(correosFields.subtotal === 640.78 && correosFields.discount === 246.33 && correosFields.tax === 77.87 && correosFields.total === 472.32, "Correos summary totals should stay at invoice level");
   assert(correosFields.category === "envios" && correosFields.supplier_hint === "correos" && correosFields.suppress_lines, "Correos invoices should be classified as shipping and avoid detail lines");
   assert(detectedInvoiceLines(correosFields.lines, correosFields).length === 0, "Correos detail invoices should not generate suggested lines");
+  const dhlText = `DHL Express Spain, S.L.U.
+aduanas.facturas.es@dhl.com
+7Q5 2026007557 CRISTINA GUERRERO HERAS
+Num. de factura :
+05/04/2026 CALLE AYALA 80
+Fecha :
+Cta. aduana : DUTYESCSH
+Valor CIF : 104,35
+IVA 21,91 21,91
+GESTION DE DESPACHO 19,00 19,00
+I.V.A. 21 % sobre 19,00 3,99
+Total a pagar euros : 44,90
+HAWB: 5780280122`;
+  const dhlFields = detectFields(dhlText);
+  assert(dhlFields.invoice_number === "7Q5 2026007557" && dhlFields.invoice_date === "2026-04-05", "DHL customs invoices should keep the customs reference and issue date");
+  assert(dhlFields.shipping === 19 && dhlFields.tax === 25.9 && dhlFields.total === 44.9, "DHL customs VAT and clearance fees should reconcile the paid total");
+  assert(dhlFields.category === "envios" && dhlFields.supplier_hint === "dhl" && dhlFields.suppress_lines, "DHL customs invoices should be classified as shipping without detail lines");
+  assert(detectedInvoiceLines(dhlFields.lines, dhlFields).length === 0, "DHL customs invoices should not generate suggested lines");
+  const fedexText = `FedEx Express Spain S.L.U.
+Numero de factura: 895541853
+Fecha Factura: 04/06/2026
+Importe de factura 114,13 EUR
+HERAS, CRISTINA GUERRERO Total Pendiente 0,00 EUR
+Factura de aranceles e impuestos a pagar por adelantado
+Receptor: Total EUR 102,69
+Importes fuera del ambito de aplicacion del IVA EUR 48,22
+Gastos administrativos sujetos al IVA de 21,00 % EUR 14,47
+Otros cargos sujetos al IVA de 21,00 % EUR 40,00
+IVA del 21,00 % EUR 11,44
+Importe total adeudado EUR 0,00`;
+  const fedexFields = detectFields(fedexText);
+  assert(fedexFields.invoice_number === "895541853" && fedexFields.invoice_date === "2026-06-04", "FedEx customs invoices should detect invoice number and invoice date");
+  assert(fedexFields.subtotal === 102.69 && fedexFields.tax === 11.44 && fedexFields.total === 114.13, "FedEx should use invoice amount instead of pending or due zero totals");
+  assert(fedexFields.category === "envios" && fedexFields.supplier_hint === "fedex" && fedexFields.suppress_lines, "FedEx customs invoices should be classified as shipping without detail lines");
+  assert(detectedInvoiceLines(fedexFields.lines, fedexFields).length === 0, "FedEx customs invoices should not generate suggested lines");
   const evidence = fieldEvidence({ suggested_supplier_name: "Meta", invoice_number: "FBADS-394", invoice_date: "2026-04-04", total: 18.51 }, [{ page: 1, text: "Meta Platforms\nFactura FBADS-394\nTotal 18,51 EUR" }]);
   assert(evidence.supplier?.page === 1 && evidence.invoice_number?.text.includes("FBADS-394"), "Detected fields should retain document evidence");
   const safeAccounting = accountingQuality({ suggested_supplier_id: 1, invoice_number: "A-1", invoice_date: "2026-01-01", total: 10, category: "software" }, [{ line_total: 10, human_decision: "accepted" }], {});

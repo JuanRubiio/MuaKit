@@ -334,7 +334,10 @@
     const renderPdf = async () => {
       if (!window.pdfjsLib) throw new Error("El motor de vista previa PDF no está disponible.");
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.js";
-      const pdf = await window.pdfjsLib.getDocument(source).promise;
+      const pdfSource = typeof source === "string"
+        ? { url: source, standardFontDataUrl: "/vendor/pdfjs/standard_fonts/" }
+        : { ...source, standardFontDataUrl: "/vendor/pdfjs/standard_fonts/" };
+      const pdf = await window.pdfjsLib.getDocument(pdfSource).promise;
       host.replaceChildren();
       host.dataset.fitZoom = "1";
       setZoom(1);

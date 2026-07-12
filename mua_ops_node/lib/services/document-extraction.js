@@ -3,6 +3,8 @@ const fs = require("fs");
 const { createWorker } = require("tesseract.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
 
+const PDFJS_STANDARD_FONT_DATA_URL = path.resolve(__dirname, "..", "..", "..", "node_modules", "pdfjs-dist", "standard_fonts") + path.sep;
+
 function normalize(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -343,6 +345,61 @@ function correosFieldsSafe(lines) {
   };
 }
 
+function dhlFields(lines) {
+  const text = lines.join("\n");
+  const normalizedText = normalize(text);
+  if (!/\bdhl\b/.test(normalizedText) || !/\b(aduana|duty|duties|despacho|hawb|total a pagar euros)\b/.test(normalizedText)) return null;
+  const invoiceReference = text.match(/\b([A-Z0-9]{2,4})\s+([0-9]{7,})\b/)?.slice(1).join(" ") || "";
+  const date = numericDateToIso(text.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{4})\b/)?.[1] || "");
+  const total = amount(text.match(/total\s+a\s+pagar\s+euros\s*:?\s*([0-9][0-9.,]*)/i)?.[1]);
+  const customsVat = amount(text.match(/\bIVA\s+([0-9][0-9.,]*)\s+[0-9][0-9.,]*/i)?.[1]) || 0;
+  const handling = amount(text.match(/GESTION\s+DE\s+DESPACHO\s+([0-9][0-9.,]*)/i)?.[1]) || 0;
+  const handlingTax = amount(text.match(/\bI\.?V\.?A\.?\s+21\s*%\s+sobre\s+[0-9][0-9.,]*\s+([0-9][0-9.,]*)/i)?.[1]) || 0;
+  return {
+    invoice_number: invoiceReference,
+    invoice_date: date,
+    subtotal: 0,
+    discount: 0,
+    shipping: handling,
+    tax: Number((customsVat + handlingTax).toFixed(2)),
+    total,
+    currency: "EUR",
+    category: "envios",
+    supplier_hint: "dhl",
+    suppress_lines: true
+  };
+}
+
+function fedexFields(lines) {
+  const text = lines.join("\n");
+  const normalizedText = normalize(text);
+  if (!/\b(fedex|federal express)\b/.test(normalizedText) || !/\b(arancel|aduana|impuestos|duties|customs|importe de factura)\b/.test(normalizedText)) return null;
+  const invoiceNumber = normalizedText.match(/\bnumero\s+de\s+factura\s+([0-9]{6,})\b/)?.[1]
+    || normalizedText.match(/\binvoice\s+number\s+([0-9]{6,})\b/)?.[1]
+    || "";
+  const invoiceDate = numericDateToIso(text.match(/\bFecha\s+Factura\s*:?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{4})/i)?.[1] || "");
+  const invoiceTotal = amount(text.match(/\bImporte\s+de\s+factura\s+([0-9][0-9.,]*)\s+EUR\b/i)?.[1]);
+  const shipmentTotal = amount(text.match(/\bReceptor\s*:\s*Total\s+EUR\s+([0-9][0-9.,]*)/i)?.[1]);
+  const customsBase = amount(text.match(/\bImportes\s+fuera\s+del\s+ambito\s+de\s+aplicaci.n\s+del\s+IVA\s+EUR\s+([0-9][0-9.,]*)/i)?.[1]) || 0;
+  const admin = amount(text.match(/\bGastos\s+administrativos\s+sujetos\s+al\s+IVA\s+de\s+21[,.]00\s*%\s+EUR\s+([0-9][0-9.,]*)/i)?.[1]) || 0;
+  const otherTaxable = amount(text.match(/\bOtros\s+cargos\s+sujetos\s+al\s+IVA\s+de\s+21[,.]00\s*%\s+EUR\s+([0-9][0-9.,]*)/i)?.[1]) || 0;
+  const tax = amount(text.match(/\bIVA\s+del\s+21[,.]00\s*%\s+EUR\s+([0-9][0-9.,]*)/i)?.[1]) || 0;
+  const subtotal = Number((customsBase + admin + otherTaxable).toFixed(2)) || shipmentTotal;
+  return {
+    invoice_number: invoiceNumber,
+    invoice_date: invoiceDate,
+    subtotal,
+    discount: 0,
+    shipping: 0,
+    tax,
+    total: invoiceTotal ?? (shipmentTotal !== null ? Number((shipmentTotal + tax).toFixed(2)) : null),
+    currency: "EUR",
+    category: "envios",
+    supplier_hint: "fedex",
+    suppress_lines: true
+  };
+}
+
 function cleanAliExpressDescription(value) {
   return String(value || "")
     .replace(/^[^a-záéíóúñ0-9]+/i, "")
@@ -679,6 +736,8 @@ function detectFields(text) {
   const etsy = etsyFields(lines);
   const shein = sheinFields(lines);
   const correos = correosFieldsSafe(lines);
+  const dhl = dhlFields(lines);
+  const fedex = fedexFields(lines);
   const canva = canvaFields(lines);
   const apple = appleFields(lines);
   const capcut = capcutFields(lines);
@@ -706,7 +765,7 @@ function detectFields(text) {
   const selectedTotal = totalCandidates.filter((candidate) => candidate.currency === "EUR").at(-1) || totalCandidates.at(-1) || null;
   const rateMatch = text.match(/\b1\s+(USD|EUR)\s*=\s*([0-9][0-9.,]*)\s+(EUR|USD)\b/i);
   const exchangeRate = rateMatch ? { from: rateMatch[1].toUpperCase(), rate: amount(rateMatch[2]), to: rateMatch[3].toUpperCase() } : null;
-  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(alibaba || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}), ...(klaviyo || {}) };
+  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(alibaba || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(dhl || {}), ...(fedex || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}), ...(klaviyo || {}) };
 }
 
 function detectedInvoiceLines(lines, fields = {}) {
@@ -775,11 +834,12 @@ function inferExpenseCategory(text, supplierCategory = "", historicalCategories 
   if (/\baliexpress\b/.test(normalized) && /\bdetalle del articulo\b/.test(normalized)) return "materiales";
   if (/\balibaba(?:\s+com|com)?\b/.test(normalized) && /\b(receipt|order details|item description|applicator|squeeze bottle|bottle|lamp|lampara)\b/.test(normalized)) return "materiales";
   if (/\bklaviyo\b/.test(normalized) && /\b(invoice|platform|profiles|emails|sms)\b/.test(normalized)) return "software";
+  if (/\b(dhl|fedex|federal express)\b/.test(normalized) && /\b(aduana|customs|arancel|duty|duties|despacho|importe de factura)\b/.test(normalized)) return "envios";
   if (/\betsy\b/.test(normalized) && /\bpedido n\b|\bpurchases\b/.test(normalized) && /\b(plata|colgante|collar|cadena|anillo|joya|resina)\b/.test(normalized)) return "materiales";
   if (/\binfinite styles services\b/.test(normalized) && /\bvat invoice\b/.test(normalized) && /\binvoice detail\b/.test(normalized)) return "materiales";
   const signals = [
     ["software", /\b(apps?|software|subscription|suscripcion|license|licencia|hosting|domain|shopify|canva|capcut|apple|app store|icloud|cloud|globo product options|klaviyo|email platform)\b/],
-    ["envios", /\b(shipping|shipment|postage|correo|correos|envio|transporte)\b/],
+    ["envios", /\b(shipping|shipment|postage|correo|correos|envio|transporte|dhl|fedex|customs|aduana|arancel|duties|duty|despacho|importacion)\b/],
     ["marketing", /\b(marketing|advertising|publicidad|campaign|campana|meta ads|google ads)\b/],
     ["servicios", /\b(agency|agencia|consulting|consultoria|professional service|servicio profesional)\b/],
     ["materiales", /\b(material|jewel|joya|anillo|colgante|cadena|packaging|caja|pipeta|tisu|tissue|shein|aliexpress|alibaba|applicator|squeeze bottle|opaque|opaca|bottle|botella|lamp|lampara)\b/]
@@ -885,7 +945,7 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   async function extractPdf(filePath) {
     const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
     const data = new Uint8Array(fs.readFileSync(filePath));
-    const pdf = await pdfjs.getDocument({ data, disableWorker: true }).promise;
+    const pdf = await pdfjs.getDocument({ data, disableWorker: true, standardFontDataUrl: PDFJS_STANDARD_FONT_DATA_URL }).promise;
     if (pdf.numPages > 10) throw new Error("El PDF supera el limite de 10 paginas.");
     const pages = [];
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
@@ -915,7 +975,7 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   function suggest(fields) {
     const suppliers = query("SELECT id, name, category FROM suppliers WHERE is_deleted=0");
     const normalizedText = normalize(fields.lines.slice(0, 100).join(" "));
-    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], alibaba: ["alibaba", "alibaba com", "alibaba.com"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"], klaviyo: ["klaviyo", "klaviyo inc"] };
+    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], dhl: ["dhl", "dhl express", "dhl express spain"], fedex: ["fedex", "fedex express", "federal express"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], alibaba: ["alibaba", "alibaba com", "alibaba.com"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"], klaviyo: ["klaviyo", "klaviyo inc"] };
     const supplierHint = normalize(fields.supplier_hint);
     const supplier = suppliers
       .map((item) => {
