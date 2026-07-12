@@ -3,7 +3,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const initSqlJs = require("sql.js");
-const { amount: parsedAmount, detectFields, detectedInvoiceLines, detectedAlibabaLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
+const { amount: parsedAmount, detectFields, detectedInvoiceLines, detectedAlibabaLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, detectedKlaviyoLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
 const { cleanOriginalName, accountingQuality } = require("./lib/routes/expense-imports");
 const { ORDER_TYPES, detectOrderType, inferRecipeOrderType, isOrderTypeMarkerTitle } = require("./lib/services/order-typologies");
 
@@ -259,6 +259,26 @@ async function waitForServer() {
 }
 
 async function run() {
+  const mixedCurrencyFields = detectFields("Total 12.34 EUR\nOrder total in USD 13.50 USD");
+  assert(mixedCurrencyFields.total === 12.34 && mixedCurrencyFields.currency === "EUR", "EUR totals should be preferred when a document also reports USD");
+  const klaviyoText = `Invoice
+Invoice number UL4YOXZE - 0002
+Date of issue May 20, 2026
+Klaviyo Inc Bill to
+$45.00 USD due May 20, 2026
+Description Qty Unit price Amount
+Klaviyo Platform: 1.5k Profiles, 15k Emails (per sends) 1 $45.00 $45.00
+Subtotal $45.00
+Total excluding tax $45.00
+VAT/GST - 0% on $45.00 - $0.00
+Total $45.00
+Amount due $45.00 USD`;
+  const klaviyoFields = detectFields(klaviyoText);
+  assert(klaviyoFields.invoice_number === "UL4YOXZE-0002" && klaviyoFields.invoice_date === "2026-05-20", "Klaviyo invoice number and issue date should be detected");
+  assert(klaviyoFields.total === 45 && klaviyoFields.currency === "USD" && klaviyoFields.category === "software", "Klaviyo invoices should keep USD when no EUR value exists and be classified as software");
+  assert(inferExpenseCategory(klaviyoText, "marketing", ["marketing"]) === "software", "Klaviyo should override supplier history as software");
+  const klaviyoLines = detectedKlaviyoLines(klaviyoFields.lines, klaviyoFields);
+  assert(klaviyoLines.length === 1 && klaviyoLines[0].description.includes("Klaviyo Platform") && klaviyoLines[0].line_total === 45, "Klaviyo platform charges should become one editable line");
   assert(ORDER_TYPES.length === 7, "Orders should expose the seven agreed business typologies");
   const maternityDetection = detectOrderType([
     { id: 1, title: "Kit Müa | Recuerdos de Maternidad" },

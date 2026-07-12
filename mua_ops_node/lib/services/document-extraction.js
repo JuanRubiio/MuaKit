@@ -197,6 +197,43 @@ function capcutFields(lines) {
   };
 }
 
+function klaviyoMoney(line) {
+  const matches = [...String(line || "").matchAll(/(?:USD|US\$|\$)\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*USD/gi)];
+  const match = matches.at(-1);
+  return match ? amount(match[1] || match[2]) : null;
+}
+
+function klaviyoFields(lines) {
+  const text = lines.join("\n");
+  const normalizedText = normalize(text);
+  if (!/\bklaviyo\b/.test(normalizedText) || !/\binvoice\b/.test(normalizedText)) return null;
+  const findLine = (pattern) => lines.find((line) => pattern.test(line)) || "";
+  const invoiceSplitMatch = text.match(/\bInvoice\s+number\s+([A-Z0-9]+)\s*(?:-|[\u0000\s])+\s*([0-9]{3,})/i);
+  const invoiceNumber = invoiceSplitMatch
+    ? `${invoiceSplitMatch[1]}-${invoiceSplitMatch[2]}`
+    : text.match(/\bInvoice\s+number\s+([A-Z0-9-]{6,})/i)?.[1] || "";
+  const dateText = text.match(/\bDate\s+of\s+issue\s+([A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4})/i)?.[1]
+    || text.match(/\bDate\s+due\s+([A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4})/i)?.[1]
+    || "";
+  const subtotal = klaviyoMoney(findLine(/^\s*Subtotal\b/i));
+  const tax = klaviyoMoney(findLine(/^\s*(?:VAT\/GST|Tax)\b/i)) || 0;
+  const total = klaviyoMoney(findLine(/^\s*Amount\s+due\b/i))
+    ?? klaviyoMoney(findLine(/^\s*Total\b/i))
+    ?? klaviyoMoney(findLine(/\bUSD\s+due\b/i));
+  return {
+    invoice_number: invoiceNumber,
+    invoice_date: englishDateToIso(dateText),
+    subtotal,
+    discount: 0,
+    shipping: 0,
+    tax,
+    total,
+    currency: "USD",
+    category: "software",
+    supplier_hint: "klaviyo"
+  };
+}
+
 function canvaFields(lines) {
   const text = lines.join("\n");
   const normalizedText = normalize(text);
@@ -575,6 +612,25 @@ function detectedCanvaLines(lines, fields = {}) {
   }];
 }
 
+function detectedKlaviyoLines(lines, fields = {}) {
+  if (!lines.some((line) => /\bklaviyo\b/i.test(line))) return [];
+  const productLine = lines.find((line) => /\bKlaviyo\s+Platform\b/i.test(line) && /\$\s*[0-9][0-9.,]*/.test(line)) || "";
+  const total = Number(fields.total ?? klaviyoMoney(productLine) ?? 0);
+  if (!productLine || !total) return [];
+  const description = productLine.replace(/\s+\d+\s+\$[0-9][0-9.,]*\s+\$[0-9][0-9.,]*\s*$/i, "").trim();
+  return [{
+    description: description || "Klaviyo Platform",
+    quantity: 1,
+    package_count: 1,
+    units_per_package: 1,
+    total_units: 1,
+    price_per_package: Number(total.toFixed(2)),
+    unit_price: Number(total.toFixed(2)),
+    line_total: Number(total.toFixed(2)),
+    original_text: productLine
+  }];
+}
+
 function detectedAppleLines(lines, fields = {}) {
   const normalizedText = normalize(lines.join(" "));
   if (/\bcapcut\b/.test(normalizedText)) return [];
@@ -626,6 +682,7 @@ function detectFields(text) {
   const canva = canvaFields(lines);
   const apple = appleFields(lines);
   const capcut = capcutFields(lines);
+  const klaviyo = klaviyoFields(lines);
   const numericDate = text.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/)?.[1] || "";
   const namedDate = text.match(/\b(?:paid on|bill created|fecha)\s+([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{4})/i);
   const spanishDate = text.match(/(?:fecha de la factura\/pago|fecha)\s*\n\s*(\d{1,2})\s+([a-záéíóú]{3,5})\.?\s+(\d{4})/i);
@@ -646,10 +703,10 @@ function detectFields(text) {
     const standalone = lines.map((line) => line.match(/^([0-9][0-9.,]*)\s*€$/)?.[1]).filter(Boolean);
     if (standalone.length) totalCandidates.push({ value: amount(standalone[0]), currency: "EUR" });
   }
-  const selectedTotal = totalCandidates.at(-1) || null;
+  const selectedTotal = totalCandidates.filter((candidate) => candidate.currency === "EUR").at(-1) || totalCandidates.at(-1) || null;
   const rateMatch = text.match(/\b1\s+(USD|EUR)\s*=\s*([0-9][0-9.,]*)\s+(EUR|USD)\b/i);
   const exchangeRate = rateMatch ? { from: rateMatch[1].toUpperCase(), rate: amount(rateMatch[2]), to: rateMatch[3].toUpperCase() } : null;
-  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(alibaba || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}) };
+  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(alibaba || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}), ...(klaviyo || {}) };
 }
 
 function detectedInvoiceLines(lines, fields = {}) {
@@ -668,6 +725,8 @@ function detectedInvoiceLines(lines, fields = {}) {
   if (appleLines.length) return appleLines;
   const capcutLines = detectedCapCutLines(lines, fields);
   if (capcutLines.length) return capcutLines;
+  const klaviyoLines = detectedKlaviyoLines(lines, fields);
+  if (klaviyoLines.length) return klaviyoLines;
   const excluded = /\b(total|subtotal|vat|iva|tax|payment|paid|billing|bill|address|overview|page \d|learn more|recipient|credit|discount|shipping|mastercard|floor|dublin|spain|transacci[oó]n|umbral de pago|emitido una factura)\b|=|\(\d+\s+items?\)/i;
   return lines.filter((line) => {
     if (line.length > 220 || excluded.test(line)) return false;
@@ -715,10 +774,11 @@ function inferExpenseCategory(text, supplierCategory = "", historicalCategories 
   const normalized = normalize(text);
   if (/\baliexpress\b/.test(normalized) && /\bdetalle del articulo\b/.test(normalized)) return "materiales";
   if (/\balibaba(?:\s+com|com)?\b/.test(normalized) && /\b(receipt|order details|item description|applicator|squeeze bottle|bottle|lamp|lampara)\b/.test(normalized)) return "materiales";
+  if (/\bklaviyo\b/.test(normalized) && /\b(invoice|platform|profiles|emails|sms)\b/.test(normalized)) return "software";
   if (/\betsy\b/.test(normalized) && /\bpedido n\b|\bpurchases\b/.test(normalized) && /\b(plata|colgante|collar|cadena|anillo|joya|resina)\b/.test(normalized)) return "materiales";
   if (/\binfinite styles services\b/.test(normalized) && /\bvat invoice\b/.test(normalized) && /\binvoice detail\b/.test(normalized)) return "materiales";
   const signals = [
-    ["software", /\b(apps?|software|subscription|suscripcion|license|licencia|hosting|domain|shopify|canva|capcut|apple|app store|icloud|cloud|globo product options)\b/],
+    ["software", /\b(apps?|software|subscription|suscripcion|license|licencia|hosting|domain|shopify|canva|capcut|apple|app store|icloud|cloud|globo product options|klaviyo|email platform)\b/],
     ["envios", /\b(shipping|shipment|postage|correo|correos|envio|transporte)\b/],
     ["marketing", /\b(marketing|advertising|publicidad|campaign|campana|meta ads|google ads)\b/],
     ["servicios", /\b(agency|agencia|consulting|consultoria|professional service|servicio profesional)\b/],
@@ -855,7 +915,7 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   function suggest(fields) {
     const suppliers = query("SELECT id, name, category FROM suppliers WHERE is_deleted=0");
     const normalizedText = normalize(fields.lines.slice(0, 100).join(" "));
-    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], alibaba: ["alibaba", "alibaba com", "alibaba.com"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"] };
+    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], alibaba: ["alibaba", "alibaba com", "alibaba.com"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"], klaviyo: ["klaviyo", "klaviyo inc"] };
     const supplierHint = normalize(fields.supplier_hint);
     const supplier = suppliers
       .map((item) => {
@@ -991,4 +1051,4 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   return { enqueue, process, status: () => ({ available: true, languages: ["spa", "eng"], model_path: langPath, pending: queue.length, running }) };
 }
 
-module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, detectedAlibabaLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };
+module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, detectedAlibabaLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, detectedKlaviyoLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };
