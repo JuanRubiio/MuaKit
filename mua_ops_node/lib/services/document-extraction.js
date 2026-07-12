@@ -89,6 +89,43 @@ function aliExpressFields(lines) {
   };
 }
 
+function englishDateToIso(value) {
+  const match = String(value || "").match(/\b([A-Z][a-z]{2,8})\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/i);
+  return match ? isoDate(match[2], match[1], match[3]) : "";
+}
+
+function alibabaFields(lines) {
+  const text = lines.join("\n");
+  const normalizedText = normalize(text);
+  if (!/\balibaba(?:\s+com|com)?\b/.test(normalizedText) || !/\breceipt\b/.test(normalizedText)) return null;
+  const findLine = (pattern) => lines.find((line) => pattern.test(line)) || "";
+  const receiptNumber = text.match(/\bReceipt\s+number\s*:\s*#?\s*([0-9]{8,})/i)?.[1] || "";
+  const orderNumber = text.match(/\bOrder\s+number\s*:\s*#?\s*([0-9]{8,})/i)?.[1] || "";
+  const paidDate = text.match(/\bPaid\s+on\s+([A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4})/i)?.[1] || "";
+  const receiptDate = text.match(/\bReceipt\s+date\s*:\s*(?:[0-9:]+\s*(?:AM|PM),?\s*)?([A-Z][a-z]{2,8}\s+\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i);
+  const receiptDateText = receiptDate ? `${receiptDate[1]}, ${receiptDate[2]}` : "";
+  const subtotal = amount(findLine(/^\s*Subtotal\s+EUR\b/i).match(/\bEUR\s+([0-9][0-9.,]*)/i)?.[1]);
+  const shippingFee = amount(findLine(/^\s*Shipping\s+fee\s+EUR\b/i).match(/\bEUR\s+([0-9][0-9.,]*)/i)?.[1]) || 0;
+  const processingFee = amount(findLine(/^\s*Payment\s+processing\s+fee\s+EUR\b/i).match(/\bEUR\s+([0-9][0-9.,]*)/i)?.[1]) || 0;
+  const orderTotal = amount(findLine(/^\s*Order\s+total\s+EUR\b/i).match(/\bEUR\s+([0-9][0-9.,]*)/i)?.[1]);
+  const amountPaidIndex = lines.findIndex((line) => /^\s*Amount\s+paid\s*$/i.test(line));
+  const paidTotal = amountPaidIndex >= 0 ? amount(lines[amountPaidIndex + 1]?.match(/\bEUR\s+([0-9][0-9.,]*)\b/i)?.[1] || lines[amountPaidIndex + 1]) : null;
+  return {
+    invoice_number: receiptNumber || orderNumber,
+    invoice_date: englishDateToIso(paidDate) || englishDateToIso(receiptDateText),
+    subtotal,
+    discount: 0,
+    shipping: Number((shippingFee + processingFee).toFixed(2)),
+    shipping_fee: shippingFee,
+    processing_fee: processingFee,
+    tax: 0,
+    total: paidTotal ?? orderTotal,
+    currency: "EUR",
+    category: "materiales",
+    supplier_hint: "alibaba"
+  };
+}
+
 function etsyFields(lines) {
   const text = lines.join("\n");
   if (!/etsy\.com\/.+\/purchases\/|pedido\s+n\.?\s*[º°]\s*\d+/i.test(text)) return null;
@@ -330,6 +367,57 @@ function detectedAliExpressLines(lines, fields = {}) {
   return result;
 }
 
+function detectedAlibabaLines(lines, fields = {}) {
+  const text = lines.join("\n");
+  const normalizedText = normalize(text);
+  if (!/\balibaba(?:\s+com|com)?\b/.test(normalizedText) || !/\border details\b/.test(normalizedText)) return [];
+  const start = lines.findIndex((line) => /^\s*Order\s+details\s*$/i.test(line));
+  const end = lines.findIndex((line, index) => index > start && /^\s*Subtotal\s+EUR\b/i.test(line));
+  if (start < 0 || end <= start) return [];
+  const result = [];
+  const rowPattern = /^(.*?)\s+([0-9][0-9.,]*)\s+EUR\s+([0-9][0-9.,]*)\s+EUR\s+([0-9][0-9.,]*)\s*$/i;
+  for (let index = start + 1; index < end; index += 1) {
+    const line = lines[index];
+    const match = line.match(rowPattern);
+    if (!match) continue;
+    let description = match[1].replace(/\bUnit price\b.*$/i, "").trim();
+    const continuation = lines[index + 1] || "";
+    if (continuation && !/\b(EUR|Subtotal|Shipping|Order total|Payment|Qty|Item description|excl\. tax)\b/i.test(continuation) && !rowPattern.test(continuation)) {
+      description = `${description} ${continuation}`.replace(/\s+/g, " ").trim();
+      index += 1;
+    }
+    const purchasedUnits = amount(match[2]) || 1;
+    const lineTotal = amount(match[4]);
+    if (!description || lineTotal === null) continue;
+    result.push({
+      description,
+      quantity: purchasedUnits,
+      package_count: 1,
+      units_per_package: purchasedUnits,
+      total_units: purchasedUnits,
+      price_per_package: lineTotal,
+      unit_price: Number((lineTotal / purchasedUnits).toFixed(6)),
+      line_total: lineTotal,
+      original_text: line
+    });
+  }
+  if (!result.length && fields.subtotal !== null) {
+    const candidate = lines.slice(start + 1, end).find((line) => /bottle|lamp|lampara|applicator|squeeze/i.test(line));
+    if (candidate) result.push({
+      description: candidate,
+      quantity: 1,
+      package_count: 1,
+      units_per_package: 1,
+      total_units: 1,
+      price_per_package: Number(fields.subtotal),
+      unit_price: Number(fields.subtotal),
+      line_total: Number(fields.subtotal),
+      original_text: candidate
+    });
+  }
+  return result;
+}
+
 function detectedEtsyLines(lines) {
   if (!lines.some((line) => /etsy\.com\/.+\/purchases\/|pedido\s+n\.?\s*[º°]\s*\d+/i.test(line))) return [];
   const result = [];
@@ -531,6 +619,7 @@ function nativePageText(items) {
 function detectFields(text) {
   const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const aliExpress = aliExpressFields(lines);
+  const alibaba = alibabaFields(lines);
   const etsy = etsyFields(lines);
   const shein = sheinFields(lines);
   const correos = correosFieldsSafe(lines);
@@ -560,11 +649,13 @@ function detectFields(text) {
   const selectedTotal = totalCandidates.at(-1) || null;
   const rateMatch = text.match(/\b1\s+(USD|EUR)\s*=\s*([0-9][0-9.,]*)\s+(EUR|USD)\b/i);
   const exchangeRate = rateMatch ? { from: rateMatch[1].toUpperCase(), rate: amount(rateMatch[2]), to: rateMatch[3].toUpperCase() } : null;
-  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}) };
+  return { invoice_number: invoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(aliExpress || {}), ...(alibaba || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}) };
 }
 
 function detectedInvoiceLines(lines, fields = {}) {
   if (fields.suppress_lines) return [];
+  const alibabaLines = detectedAlibabaLines(lines, fields);
+  if (alibabaLines.length) return alibabaLines;
   const aliExpressLines = detectedAliExpressLines(lines, fields);
   if (aliExpressLines.length) return aliExpressLines;
   const etsyLines = detectedEtsyLines(lines, fields);
@@ -623,6 +714,7 @@ function parseInvoiceLine(line, fields) {
 function inferExpenseCategory(text, supplierCategory = "", historicalCategories = []) {
   const normalized = normalize(text);
   if (/\baliexpress\b/.test(normalized) && /\bdetalle del articulo\b/.test(normalized)) return "materiales";
+  if (/\balibaba(?:\s+com|com)?\b/.test(normalized) && /\b(receipt|order details|item description|applicator|squeeze bottle|bottle|lamp|lampara)\b/.test(normalized)) return "materiales";
   if (/\betsy\b/.test(normalized) && /\bpedido n\b|\bpurchases\b/.test(normalized) && /\b(plata|colgante|collar|cadena|anillo|joya|resina)\b/.test(normalized)) return "materiales";
   if (/\binfinite styles services\b/.test(normalized) && /\bvat invoice\b/.test(normalized) && /\binvoice detail\b/.test(normalized)) return "materiales";
   const signals = [
@@ -630,7 +722,7 @@ function inferExpenseCategory(text, supplierCategory = "", historicalCategories 
     ["envios", /\b(shipping|shipment|postage|correo|correos|envio|transporte)\b/],
     ["marketing", /\b(marketing|advertising|publicidad|campaign|campana|meta ads|google ads)\b/],
     ["servicios", /\b(agency|agencia|consulting|consultoria|professional service|servicio profesional)\b/],
-    ["materiales", /\b(material|jewel|joya|anillo|colgante|cadena|packaging|caja|pipeta|tisu|tissue|shein|aliexpress)\b/]
+    ["materiales", /\b(material|jewel|joya|anillo|colgante|cadena|packaging|caja|pipeta|tisu|tissue|shein|aliexpress|alibaba|applicator|squeeze bottle|opaque|opaca|bottle|botella|lamp|lampara)\b/]
   ];
   const strong = signals.find(([, pattern]) => pattern.test(normalized))?.[0];
   if (strong) return strong;
@@ -763,7 +855,7 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   function suggest(fields) {
     const suppliers = query("SELECT id, name, category FROM suppliers WHERE is_deleted=0");
     const normalizedText = normalize(fields.lines.slice(0, 100).join(" "));
-    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"] };
+    const aliases = { meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], alibaba: ["alibaba", "alibaba com", "alibaba.com"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"] };
     const supplierHint = normalize(fields.supplier_hint);
     const supplier = suppliers
       .map((item) => {
@@ -819,7 +911,8 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
         const stem = (token) => token.replace(/(?:es|s)$/i, "");
         const aliases = normalizedLine.includes("elephant gold") ? ["elefante", "dorado"]
           : normalizedLine.includes("elephant steel") ? ["elefante", "plateado"]
-          : normalizedLine.includes("botella") && normalizedLine.includes("aguja") ? ["botella", "opaca", "resina", "5ml"]
+          : /(bottle|botella)/.test(normalizedLine) && /(squeeze|applicator|needle|aguja|opaca|opaque)/.test(normalizedLine) ? ["botella", "opaca", "resina", "3ml", "5ml"]
+          : /(lamp|lampara)/.test(normalizedLine) ? ["lampara", "uv"]
           : normalizedLine.includes("etsy") ? []
           : [
             ...(normalizedLine.includes("pera") ? ["gota"] : []),
@@ -898,4 +991,4 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   return { enqueue, process, status: () => ({ available: true, languages: ["spa", "eng"], model_path: langPath, pending: queue.length, running }) };
 }
 
-module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };
+module.exports = { createDocumentExtractionService, detectFields, detectedInvoiceLines, detectedAlibabaLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence, nativePageText, normalize, amount };

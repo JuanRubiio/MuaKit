@@ -3,7 +3,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const initSqlJs = require("sql.js");
-const { amount: parsedAmount, detectFields, detectedInvoiceLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
+const { amount: parsedAmount, detectFields, detectedInvoiceLines, detectedAlibabaLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
 const { cleanOriginalName, accountingQuality } = require("./lib/routes/expense-imports");
 const { ORDER_TYPES, detectOrderType, inferRecipeOrderType, isOrderTypeMarkerTitle } = require("./lib/services/order-typologies");
 
@@ -332,6 +332,37 @@ Cosas a tener en cuenta:`;
   const aliLines = detectedAliExpressLines(aliFields.lines, aliFields);
   assert(aliLines.length === 2 && aliLines[0].quantity === 2, "AliExpress item blocks should preserve products and quantities");
   assert(Math.abs(aliLines.reduce((sum, line) => sum + line.line_total, 0) - aliFields.subtotal) < 0.01, "AliExpress product lines should preserve gross prices before invoice discounts");
+  const alibabaText = `Receipt
+Marketplace Operator:
+Receipt number: #27996940501042809
+Alibaba.com Singapore E-Commerce Private Limited
+Receipt date: 10:56 AM, Jul 12th, 2026 (PDT)
+Order number: #27996940501042809 Order date: 6:04 PM, Jul 8th, 2026 (PDT)
+Order details
+Unit price Total amount
+Item description Qty
+(excl. tax) (excl. tax)
+5ml 10ml 20ml 30ml 50ml 120ml DIY Craft Plastic Needle Tip Squeeze Bottle Glue 2,000.00 EUR 0.07 EUR 123.52
+Applicator Bottle
+Subtotal EUR 123.52
+Shipping fee EUR 110.28
+Order total EUR 233.80
+Order total in USD USD 265.00
+Payment information
+Order total EUR 233.80
+Payment processing fee EUR 7.01
+Amount paid
+EUR 240.81
+Paid on July 10, 2026 (Credit/debit card ending in 7097) EUR 240.79`;
+  const alibabaFieldsParsed = detectFields(alibabaText);
+  assert(alibabaFieldsParsed.invoice_number === "27996940501042809" && alibabaFieldsParsed.invoice_date === "2026-07-10", "Alibaba receipts should use receipt/order id and paid date");
+  assert(alibabaFieldsParsed.category === "materiales" && alibabaFieldsParsed.supplier_hint === "alibaba", "Alibaba wholesale purchases should be classified as material expenses");
+  assert(alibabaFieldsParsed.subtotal === 123.52 && alibabaFieldsParsed.shipping === 117.29 && alibabaFieldsParsed.total === 240.81, "Alibaba product subtotal, shipping and processing fee should reconcile the paid total");
+  assert(inferExpenseCategory(alibabaText, "envios", ["envios"]) === "materiales", "Alibaba receipts should not be classified as shipping just because they include logistics fees");
+  const alibabaLines = detectedAlibabaLines(alibabaFieldsParsed.lines, alibabaFieldsParsed);
+  assert(alibabaLines.length === 1 && alibabaLines[0].quantity === 2000, "Alibaba product rows should preserve wholesale quantities");
+  assert(alibabaLines[0].description.includes("Applicator Bottle") && alibabaLines[0].line_total === 123.52, "Alibaba product rows should keep continuation text and product subtotal");
+  assert(Math.abs(alibabaLines[0].unit_price - 0.06176) < 0.000001, "Alibaba unit price should be calculated from the product subtotal, not from shipping or fees");
   const etsyText = `Pedido n.º 4087214951
 Comprado el 10 jun 2026
 LancelotDIY
