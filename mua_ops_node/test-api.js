@@ -573,6 +573,8 @@ Importe total adeudado EUR 0,00`;
   assert(discountedAccounting.lines_match && discountedAccounting.calculated_total === 10, "Accounting quality should reconcile product subtotal and invoice-level discounts without changing material prices");
   const grossAccounting = accountingQuality({ suggested_supplier_id: 1, invoice_number: "A-3", invoice_date: "2026-01-01", subtotal: 3, tax: 0.62, total: 3.62, category: "materiales" }, [{ line_total: 3.62, human_decision: "accepted" }], {});
   assert(grossAccounting.lines_match && grossAccounting.line_price_basis === "gross", "Accounting quality should accept VAT-inclusive material lines without adding tax twice");
+  const indexHtml = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
+  assert(indexHtml.includes('<option value="impuestos">Impuestos</option>'), "Manual invoice and settings forms should expose the tax expense category");
   cleanTestDir();
   const mockShopifyServer = await createMockShopifyServer();
   let serverOutput = "";

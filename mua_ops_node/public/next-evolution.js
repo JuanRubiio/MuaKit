@@ -25,7 +25,7 @@
   const fmt = (value) => euro.format(Number(value || 0));
   const metric = (label, value, hint) => `<article class="next-kpi"><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></article>`;
   const currencyFormat = (value, currency = "EUR") => new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(Number(value || 0));
-  const expenseCategoryLabel = (value) => ({ materiales: "Materiales", envios: "Envíos", marketing: "Marketing", software: "Software", servicios: "Servicios", otros: "Otros" })[value] || "Sin clasificar";
+  const expenseCategoryLabel = (value) => ({ materiales: "Materiales", envios: "Envíos", marketing: "Marketing", software: "Software", servicios: "Servicios", impuestos: "Impuestos", otros: "Otros" })[value] || "Sin clasificar";
   function importQuality(item) {
     if (["pending", "processing"].includes(item.status)) return { tone: "processing", label: "Procesando", hint: "Lectura en curso", missing: [] };
     if (item.status === "error") return { tone: "low", label: "Con error", hint: "Reprocesar documento", missing: [] };
