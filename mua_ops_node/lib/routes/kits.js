@@ -254,69 +254,87 @@ async function createSimplePdf({ title = "Hoja de preparacion", batches = [] }) 
     if (y - height < bottom) newPage();
   };
   const statCard = (x, yy, width, label, value, hint) => {
-    rect(x, yy, width, 50, "1 1 1", color.border);
-    textAt(label, x + 10, yy + 31, 8, false, color.muted);
-    textAt(value, x + 10, yy + 15, 15, true);
-    if (hint) textAt(hint, x + 10, yy + 5, 7, false, color.muted);
+    rect(x, yy, width, 34, "1 1 1", color.border);
+    textAt(label, x + 8, yy + 21, 7, false, color.muted);
+    textAt(value, x + 8, yy + 8, 12, true);
+    if (hint) textAt(hint, x + 36, yy + 9, 6.5, false, color.muted);
   };
 
   newPage();
-  textAt("Hoja de preparacion de pedidos", margin, y, 22, true);
+  textAt("Hoja de preparacion de pedidos", margin, y, 18, true);
+  textAt(`Generada: ${generatedAt}`, pageWidth - margin - 150, y, 7.5, false, color.muted);
   y -= 18;
-  textAt(`Generada: ${generatedAt}`, margin, y, 9, false, color.muted);
-  y -= 22;
   const cardGap = 10;
   const cardWidth = (contentWidth - cardGap * 2) / 3;
-  statCard(margin, y - 50, cardWidth, "Pedidos", String(totalOrders), "solo no preparados");
-  statCard(margin + cardWidth + cardGap, y - 50, cardWidth, "Lineas", String(totalItems), "joyas y extras");
-  statCard(margin + (cardWidth + cardGap) * 2, y - 50, cardWidth, "Unidades", String(totalUnits), "a comprobar");
-  y -= 74;
-  rect(margin, y - 36, contentWidth, 36, color.accentSoft, "0.72 0.89 0.85");
-  textAt("Uso recomendado", margin + 12, y - 15, 10, true, color.accent);
-  textAt("Marca cada casilla al preparar el paquete. El set fijo no aparece aqui.", margin + 118, y - 15, 9, false, color.ink);
-  y -= 56;
+  statCard(margin, y - 34, cardWidth, "Pedidos", String(totalOrders), "pendientes / hoja");
+  statCard(margin + cardWidth + cardGap, y - 34, cardWidth, "Lineas", String(totalItems), "joyas y extras");
+  statCard(margin + (cardWidth + cardGap) * 2, y - 34, cardWidth, "Unidades", String(totalUnits), "a comprobar");
+  y -= 44;
+  rect(margin, y - 22, contentWidth, 22, color.accentSoft, "0.72 0.89 0.85");
+  textAt("Checklist compacto", margin + 10, y - 14, 8.5, true, color.accent);
+  textAt("Marcar al preparar. No incluye set fijo, embalaje ni lineas informativas.", margin + 110, y - 14, 7.5, false, color.ink);
+  y -= 34;
+
+  const columnCount = 3;
+  const columnGap = 7;
+  const columnWidth = (contentWidth - columnGap * (columnCount - 1)) / columnCount;
+  const columnTop = y;
+  let column = 0;
+  const columnX = () => margin + column * (columnWidth + columnGap);
+  const moveColumn = () => {
+    if (column < columnCount - 1) {
+      column += 1;
+      y = columnTop;
+    } else {
+      column = 0;
+      newPage();
+      textAt("Continuacion de hoja de preparacion", margin, y, 14, true);
+      y -= 24;
+    }
+  };
+  const ensureBlock = (height) => {
+    if (y - height < bottom) moveColumn();
+  };
 
   for (const order of batches) {
     const items = order.items || [];
     const orderTitle = order.order_number || `Pedido #${order.order_id}`;
-    const orderHeight = 70 + Math.max(items.length, 1) * 39 + 22;
-    ensure(Math.min(orderHeight, 230));
-    rect(margin, y - 42, contentWidth, 42, color.paper, color.border);
-    textAt(truncate(orderTitle, 44), margin + 12, y - 17, 14, true);
-    textAt(`Fecha: ${order.order_date || "-"}`, margin + 12, y - 32, 8, false, color.muted);
-    textAt(`Tipologia: ${truncate(order.order_type || "Sin clasificar", 34)}`, margin + 154, y - 32, 8, false, color.muted);
-    textAt(`${items.length} elementos`, pageWidth - margin - 92, y - 23, 11, true, color.accent);
-    y -= 52;
+    const blockHeight = 24 + Math.max(items.length, 1) * 17 + 6;
+    ensureBlock(blockHeight);
+    const x = columnX();
+    rect(x, y - 20, columnWidth, 20, color.paper, color.border);
+    textAt(truncate(orderTitle, 18), x + 6, y - 8, 8.8, true);
+    textAt(`${items.length} elem.`, x + columnWidth - 36, y - 8, 7.2, true, color.accent);
+    textAt(`${order.order_date || "-"} - ${truncate(order.order_type || "Sin clasificar", 24)}`, x + 8, y - 20, 6.5, false, color.muted);
+    y -= 22;
 
     if (!items.length) {
-      rect(margin + 10, y - 30, contentWidth - 20, 30, "1 1 1", color.border);
-      textAt("Sin elementos preparables detectados.", margin + 22, y - 18, 9, false, color.muted);
-      y -= 42;
+      rect(x, y - 16, columnWidth, 16, "1 1 1", color.border);
+      textAt("Sin elementos preparables.", x + 6, y - 10, 6.5, false, color.muted);
+      y -= 18;
     } else {
       for (const item of items) {
-        ensure(66);
+        ensureBlock(20);
         const qty = Number(item.quantity || 1);
-        const titleText = truncate(item.material_name || item.title || "Elemento", 54);
-        const detail = truncate([item.title && item.material_name ? item.title : "", item.sku ? `SKU ${item.sku}` : ""].filter(Boolean).join(" - "), 62);
+        const titleText = truncate(item.material_name || item.title || "Elemento", 24);
+        const detail = truncate([item.title && item.material_name ? item.title : "", item.sku ? `SKU ${item.sku}` : ""].filter(Boolean).join(" - "), 26);
         const image = await getPdfImage(item.image_url || item.material_image_url || item.product_image_url);
-        rect(margin + 10, y - 39, contentWidth - 20, 40, "1 1 1", color.border);
-        rect(margin + 22, y - 25, 13, 13, null, color.accent, 1.2);
-        rect(margin + 46, y - 33, 28, 28, "0.98 0.96 0.93", "0.88 0.84 0.78");
+        rect(x, y - 16, columnWidth, 16, "1 1 1", color.border);
+        rect(x + 5, y - 10.5, 6, 6, null, color.accent, 1);
+        rect(x + 16, y - 13.5, 12, 12, "0.98 0.96 0.93", "0.88 0.84 0.78");
         if (image) {
-          const scale = Math.min(24 / image.width, 24 / image.height);
+          const scale = Math.min(10 / image.width, 10 / image.height);
           const imageWidth = image.width * scale;
           const imageHeight = image.height * scale;
-          drawImage(image, margin + 48 + (24 - imageWidth) / 2, y - 31 + (24 - imageHeight) / 2, imageWidth, imageHeight);
+          drawImage(image, x + 17 + (10 - imageWidth) / 2, y - 12.5 + (10 - imageHeight) / 2, imageWidth, imageHeight);
         }
-        textAt(`${qty}x`, margin + 86, y - 17, 12, true, color.accent);
-        textAt(titleText, margin + 124, y - 15, 10, true);
-        if (detail) textAt(detail, margin + 124, y - 28, 7, false, color.muted);
-        y -= 46;
+        textAt(`${qty}x`, x + 33, y - 6.3, 7, true, color.accent);
+        textAt(titleText, x + 48, y - 5.8, 6.4, true);
+        if (detail) textAt(detail, x + 48, y - 13, 4.8, false, color.muted);
+        y -= 17;
       }
     }
-    rect(margin + 10, y - 30, contentWidth - 20, 30, "1 1 1", "0.88 0.84 0.78");
-    textAt("Notas de preparacion:", margin + 22, y - 18, 8, false, color.muted);
-    y -= 48;
+    y -= 4;
   }
 
   if (!batches.length) {
@@ -531,7 +549,7 @@ function registerKitRoutes(app, ctx) {
           product_image_url: line.product_image_url || ""
         })),
         preparation_items_count: preparationItems.length,
-        can_generate_preparation_sheet: preparationStatus === "not_prepared" && preparationItems.length > 0,
+        can_generate_preparation_sheet: ["not_prepared", "sheet_generated"].includes(preparationStatus) && preparationItems.length > 0,
         fixed_set_options: fixedSets.map((set) => ({
           id: set.id,
           name: set.name,
@@ -604,15 +622,15 @@ function registerKitRoutes(app, ctx) {
     const ids = Array.isArray(req.body?.order_ids)
       ? Array.from(new Set(req.body.order_ids.map((id) => Number(id)).filter(Boolean)))
       : [];
-    if (!ids.length) return badRequest(res, "Selecciona al menos un pedido no preparado", "ORDER_PREPARATION_EMPTY");
+    if (!ids.length) return badRequest(res, "Selecciona al menos un pedido pendiente o con hoja generada", "ORDER_PREPARATION_EMPTY");
 
     const selected = [];
     for (const id of ids) {
       const order = one("SELECT * FROM sales_orders WHERE id=$id AND is_deleted=0", { id });
       if (!order) return badRequest(res, `Pedido ${id} no encontrado`, "ORDER_NOT_FOUND");
       const prepStatus = orderPreparationStatus(order);
-      if (prepStatus !== "not_prepared") {
-        return badRequest(res, `${order.order_number || `Pedido #${id}`} no esta en estado No preparado`, "ORDER_NOT_PREPARABLE");
+      if (!["not_prepared", "sheet_generated"].includes(prepStatus)) {
+        return badRequest(res, `${order.order_number || `Pedido #${id}`} ya esta preparado en Shopify`, "ORDER_NOT_PREPARABLE");
       }
       const lines = query(
         `SELECT l.*, m.name AS material_name, m.category AS material_category,

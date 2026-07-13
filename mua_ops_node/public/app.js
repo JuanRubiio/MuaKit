@@ -2165,6 +2165,17 @@ function bindEvents() {
           t.disabled = false;
         }
       }
+      if (t.dataset.generateOrderPreparationSheet) {
+        t.disabled = true;
+        try {
+          const result = await viewModules.operations?.generateOrderPreparationSheet?.(t.dataset.generateOrderPreparationSheet);
+          await Promise.all([loadKits(), loadDashboardFinance()]);
+          const count = result?.order_ids?.length || 0;
+          toast(`Hoja generada para ${count} pedido${count === 1 ? "" : "s"}`);
+        } finally {
+          t.disabled = false;
+        }
+      }
       if (t.dataset.resetForm) resetForm(t.dataset.resetForm);
       if (t.dataset.viewSupplier) {
         const item = state.suppliers.find((s) => s.id == t.dataset.viewSupplier);

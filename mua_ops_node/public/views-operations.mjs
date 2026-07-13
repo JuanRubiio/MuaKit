@@ -624,12 +624,12 @@ export function createOperationViews(ctx) {
       <div class="orders-preparation-copy">
         <span class="orders-preparation-icon" aria-hidden="true"><svg><use href="#icon-clipboard"></use></svg></span>
         <div>
-          <strong>${selected.length ? `${selected.length} pedidos listos para imprimir` : `${candidates.length} pedidos no preparados`}</strong>
-          <small>${selected.length ? `${itemCount} elementos de joyeria y extras${selectedPreview ? ` · ${selectedPreview}${selected.length > 3 ? "..." : ""}` : ""}` : `${candidateItems} elementos preparables disponibles en la vista`}</small>
+          <strong>${selected.length ? `${selected.length} pedidos listos para imprimir` : `${candidates.length} pedidos imprimibles`}</strong>
+          <small>${selected.length ? `${itemCount} elementos de joyeria y extras${selectedPreview ? ` - ${selectedPreview}${selected.length > 3 ? "..." : ""}` : ""}` : `${candidateItems} elementos preparables disponibles en la vista`}</small>
         </div>
       </div>
       <div class="orders-preparation-stats" aria-hidden="true">
-        <span><b>${candidates.length}</b><small>No preparados</small></span>
+        <span><b>${candidates.length}</b><small>Imprimibles</small></span>
         <span><b>${selected.length}</b><small>Seleccionados</small></span>
         <span><b>${selected.length ? itemCount : candidateItems}</b><small>Elementos</small></span>
       </div>
@@ -659,18 +659,25 @@ export function createOperationViews(ctx) {
     renderKits();
   }
 
-  async function generatePreparationSheet() {
-    const orderIds = selectedPreparationRows().map((order) => order.id);
-    if (!orderIds.length) throw new Error("Selecciona al menos un pedido no preparado.");
+  async function generatePreparationSheet(orderIdsOverride = null) {
+    const directOrderIds = Array.isArray(orderIdsOverride)
+      ? orderIdsOverride.map((id) => Number(id)).filter(Boolean)
+      : null;
+    const orderIds = directOrderIds || selectedPreparationRows().map((order) => order.id);
+    if (!orderIds.length) throw new Error("Selecciona al menos un pedido pendiente o con hoja generada.");
     const result = await api("/api/orders/preparation-sheets", {
       method: "POST",
       body: JSON.stringify({ order_ids: orderIds })
     });
-    selectedPreparationOrders.clear();
+    if (!directOrderIds) selectedPreparationOrders.clear();
     if (result?.pdf_url) window.open(result.pdf_url, "_blank", "noopener");
     await loadKits();
     renderKits();
     return result;
+  }
+
+  function generateOrderPreparationSheet(orderId) {
+    return generatePreparationSheet([orderId]);
   }
 
   function renderOrdersSummary(rows = state.ordersProfitability?.orders || []) {
@@ -874,6 +881,7 @@ export function createOperationViews(ctx) {
     const prep = preparationMeta(order);
     const preparationItems = order.preparation_items || [];
     const preparationUnits = preparationItems.reduce((sum, item) => sum + number(item.quantity || 1), 0);
+    const canPrintPreparation = order.can_generate_preparation_sheet;
     const issueList = [
       !(order.lines || []).length ? "Falta desglose Shopify del pedido." : "",
       order.missing_materials ? `${order.missing_materials} linea(s) sin material vinculado.` : "",
@@ -888,7 +896,10 @@ export function createOperationViews(ctx) {
     panel.innerHTML = `
       <div class="invoice-workspace-hero">
         <div><p class="eyebrow">OPERACIONES / PEDIDOS</p><h1>${text(order.order_number || `Pedido #${order.id}`)}</h1><p>${text(order.channel || "Shopify")} - ${text(order.order_date || "")} - ${(order.lines || []).length} lineas</p></div>
-        <div class="invoice-hero-actions"><button type="button" class="ghost button-with-icon" data-close-kit-detail><svg><use href="#icon-x"></use></svg><span>Cerrar</span></button></div>
+        <div class="invoice-hero-actions">
+          ${canPrintPreparation ? `<button type="button" class="primary button-with-icon" data-generate-order-preparation-sheet="${order.id}"><svg><use href="#icon-file"></use></svg><span>${order.preparation_status === "sheet_generated" ? "Regenerar hoja" : "Generar hoja"}</span></button>` : ""}
+          <button type="button" class="ghost button-with-icon" data-close-kit-detail><svg><use href="#icon-x"></use></svg><span>Cerrar</span></button>
+        </div>
       </div>
       <section class="panel order-identity-card">
         <div class="order-identity-band">
@@ -1038,6 +1049,8 @@ export function createOperationViews(ctx) {
     togglePreparationOrder,
     selectVisiblePreparationCandidates,
     clearPreparationSelection,
-    generatePreparationSheet
+    generatePreparationSheet,
+    generateOrderPreparationSheet
   };
 }
+

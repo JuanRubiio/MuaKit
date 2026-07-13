@@ -12506,6 +12506,19 @@ textarea {
   font-size: 15px;
 }
 
+#kitDetailPanel .invoice-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+#kitDetailPanel .invoice-hero-actions .primary {
+  min-height: 44px;
+  box-shadow: 0 14px 28px rgba(0, 121, 105, .16);
+}
+
 #kitDetailPanel .order-identity-card {
   display: grid;
   gap: 14px;
@@ -12624,8 +12637,9 @@ textarea {
 }
 
 #kitDetailPanel .orders-preparation-hero {
+  grid-template-columns: 42px minmax(0, 1fr) auto;
   margin-top: 4px;
-  padding: 14px;
+  padding: 12px;
   border-radius: 10px;
 }
 
@@ -12643,10 +12657,15 @@ textarea {
 }
 
 #kitDetailPanel .orders-preparation-items article {
-  min-height: 72px;
+  min-height: 64px;
   padding: 10px;
   background: #fff;
   box-shadow: 0 10px 22px rgba(53, 39, 28, .035);
+}
+
+#kitDetailPanel .orders-preparation-qty {
+  min-width: 48px;
+  padding: 7px 8px;
 }
 
 #kitDetailPanel .orders-preparation-item-copy strong,
