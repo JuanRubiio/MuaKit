@@ -277,6 +277,7 @@ Amount due $45.00 USD`;
   assert(klaviyoFields.invoice_number === "UL4YOXZE-0002" && klaviyoFields.invoice_date === "2026-05-20", "Klaviyo invoice number and issue date should be detected");
   assert(klaviyoFields.total === 45 && klaviyoFields.currency === "USD" && klaviyoFields.category === "software", "Klaviyo invoices should keep USD when no EUR value exists and be classified as software");
   assert(inferExpenseCategory(klaviyoText, "marketing", ["marketing"]) === "software", "Klaviyo should override supplier history as software");
+  assert(inferExpenseCategory("Recibo de la Tesoreria General de la Seguridad Social cuota autonomo", "otros", ["otros"]) === "impuestos", "Social Security self-employed fees should be classified as tax expenses");
   const klaviyoLines = detectedKlaviyoLines(klaviyoFields.lines, klaviyoFields);
   assert(klaviyoLines.length === 1 && klaviyoLines[0].description.includes("Klaviyo Platform") && klaviyoLines[0].line_total === 45, "Klaviyo platform charges should become one editable line");
   assert(ORDER_TYPES.length === 7, "Orders should expose the seven agreed business typologies");
@@ -611,6 +612,10 @@ Importe total adeudado EUR 0,00`;
     assert(summary.db_path.endsWith("mua_ops_test.sqlite"), "Summary should use the test database");
     assert(typeof summary.payouts === "number", "Summary should include payout count");
 
+    const seededSuppliers = await request("GET", "/api/suppliers");
+    const socialSecuritySupplier = seededSuppliers.find((supplier) => supplier.name === "Seguridad social");
+    assert(socialSecuritySupplier?.category === "impuestos", "Seguridad social should be seeded as a tax expense supplier");
+
     const initialDashboard = await request("GET", "/api/dashboard/finance");
     assert(initialDashboard.kpis, "Dashboard finance should include KPIs");
     assert(Array.isArray(initialDashboard.monthly_spend), "Dashboard finance should include monthly spend");
@@ -662,7 +667,7 @@ Importe total adeudado EUR 0,00`;
     assert(settings.dashboard_income_monthly_view === "cobros", "Settings should expose default income dashboard view");
     [
       "dashboard_color_total", "dashboard_color_materiales", "dashboard_color_marketing", "dashboard_color_envios",
-      "dashboard_color_servicios", "dashboard_color_software", "dashboard_color_otros", "dashboard_color_balance",
+      "dashboard_color_servicios", "dashboard_color_software", "dashboard_color_impuestos", "dashboard_color_otros", "dashboard_color_balance",
       "dashboard_color_cobros", "dashboard_color_fees", "dashboard_color_shopify", "dashboard_color_etsy", "dashboard_color_bizum",
       "dashboard_color_profit_sales", "dashboard_color_profit_cost", "dashboard_color_profit_margin",
       "dashboard_color_sales_revenue", "dashboard_color_sales_orders", "dashboard_color_sales_ticket", "dashboard_color_sales_previous",
@@ -676,6 +681,7 @@ Importe total adeudado EUR 0,00`;
       default_payout_channel: "bizum",
       dashboard_color_bizum: "#c18a3a",
       dashboard_color_servicios: "#7a7168",
+      dashboard_color_impuestos: "#8b5a42",
       dashboard_color_profit_margin: "#bf7412",
       dashboard_color_sales_revenue: "#0f6f64",
       dashboard_color_sales_orders: "#4b778a",
@@ -686,6 +692,7 @@ Importe total adeudado EUR 0,00`;
     assert(updatedSettings.default_invoice_status === "posted", "Settings should persist invoice defaults");
     assert(updatedSettings.default_payout_channel === "bizum", "Settings should persist payout defaults");
     assert(updatedSettings.dashboard_color_servicios === "#7a7168", "Settings should persist expense category colors");
+    assert(updatedSettings.dashboard_color_impuestos === "#8b5a42", "Settings should persist tax expense category colors");
     assert(updatedSettings.dashboard_color_profit_margin === "#bf7412", "Settings should persist profitability series colors");
     assert(updatedSettings.dashboard_color_sales_revenue === "#0f6f64", "Settings should persist sales series colors");
     assert(updatedSettings.dashboard_color_sales_orders === "#4b778a", "Settings should persist sales comparison colors");
@@ -897,6 +904,24 @@ Importe total adeudado EUR 0,00`;
       notes: "API test invoice"
     });
     assert(invoice.id, "Invoice should be created");
+
+    const taxInvoice = await request("POST", "/api/invoices", {
+      supplier_id: socialSecuritySupplier.id,
+      invoice_number: "TGSS-TEST-001",
+      invoice_date: "2026-01-24",
+      category: "impuestos",
+      subtotal: 320,
+      discount: 0,
+      shipping: 0,
+      tax: 0,
+      total: 320,
+      currency: "EUR",
+      status: "posted",
+      notes: "Self-employed social security fee"
+    });
+    assert(taxInvoice.id, "Tax expense invoices should be created");
+    const dashboardWithTaxExpense = await request("GET", "/api/dashboard/finance?preset=this_year");
+    assert(dashboardWithTaxExpense.category_spend.some((row) => row.category === "impuestos" && row.total === 320), "Dashboard finance should include tax expense category spend when present");
 
     const line = await request("POST", `/api/invoices/${invoice.id}/lines`, {
       material_id: material.id,

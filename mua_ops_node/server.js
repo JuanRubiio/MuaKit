@@ -50,6 +50,7 @@ const DEFAULT_SETTINGS = {
   dashboard_color_envios: "#4f6d93",
   dashboard_color_servicios: "#8a8178",
   dashboard_color_software: "#7b6f85",
+  dashboard_color_impuestos: "#8f5d46",
   dashboard_color_otros: "#b7a992",
   dashboard_color_cobros: "#166b5e",
   dashboard_color_fees: "#b85d72",
@@ -1146,6 +1147,7 @@ function seedSuppliers() {
     ["Canva", "software"],
     ["CapCut", "software"],
     ["Vodafone", "telecom"],
+    ["Seguridad social", "impuestos"],
     ["Otro", "otros"]
   ];
   for (const [name, category] of defaults) {
@@ -3275,7 +3277,7 @@ function dashboardFinance(options = {}) {
   const payoutImports = payoutImportHistory();
   const costs = materialCosts();
   const kits = kitRecipes();
-  const trackedCategories = ["materiales", "marketing", "envios", "servicios", "software", "otros"];
+  const trackedCategories = ["materiales", "marketing", "envios", "servicios", "software", "impuestos", "otros"];
 
   const totalExpense = invoices.reduce((sum, invoice) => sum + n(invoice.total), 0);
   const totalNetReceived = payouts.reduce((sum, payout) => sum + n(payout.net_amount), 0);

@@ -279,6 +279,7 @@ export function createSystemViews(ctx) {
     if (form.elements.dashboard_color_envios) form.elements.dashboard_color_envios.value = state.settings.dashboard_color_envios || colors.envios;
     if (form.elements.dashboard_color_servicios) form.elements.dashboard_color_servicios.value = state.settings.dashboard_color_servicios || colors.servicios;
     if (form.elements.dashboard_color_software) form.elements.dashboard_color_software.value = state.settings.dashboard_color_software || colors.software;
+    if (form.elements.dashboard_color_impuestos) form.elements.dashboard_color_impuestos.value = state.settings.dashboard_color_impuestos || colors.impuestos;
     if (form.elements.dashboard_color_otros) form.elements.dashboard_color_otros.value = state.settings.dashboard_color_otros || colors.otros;
     if (form.elements.dashboard_color_cobros) form.elements.dashboard_color_cobros.value = state.settings.dashboard_color_cobros || colors.cobros;
     if (form.elements.dashboard_color_fees) form.elements.dashboard_color_fees.value = state.settings.dashboard_color_fees || colors.fees;
@@ -900,4 +901,3 @@ export function createSystemViews(ctx) {
     technicalLogFilterValues
   };
 }
-

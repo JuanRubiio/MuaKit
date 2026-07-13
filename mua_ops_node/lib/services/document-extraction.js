@@ -835,12 +835,14 @@ function inferExpenseCategory(text, supplierCategory = "", historicalCategories 
   if (/\balibaba(?:\s+com|com)?\b/.test(normalized) && /\b(receipt|order details|item description|applicator|squeeze bottle|bottle|lamp|lampara)\b/.test(normalized)) return "materiales";
   if (/\bklaviyo\b/.test(normalized) && /\b(invoice|platform|profiles|emails|sms)\b/.test(normalized)) return "software";
   if (/\b(dhl|fedex|federal express)\b/.test(normalized) && /\b(aduana|customs|arancel|duty|duties|despacho|importe de factura)\b/.test(normalized)) return "envios";
+  if (/\b(seguridad social|tesoreria general|tgss|cuota autonomo|autonomos|regimen especial de trabajadores autonomos)\b/.test(normalized)) return "impuestos";
   if (/\betsy\b/.test(normalized) && /\bpedido n\b|\bpurchases\b/.test(normalized) && /\b(plata|colgante|collar|cadena|anillo|joya|resina)\b/.test(normalized)) return "materiales";
   if (/\binfinite styles services\b/.test(normalized) && /\bvat invoice\b/.test(normalized) && /\binvoice detail\b/.test(normalized)) return "materiales";
   const signals = [
     ["software", /\b(apps?|software|subscription|suscripcion|license|licencia|hosting|domain|shopify|canva|capcut|apple|app store|icloud|cloud|globo product options|klaviyo|email platform)\b/],
     ["envios", /\b(shipping|shipment|postage|correo|correos|envio|transporte|dhl|fedex|customs|aduana|arancel|duties|duty|despacho|importacion)\b/],
     ["marketing", /\b(marketing|advertising|publicidad|campaign|campana|meta ads|google ads)\b/],
+    ["impuestos", /\b(seguridad social|tesoreria general|tgss|cuota autonomo|autonomos|regimen especial de trabajadores autonomos|hacienda|agencia tributaria)\b/],
     ["servicios", /\b(agency|agencia|consulting|consultoria|professional service|servicio profesional)\b/],
     ["materiales", /\b(material|jewel|joya|anillo|colgante|cadena|packaging|caja|pipeta|tisu|tissue|shein|aliexpress|alibaba|applicator|squeeze bottle|opaque|opaca|bottle|botella|lamp|lampara)\b/]
   ];

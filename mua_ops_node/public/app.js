@@ -52,7 +52,7 @@ const state = {
 };
 
 const CATEGORIES = ["kit", "joya", "cadena", "topping", "packaging", "consumible", "servicio", "material"];
-const INVOICE_CATEGORIES = ["materiales", "envios", "marketing", "software", "servicios", "otros"];
+const INVOICE_CATEGORIES = ["materiales", "envios", "marketing", "software", "servicios", "impuestos", "otros"];
 const STATUSES = ["draft", "posted", "paid", "archived"];
 const STATUS_LABELS = {
   draft: "Borrador",
@@ -85,6 +85,7 @@ const ENTITY_ICON_KEYS = {
     canva: "canva",
     capcut: "capcut",
     vodafone: "vodafone",
+    "seguridad social": "card",
     otro: "otro"
   },
   payers: {
@@ -110,6 +111,7 @@ const DASHBOARD_EXPENSE_LABELS = {
   total: "Gasto total",
   materiales: "Materiales",
   marketing: "Marketing",
+  impuestos: "Impuestos",
   envios: "Envíos"
 };
 const DASHBOARD_INCOME_LABELS = {
@@ -125,6 +127,7 @@ const DASHBOARD_TREND_COLORS = {
   envios: "#4f6d93",
   servicios: "#8a8178",
   software: "#7b6f85",
+  impuestos: "#8f5d46",
   otros: "#b7a992",
   cobros: "#166b5e",
   fees: "#b85d72",
@@ -324,6 +327,7 @@ function chartColors() {
     envios: settings.dashboard_color_envios || DASHBOARD_TREND_COLORS.envios,
     servicios: settings.dashboard_color_servicios || DASHBOARD_TREND_COLORS.servicios,
     software: settings.dashboard_color_software || DASHBOARD_TREND_COLORS.software,
+    impuestos: settings.dashboard_color_impuestos || DASHBOARD_TREND_COLORS.impuestos,
     otros: settings.dashboard_color_otros || DASHBOARD_TREND_COLORS.otros,
     cobros: settings.dashboard_color_cobros || DASHBOARD_TREND_COLORS.cobros,
     fees: settings.dashboard_color_fees || DASHBOARD_TREND_COLORS.fees,

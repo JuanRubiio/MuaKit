@@ -15,6 +15,7 @@ export function createDashboardViews(ctx) {
   const categoryLabel = (value) => ({
     materiales: "Materiales",
     marketing: "Marketing",
+    impuestos: "Impuestos",
     envios: "Envíos",
     servicios: "Servicios",
     software: "Software",
@@ -48,7 +49,7 @@ export function createDashboardViews(ctx) {
     const income = number(finance.kpis.period_net_received);
     const balance = number(finance.kpis.period_balance);
     const category = Object.fromEntries((finance.category_spend || []).map((row) => [row.category, number(row.total)]));
-    const expenseSteps = ["materiales", "marketing", "envios", "servicios", "software", "otros"]
+    const expenseSteps = ["materiales", "marketing", "envios", "servicios", "software", "impuestos", "otros"]
       .filter((key) => Math.abs(number(category[key])) > 0.004)
       .map((key) => ({ label: categoryLabel(key), value: category[key], type: "expense", color: categoryColor(key, colors) }));
     const steps = [
