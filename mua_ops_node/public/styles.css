@@ -12776,3 +12776,94 @@ textarea {
     min-width: 820px;
   }
 }
+
+/* Responsive safety for the orders list. This block intentionally stays last. */
+.orders-list-panel,
+.orders-list-panel .orders-table {
+  min-width: 0;
+}
+
+.orders-list-panel .orders-table {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 1260px) {
+  .orders-list-panel .orders-table-head,
+  .orders-list-panel .orders-table-row {
+    min-width: 1080px;
+  }
+
+  .orders-list-panel .orders-table-head > span:last-child,
+  .orders-list-panel .orders-table-row > span:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 3;
+    align-self: stretch;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    padding-left: 10px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, .72), #fff 26%);
+    box-shadow: -12px 0 18px rgba(22, 18, 15, .08);
+  }
+}
+
+@media (max-width: 900px) {
+  .orders-list-panel .orders-table {
+    overflow: visible;
+  }
+
+  .orders-list-panel .orders-table-head {
+    display: none;
+  }
+
+  .orders-list-panel .orders-table-row {
+    min-width: 0;
+    grid-template-columns: 26px minmax(0, 1fr) 44px;
+    gap: 10px 12px;
+    padding: 14px;
+  }
+
+  .orders-list-panel .orders-table-row > span:nth-child(1) { grid-column: 1; grid-row: 1 / span 2; }
+  .orders-list-panel .orders-table-row > span:nth-child(2) { grid-column: 2; grid-row: 1; }
+  .orders-list-panel .orders-table-row > span:nth-child(3) { grid-column: 2; grid-row: 2; }
+  .orders-list-panel .orders-table-row > span:nth-child(4),
+  .orders-list-panel .orders-table-row > span:nth-child(5),
+  .orders-list-panel .orders-table-row > span:nth-child(9) {
+    grid-column: 1 / -1;
+  }
+
+  .orders-list-panel .orders-table-row > span:nth-child(6),
+  .orders-list-panel .orders-table-row > span:nth-child(7),
+  .orders-list-panel .orders-table-row > span:nth-child(8),
+  .orders-list-panel .orders-table-row > span:nth-child(10) {
+    grid-column: span 1;
+  }
+
+  .orders-list-panel .orders-table-row > span:last-child {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    position: static;
+    align-self: start;
+    min-height: 0;
+    padding-left: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .orders-list-panel .orders-table-row {
+    grid-template-columns: 24px minmax(0, 1fr) 42px;
+  }
+
+  .orders-list-panel .orders-table-row > span:nth-child(6),
+  .orders-list-panel .orders-table-row > span:nth-child(7),
+  .orders-list-panel .orders-table-row > span:nth-child(8),
+  .orders-list-panel .orders-table-row > span:nth-child(10) {
+    grid-column: 1 / -1;
+  }
+}

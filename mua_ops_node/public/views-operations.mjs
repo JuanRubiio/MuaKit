@@ -953,7 +953,7 @@ export function createOperationViews(ctx) {
             </div><div class="orders-preparation-items">
               ${preparationItems.map((item) => `<article>
                 <i class="orders-preparation-item-check" aria-hidden="true"></i>
-                <span class="supplier-linked-thumb">${img(item.image_url)}</span>
+                <span class="supplier-linked-thumb">${img(item.image_url || item.material_image_url || item.product_image_url)}</span>
                 <span class="orders-preparation-item-copy"><strong>${text(item.title || item.material_name || "Elemento")}</strong><small>${text([item.material_name, item.sku].filter(Boolean).join(" - ") || "sin SKU")}</small></span>
                 <span class="orders-preparation-qty"><strong>${text(item.quantity || 1)}</strong><small>ud</small></span>
               </article>`).join("")}
@@ -967,7 +967,7 @@ export function createOperationViews(ctx) {
                 const included = Number(line.include_in_cost ?? 1) !== 0 && !missingCost;
                 const materialLabel = line.material_name && lower(line.material_name) !== lower(line.title) ? line.material_name : (line.material_id ? "Material vinculado" : "Sin material");
                 return `<article class="orders-material-row ${included ? "" : "is-excluded"}">
-                  <span class="orders-material-product"><span class="supplier-linked-thumb">${img(line.material_image_url)}</span><span><strong>${text(line.title || "Producto")}</strong><small>${text(line.sku || "sin SKU")}</small></span></span>
+                  <span class="orders-material-product"><span class="supplier-linked-thumb">${img(line.material_image_url || line.image_url || line.product_image_url)}</span><span><strong>${text(line.title || "Producto")}</strong><small>${text(line.sku || "sin SKU")}</small></span></span>
                   <span><strong>${text(materialLabel)}</strong><small>${line.material_id ? "vinculado" : "pendiente"}</small></span>
                   <span>${text(line.quantity)}</span>
                   <span>${!included ? "-" : (line.unit_cost == null ? "-" : euro.format(number(line.unit_cost)))}</span>

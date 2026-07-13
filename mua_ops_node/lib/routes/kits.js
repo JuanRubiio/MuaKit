@@ -1,4 +1,14 @@
 const { ORDER_TYPES, isValidOrderType, orderTypeMeta } = require("../services/order-typologies");
+const path = require("path");
+
+let canvasTools = null;
+try {
+  canvasTools = require("@napi-rs/canvas");
+} catch (_) {
+  canvasTools = null;
+}
+
+const PUBLIC_DIR = path.resolve(__dirname, "..", "..", "public");
 
 function normalizeOrderMaterial(value = "") {
   return String(value || "")
@@ -49,7 +59,8 @@ function orderPreparationStatus(order = {}) {
 function orderLineIsPreparationCandidate(line = {}) {
   if (Number(line.is_type_marker || 0)) return false;
   if (Number(line.quantity || 0) <= 0) return false;
-  const haystack = normalizedText([
+  const titleText = normalizedText([line.title, line.material_name].join(" "));
+  const contextText = normalizedText([
     line.title,
     line.sku,
     line.material_name,
@@ -58,8 +69,32 @@ function orderLineIsPreparationCandidate(line = {}) {
     line.material_family,
     line.material_subfamily
   ].join(" "));
-  if (!haystack) return false;
-  const blockers = [
+  if (!contextText) return false;
+  const titleBlockers = [
+    "te gustaria anadir",
+    "topping para tu joya",
+    "toping para tu joya",
+    "material de la joya",
+    "material joya",
+    "material para la joya",
+    "segundo toping",
+    "segundo topping",
+    "tercer toping",
+    "tercer topping",
+    "pigmento",
+    "elige",
+    "selecciona",
+    "opcion",
+    "option",
+    "personalizacion",
+    "personalization",
+    "product options",
+    "pack premium",
+    "pack compartido",
+    "kit mua"
+  ];
+  if (titleBlockers.some((token) => titleText.includes(normalizedText(token)))) return false;
+  const contextBlockers = [
     "kit mua",
     "recuerdos de maternidad",
     "recuerdos de mascota",
@@ -72,11 +107,15 @@ function orderLineIsPreparationCandidate(line = {}) {
     "pipeta",
     "lampara",
     "papel tisu",
-    "nacar"
+    "nacar",
+    "bolsa",
+    "recipiente",
+    "palo para manipulacion",
+    "pinzas",
+    "set fijo"
   ];
-  if (blockers.some((token) => haystack.includes(token))) return false;
+  if (contextBlockers.some((token) => contextText.includes(token))) return false;
   const positive = [
-    "joya",
     "cadena",
     "colgante",
     "anillo",
@@ -86,10 +125,45 @@ function orderLineIsPreparationCandidate(line = {}) {
     "topping",
     "extra",
     "pulsera",
-    "pendiente"
+    "pendiente",
+    "llavero"
   ];
-  if (positive.some((token) => haystack.includes(token))) return true;
-  return Boolean(line.material_id && !["packaging", "servicio", "software"].includes(normalizedText(line.material_category || "")));
+  if (positive.some((token) => titleText.includes(token))) return true;
+  const category = normalizedText(line.material_category || "");
+  const usageType = normalizedText(line.material_usage_type || "");
+  return Boolean(line.material_id && ["joya", "topping", "extra"].includes(category) && !["packaging", "servicio", "software"].includes(usageType));
+}
+
+function orderLineImageUrl(line = {}) {
+  return line.material_image_url || line.image_url || line.product_image_url || line.shopify_image_url || "";
+}
+
+function resolvePdfImageSource(source = "") {
+  const value = String(source || "").trim();
+  if (!value) return "";
+  if (/^(https?:|data:)/i.test(value)) return value;
+  if (path.isAbsolute(value)) return value;
+  if (value.startsWith("/")) return path.join(PUBLIC_DIR, value.replace(/^\/+/, ""));
+  return path.resolve(PUBLIC_DIR, value);
+}
+
+async function loadPdfImage(source = "") {
+  if (!canvasTools?.loadImage || !canvasTools?.createCanvas) return null;
+  try {
+    const image = await canvasTools.loadImage(resolvePdfImageSource(source));
+    const maxSide = 96;
+    const scale = Math.min(1, maxSide / Math.max(image.width || 1, image.height || 1));
+    const width = Math.max(1, Math.round((image.width || 1) * scale));
+    const height = Math.max(1, Math.round((image.height || 1) * scale));
+    const canvas = canvasTools.createCanvas(width, height);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(image, 0, 0, width, height);
+    return { width, height, data: canvas.toBuffer("image/jpeg") };
+  } catch (_) {
+    return null;
+  }
 }
 
 function preparationStatusMeta(status) {
@@ -108,7 +182,7 @@ function pdfEscape(value = "") {
     .replace(/\)/g, "\\)");
 }
 
-function createSimplePdf({ title = "Hoja de preparacion", batches = [] }) {
+async function createSimplePdf({ title = "Hoja de preparacion", batches = [] }) {
   const pageWidth = 595;
   const pageHeight = 842;
   const margin = 36;
@@ -136,9 +210,27 @@ function createSimplePdf({ title = "Hoja de preparacion", batches = [] }) {
     const str = String(value || "");
     return str.length > max ? `${str.slice(0, Math.max(0, max - 3))}...` : str;
   };
+  const pdfImages = [];
+  const pdfImageCache = new Map();
+  const getPdfImage = async (source = "") => {
+    const value = String(source || "").trim();
+    if (!value) return null;
+    if (pdfImageCache.has(value)) return pdfImageCache.get(value);
+    const image = await loadPdfImage(value);
+    if (image) {
+      image.name = `Im${pdfImages.length + 1}`;
+      pdfImages.push(image);
+    }
+    pdfImageCache.set(value, image);
+    return image;
+  };
   const rect = (x, yy, width, height, fill = null, stroke = null, lineWidth = 0.8) => {
     if (fill) content += `q ${fill} rg ${x} ${yy} ${width} ${height} re f Q\n`;
     if (stroke) content += `q ${stroke} RG ${lineWidth} w ${x} ${yy} ${width} ${height} re S Q\n`;
+  };
+  const drawImage = (image, x, yy, width, height) => {
+    if (!image?.name) return;
+    content += `q ${width} 0 0 ${height} ${x} ${yy} cm /${image.name} Do Q\n`;
   };
   const textAt = (value, x, yy, size = 10, bold = false, fill = color.ink) => {
     content += `BT /${bold ? "F2" : "F1"} ${size} Tf ${fill} rg ${x} ${yy} Td (${pdfEscape(value)}) Tj ET\n`;
@@ -202,16 +294,24 @@ function createSimplePdf({ title = "Hoja de preparacion", batches = [] }) {
       y -= 42;
     } else {
       for (const item of items) {
-        ensure(58);
+        ensure(66);
         const qty = Number(item.quantity || 1);
-        const titleText = truncate(item.material_name || item.title || "Elemento", 62);
-        const detail = truncate([item.title && item.material_name ? item.title : "", item.sku ? `SKU ${item.sku}` : ""].filter(Boolean).join(" · "), 70);
-        rect(margin + 10, y - 31, contentWidth - 20, 32, "1 1 1", color.border);
-        rect(margin + 22, y - 22, 13, 13, null, color.accent, 1.2);
-        textAt(`${qty}x`, margin + 46, y - 16, 12, true, color.accent);
-        textAt(titleText, margin + 76, y - 15, 10, true);
-        if (detail) textAt(detail, margin + 76, y - 27, 7, false, color.muted);
-        y -= 38;
+        const titleText = truncate(item.material_name || item.title || "Elemento", 54);
+        const detail = truncate([item.title && item.material_name ? item.title : "", item.sku ? `SKU ${item.sku}` : ""].filter(Boolean).join(" - "), 62);
+        const image = await getPdfImage(item.image_url || item.material_image_url || item.product_image_url);
+        rect(margin + 10, y - 39, contentWidth - 20, 40, "1 1 1", color.border);
+        rect(margin + 22, y - 25, 13, 13, null, color.accent, 1.2);
+        rect(margin + 46, y - 33, 28, 28, "0.98 0.96 0.93", "0.88 0.84 0.78");
+        if (image) {
+          const scale = Math.min(24 / image.width, 24 / image.height);
+          const imageWidth = image.width * scale;
+          const imageHeight = image.height * scale;
+          drawImage(image, margin + 48 + (24 - imageWidth) / 2, y - 31 + (24 - imageHeight) / 2, imageWidth, imageHeight);
+        }
+        textAt(`${qty}x`, margin + 86, y - 17, 12, true, color.accent);
+        textAt(titleText, margin + 124, y - 15, 10, true);
+        if (detail) textAt(detail, margin + 124, y - 28, 7, false, color.muted);
+        y -= 46;
       }
     }
     rect(margin + 10, y - 30, contentWidth - 20, 30, "1 1 1", "0.88 0.84 0.78");
@@ -233,6 +333,12 @@ function createSimplePdf({ title = "Hoja de preparacion", batches = [] }) {
   };
   const fontId = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
   const boldFontId = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+  for (const image of pdfImages) {
+    image.objectId = add(`<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.data.length} >>\nstream\n${image.data.toString("latin1")}\nendstream`);
+  }
+  const imageResources = pdfImages.length
+    ? `/XObject << ${pdfImages.map((image) => `/${image.name} ${image.objectId} 0 R`).join(" ")} >>`
+    : "";
   const pageIds = [];
   const contentIds = [];
   for (const page of pageContents) {
@@ -242,7 +348,7 @@ function createSimplePdf({ title = "Hoja de preparacion", batches = [] }) {
   }
   const pagesIdPlaceholder = objects.length + pageContents.length + 1;
   for (let index = 0; index < pageContents.length; index += 1) {
-    const pageId = add(`<< /Type /Page /Parent ${pagesIdPlaceholder} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> >> /Contents ${contentIds[index]} 0 R >>`);
+    const pageId = add(`<< /Type /Page /Parent ${pagesIdPlaceholder} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> ${imageResources} >> /Contents ${contentIds[index]} 0 R >>`);
     pageIds[index] = pageId;
   }
   const pagesId = add(`<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`);
@@ -420,7 +526,9 @@ function registerKitRoutes(app, ctx) {
           material_id: line.material_id,
           material_name: line.material_name,
           material_category: line.material_category,
-          material_image_url: line.material_image_url
+          material_image_url: line.material_image_url,
+          image_url: orderLineImageUrl(line),
+          product_image_url: line.product_image_url || ""
         })),
         preparation_items_count: preparationItems.length,
         can_generate_preparation_sheet: preparationStatus === "not_prepared" && preparationItems.length > 0,
@@ -569,7 +677,7 @@ function registerKitRoutes(app, ctx) {
               materialCategory: line.material_category || "",
               quantity: n(line.quantity, 1),
               sku: line.sku || "",
-              imageUrl: line.material_image_url || "",
+              imageUrl: orderLineImageUrl(line),
               notes: ""
             }
           );
@@ -603,30 +711,72 @@ function registerKitRoutes(app, ctx) {
     }
   });
 
-  app.get("/api/orders/preparation-sheets/:id.pdf", (req, res) => {
+  app.get("/api/orders/preparation-sheets/:id.pdf", async (req, res) => {
     const batch = one("SELECT * FROM order_preparation_batches WHERE id=$id", { id: req.params.id });
     if (!batch) return res.status(404).json({ error: "Hoja de preparacion no encontrada" });
     const batchOrders = query(
       `SELECT *
        FROM order_preparation_batch_orders
        WHERE batch_id=$id
-       ORDER BY order_date, order_number, id`,
+      ORDER BY order_date, order_number, id`,
       { id: batch.id }
     );
-    const items = query(
+    const lineColumns = new Set(query("PRAGMA table_info(sales_order_lines)").map((column) => column.name));
+    const materialColumns = new Set(query("PRAGMA table_info(materials)").map((column) => column.name));
+    const lineImageColumns = ["material_id", "image_url", "product_image_url", "shopify_image_url", "material_image_url"]
+      .filter((column) => lineColumns.has(column));
+    const materialImageColumns = ["image_url_override", "image_url"].filter((column) => materialColumns.has(column));
+    const rawItems = query(
       `SELECT *
        FROM order_preparation_batch_items
        WHERE batch_id=$id
        ORDER BY order_id, id`,
       { id: batch.id }
     );
+    const items = rawItems.map((item) => {
+      let imageUrl = orderLineImageUrl(item);
+      let materialId = Number(item.material_id || 0);
+      if ((!imageUrl || !materialId) && item.order_line_id && lineImageColumns.length) {
+        const line = one(
+          `SELECT ${lineImageColumns.join(", ")}
+           FROM sales_order_lines
+           WHERE id=$id`,
+          { id: item.order_line_id }
+        ) || {};
+        imageUrl = imageUrl || orderLineImageUrl(line);
+        materialId = materialId || Number(line.material_id || 0);
+      }
+      if (!imageUrl && materialId && materialImageColumns.length) {
+        const material = one(
+          `SELECT ${materialImageColumns.join(", ")}
+           FROM materials
+           WHERE id=$id`,
+          { id: materialId }
+        ) || {};
+        imageUrl = material.image_url_override || material.image_url || "";
+      }
+      if (!imageUrl && materialId) {
+        try {
+          const product = one(
+            `SELECT image_url
+             FROM shopify_products
+             WHERE material_id=$id AND NULLIF(image_url, '') IS NOT NULL
+             ORDER BY shopify_available_qty DESC, id DESC
+             LIMIT 1`,
+            { id: materialId }
+          );
+          imageUrl = product?.image_url || "";
+        } catch (_) {}
+      }
+      return { ...item, image_url: imageUrl };
+    }).filter(orderLineIsPreparationCandidate);
     const itemsByOrder = new Map();
     for (const item of items) {
       const key = Number(item.order_id);
       if (!itemsByOrder.has(key)) itemsByOrder.set(key, []);
       itemsByOrder.get(key).push(item);
     }
-    const pdf = createSimplePdf({
+    const pdf = await createSimplePdf({
       title: `Hoja de preparacion ${batch.reference || `#${batch.id}`}`,
       batches: batchOrders.map((order) => ({
         ...order,
@@ -815,4 +965,4 @@ function registerKitRoutes(app, ctx) {
   });
 }
 
-module.exports = { registerKitRoutes };
+module.exports = { registerKitRoutes, orderLineIsPreparationCandidate };

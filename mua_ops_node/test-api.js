@@ -5,6 +5,7 @@ const path = require("path");
 const initSqlJs = require("sql.js");
 const { amount: parsedAmount, detectFields, detectedInvoiceLines, detectedAlibabaLines, detectedAliExpressLines, detectedEtsyLines, detectedSheinLines, detectedCanvaLines, detectedCapCutLines, detectedKlaviyoLines, parseInvoiceLine, parseImpressions, inferExpenseCategory, fieldEvidence } = require("./lib/services/document-extraction");
 const { cleanOriginalName, accountingQuality } = require("./lib/routes/expense-imports");
+const { orderLineIsPreparationCandidate } = require("./lib/routes/kits");
 const { ORDER_TYPES, detectOrderType, inferRecipeOrderType, isOrderTypeMarkerTitle } = require("./lib/services/order-typologies");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -17,6 +18,16 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
+
+function assertOrderPreparationCandidateFilter() {
+  assert(!orderLineIsPreparationCandidate({ title: "Material de la joya", material_category: "joya", quantity: 1 }), "Preparation sheets should exclude order option markers");
+  assert(!orderLineIsPreparationCandidate({ title: "Te gustaria anadir un segundo toping para tu joya?", material_category: "joya", quantity: 1 }), "Preparation sheets should exclude topping question prompts");
+  assert(!orderLineIsPreparationCandidate({ title: "Pigmento verde menta", material_category: "joya", quantity: 1 }), "Preparation sheets should exclude pigment options");
+  assert(orderLineIsPreparationCandidate({ title: "Colgante Gota dorado (acero)", material_category: "joya", quantity: 1 }), "Preparation sheets should keep physical jewellery");
+  assert(orderLineIsPreparationCandidate({ title: "Letras doradas", quantity: 1 }), "Preparation sheets should keep known physical extras without material category");
+}
+
+assertOrderPreparationCandidateFilter();
 
 function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
