@@ -59,6 +59,13 @@ function accountingQuality(fields, lines, duplicates = {}) {
   };
 }
 
+function qualityWarnings(quality) {
+  const warnings = (quality?.missing || []).map((field) => `Falta ${field}.`);
+  if (quality?.duplicate) warnings.push("Posible factura duplicada.");
+  if (Math.abs(Number(quality?.total_difference || 0)) > 0.02) warnings.push("Los totales no cuadran.");
+  if (!quality?.decisions_complete) warnings.push("Hay líneas pendientes de decisión.");
+  return warnings;
+}
 function registerExpenseImportRoutes(app, ctx) {
   const { query, one, exec, insert, saveDb, audit, badRequest, notFound, upload, fs, path, UPLOAD_DIR, documentExtraction } = ctx;
 
@@ -102,7 +109,9 @@ function registerExpenseImportRoutes(app, ctx) {
         WHERE i.supplier_id=$supplier AND i.invoice_date=$date AND ABS(i.total-$total)<0.01 AND i.id!=$invoice AND i.is_deleted=0`, { supplier: fields.suggested_supplier_id, date: fields.invoice_date, total: fields.total, invoice: Number(item.invoice_id || 0) })
       : null;
     const duplicates = { exact, warning };
-    return { import: payload(item), lines, duplicates, accounting_quality: accountingQuality(fields, lines, duplicates) };
+    const quality = accountingQuality(fields, lines, duplicates);
+    const importPayload = { ...payload(item), warnings: qualityWarnings(quality) };
+    return { import: importPayload, lines, duplicates, accounting_quality: quality };
   }
 
   function confirmImport(item, overrideFields = {}) {
@@ -244,10 +253,13 @@ function registerExpenseImportRoutes(app, ctx) {
     if (!before) return notFound(res, "Importacion no encontrada", "EXPENSE_IMPORT_NOT_FOUND");
     const detected = { ...json(before.detected_fields_json, {}), ...(req.body.detected_fields || {}) };
     const status = STATUSES.has(req.body.status) ? req.body.status : before.status;
-    exec("UPDATE expense_imports SET detected_fields_json=$fields, status=$status, updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: req.params.id, fields: JSON.stringify(detected), status });
-    audit("expense_import", Number(req.params.id), "review_update", before, { status, detected_fields: detected });
+    let nextStatus = status;
+    const preview = detailFor({ ...before, detected_fields_json: JSON.stringify(detected), status });
+    if (!req.body.status && before.status === "review" && preview.accounting_quality.batch_eligible) nextStatus = "ready";
+    exec("UPDATE expense_imports SET detected_fields_json=$fields, status=$status, updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: req.params.id, fields: JSON.stringify(detected), status: nextStatus });
+    audit("expense_import", Number(req.params.id), "review_update", before, { status: nextStatus, detected_fields: detected });
     saveDb();
-    res.json(payload(one("SELECT * FROM expense_imports WHERE id=$id", { id: req.params.id })));
+    res.json(detailFor(one("SELECT * FROM expense_imports WHERE id=$id", { id: req.params.id })));
   });
 
   app.post("/api/expense-imports/:id/lines/accept-all", (req, res) => {

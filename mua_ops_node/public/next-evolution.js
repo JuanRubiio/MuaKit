@@ -1063,6 +1063,8 @@
       detected_fields[field] = Number(detected_fields[field] || 0);
     });
     await api(`/api/expense-imports/${event.target.dataset.importId}`, { method: "PATCH", body: JSON.stringify({ detected_fields }) });
+    await loadImports();
+    await openImport(event.target.dataset.importId, { scrollTop: window.scrollY });
     toast("Revisión guardada");
   });
 })();
