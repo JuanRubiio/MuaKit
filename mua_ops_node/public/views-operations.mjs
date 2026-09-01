@@ -262,7 +262,7 @@ export function createOperationViews(ctx) {
       return `
         <button type="button" class="supplier-side-item" data-view-supplier="${supplier.id}">
           ${entityIconMarkup(supplier.name, { type: "supplier", className: "supplier-avatar", label: supplier.name })}
-          <span><strong>${text(supplier.name)}</strong><small>${text(supplier.category || "Sin categoria")} - ${stats.materials.length} materiales</small></span>
+          <span><strong>${text(supplier.name)}</strong><small>${text(supplier.category || "Sin categoria")}</small></span>
         </button>
       `;
     }).join("") || `<div class="empty-state small">No hay proveedores recientes.</div>`;

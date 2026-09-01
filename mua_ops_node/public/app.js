@@ -1907,6 +1907,8 @@ async function refreshAll() {
 }
 
 function setActiveView(view) {
+  const wasSupplierViewActive = $("#suppliers")?.classList.contains("active");
+  if (view !== "suppliers") closeSupplierPanels();
   if (view !== "invoices") document.body.classList.remove("invoice-focus-active");
   if (view !== "income") document.body.classList.remove("income-focus-active");
   if (view !== "materials") document.body.classList.remove("materials-focus-active");
@@ -1924,6 +1926,7 @@ function setActiveView(view) {
   $$(".tab,.view").forEach((el) => el.classList.remove("active"));
   $(`.tab[data-view="${view}"]`)?.classList.add("active");
   $(`#${view}`)?.classList.add("active");
+  if (view === "suppliers" && !wasSupplierViewActive) requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
   const title = $(`.tab[data-view="${view}"]`)?.textContent || "Mua Ops";
   $("#pageTitle").textContent = title;
   if (view === "audit") loadAudit().catch((error) => toast(error.message));

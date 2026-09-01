@@ -5175,6 +5175,7 @@ textarea {
 }
 
 .supplier-form .invoice-workspace-hero {
+  min-height: 124px;
   padding-block: 10px 4px;
 }
 
