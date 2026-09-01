@@ -126,14 +126,15 @@ export function createOperationViews(ctx) {
       criticalMaterials,
       missingCost,
       hasWebsite: Boolean(String(supplier?.website || "").trim()),
-      hasLead: number(supplier?.lead_time_days) > 0
+      hasLead: number(supplier?.lead_time_days) > 0,
+      importReliability: supplier?.import_reliability || null
     };
   }
 
   function supplierStatus(stats, supplier) {
     if (supplier?.is_deleted) return { label: "Archivado", tone: "warn" };
     if (stats.criticalMaterials.length) return { label: "Critico", tone: "danger" };
-    if (!stats.hasWebsite || !stats.hasLead || !stats.materials.length) return { label: "Completar", tone: "warn" };
+    if (!stats.hasWebsite || !stats.hasLead) return { label: "Completar", tone: "warn" };
     return { label: "Activo", tone: "ok" };
   }
 
@@ -350,7 +351,7 @@ export function createOperationViews(ctx) {
     $("#supplierFormStatusBadge").textContent = stored ? status.label : "Ficha incompleta";
     $("#supplierFormStatusBadge").className = `status-pill ${stored ? status.tone : "warn"}`;
     $("#supplierFormSubtitle").textContent = stored
-      ? `${draft.category || "Sin categoria"} - ${stats.materials.length} materiales - ${stats.invoices.length} facturas`
+      ? `${draft.category || "Sin categoria"}${stats.materials.length ? ` - ${stats.materials.length} materiales` : ""} - ${stats.invoices.length} facturas`
       : "Crea un nuevo proveedor para compras, materiales y gastos.";
 
     const websiteButton = $("#supplierOpenWebsiteButton");
@@ -364,20 +365,24 @@ export function createOperationViews(ctx) {
       archiveButton.dataset.deleteSupplier = stored ? stored.id : "";
     }
 
-    $("#supplierFormMetrics").innerHTML = [
-      ["Materiales", stats.materials.length, stats.criticalMaterials.length ? `${stats.criticalMaterials.length} a reponer` : "Asignados"],
+    const reliability = stats.importReliability;
+    const reliabilityValue = reliability?.reliability_score == null ? "Sin muestra" : `${reliability.reliability_score}%`;
+    const reliabilityHint = !reliability?.processed ? "Sin facturas importadas" : reliability.needs_review ? `${reliability.reviewed} revisadas · candidato de patrón` : `${reliability.reviewed} revisadas · patrón estable`;
+    const metricCards = [
+      ...(stats.materials.length ? [["Materiales", stats.materials.length, stats.criticalMaterials.length ? `${stats.criticalMaterials.length} a reponer` : "Asignados"]] : []),
       ["Gastos", stats.invoices.length, stats.lastInvoice ? `Último ${stats.lastInvoice.invoice_date}` : "Sin compras"],
       ["Gasto", euro.format(stats.spend), "Historial registrado"],
-      ["Plazo", supplierLeadLabel(draft.lead_time_days), number(draft.lead_time_days) ? "Reposicion planificada" : "Completar"],
-      ["Sin coste", stats.missingCost.length, "Materiales vinculados"]
-    ].map(([label, value, hint]) => `
+      ["Importación fiable", reliabilityValue, reliabilityHint],
+      ["Plazo", supplierLeadLabel(draft.lead_time_days), number(draft.lead_time_days) ? "Reposición planificada" : "Completar"],
+      ...(stats.materials.length ? [["Costes sin dato", stats.missingCost.length, "Materiales vinculados"]] : [])
+    ];
+    $("#supplierFormMetrics").innerHTML = metricCards.map(([label, value, hint]) => `
       <article class="supplier-workspace-kpi"><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></article>
     `).join("");
 
-    $("#supplierCategoryChips").innerHTML = supplierCategoryValues().slice(0, 8).map((value) => `
-      <button type="button" class="supplier-category-chip ${draft.category === value ? "is-active" : ""}" data-supplier-category-chip="${text(value)}">${text(value)}</button>
-    `).join("");
 
+    $("#supplierMaterialsSection")?.classList.toggle("hidden", !stats.materials.length);
+    $("#supplierInvoicesTitle")?.replaceChildren(document.createTextNode(`${stats.materials.length ? "3" : "2"}. Gastos recientes`));
     $("#supplierLinkedMaterials").innerHTML = stats.materials.length ? `
       <div class="supplier-linked-list">
         ${stats.materials.slice(0, 6).map((material) => `
@@ -405,7 +410,7 @@ export function createOperationViews(ctx) {
       ["Nombre", draft.name ? "ok" : "warn", draft.name ? "Nombre informado" : "Obligatorio"],
       ["Web", draft.website ? "ok" : "warn", draft.website ? "Enlace disponible" : "Pendiente"],
       ["Plazo", number(draft.lead_time_days) ? "ok" : "warn", number(draft.lead_time_days) ? `${number(draft.lead_time_days)} dias` : "Pendiente"],
-      ["Materiales", stats.materials.length ? "ok" : "warn", stats.materials.length ? `${stats.materials.length} vinculados` : "Sin materiales"],
+      ...(stats.materials.length ? [["Materiales", "ok", `${stats.materials.length} vinculados`]] : []),
       ["Compras", stats.invoices.length ? "ok" : "neutral", stats.invoices.length ? `${stats.invoices.length} facturas` : "Sin historial"]
     ];
     $("#supplierFormReviewState").innerHTML = review.map(([label, tone, detail]) => `
@@ -423,8 +428,9 @@ export function createOperationViews(ctx) {
       <div class="supplier-preview-grid">
         <span><small>Web</small><strong>${draft.website ? "OK" : "Pendiente"}</strong></span>
         <span><small>Plazo</small><strong>${text(supplierLeadLabel(draft.lead_time_days))}</strong></span>
-        <span><small>Materiales</small><strong>${text(stats.materials.length)}</strong></span>
+        ${stats.materials.length ? `<span><small>Materiales</small><strong>${text(stats.materials.length)}</strong></span>` : ""}
         <span><small>Gasto</small><strong>${euro.format(stats.spend)}</strong></span>
+        <span><small>OCR fiable</small><strong>${stats.importReliability?.reliability_score == null ? "-" : `${stats.importReliability.reliability_score}%`}</strong></span>
       </div>
       ${draft.notes ? `<p>${text(draft.notes)}</p>` : ""}
     `;
@@ -1053,4 +1059,3 @@ export function createOperationViews(ctx) {
     generateOrderPreparationSheet
   };
 }
-

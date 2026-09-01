@@ -5168,6 +5168,7 @@ textarea {
 }
 
 .supplier-form {
+  padding-top: 16px;
   display: grid;
   gap: 18px;
   scroll-margin-top: 92px;
