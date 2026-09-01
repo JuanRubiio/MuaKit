@@ -1665,6 +1665,13 @@ main {
   border-color: rgba(18, 122, 104, .16);
 }
 
+.invoice-review-ok .invoice-review-icon,
+.invoice-review-ok .invoice-review-count {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: rgba(18, 122, 104, .16);
+}
+
 .invoice-review-footer {
   width: 100%;
   min-height: 44px;

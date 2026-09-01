@@ -341,10 +341,6 @@ export function createOperationViews(ctx) {
     $("#supplierFormTitle").textContent = stored ? draft.name || `Proveedor #${id}` : "Nuevo proveedor";
     $("#supplierFormStatusBadge").textContent = stored ? status.label : "Ficha incompleta";
     $("#supplierFormStatusBadge").className = `status-pill ${stored ? status.tone : "warn"}`;
-    $("#supplierFormSubtitle").textContent = stored
-      ? `${draft.category || "Sin categoria"}${stats.materials.length ? ` - ${stats.materials.length} materiales` : ""} - ${stats.invoices.length} facturas`
-      : "Crea un nuevo proveedor para compras, materiales y gastos.";
-
     const websiteButton = $("#supplierOpenWebsiteButton");
     if (websiteButton) {
       websiteButton.classList.toggle("hidden", !draft.website);
@@ -365,7 +361,6 @@ export function createOperationViews(ctx) {
       ["Gasto", euro.format(stats.spend), "Historial registrado"],
       ["Importación fiable", reliabilityValue, reliabilityHint],
       ...(requiresLeadTime ? [["Plazo", supplierLeadLabel(draft.lead_time_days), number(draft.lead_time_days) ? "Reposición planificada" : "Completar"]] : []),
-      ...(stats.materials.length ? [["Costes sin dato", stats.missingCost.length, "Materiales vinculados"]] : [])
     ];
     $("#supplierFormMetrics").innerHTML = metricCards.map(([label, value, hint]) => `
       <article class="supplier-workspace-kpi"><small>${text(label)}</small><strong>${text(value)}</strong><span>${text(hint)}</span></article>
