@@ -134,7 +134,7 @@ export function createOperationViews(ctx) {
   function supplierStatus(stats, supplier) {
     if (supplier?.is_deleted) return { label: "Archivado", tone: "warn" };
     if (stats.criticalMaterials.length) return { label: "Critico", tone: "danger" };
-    if (!stats.hasWebsite || !stats.hasLead) return { label: "Completar", tone: "warn" };
+    if (!stats.hasWebsite || (stats.materials.length > 0 && !stats.hasLead)) return { label: "Completar", tone: "warn" };
     return { label: "Activo", tone: "ok" };
   }
 
@@ -171,7 +171,7 @@ export function createOperationViews(ctx) {
         if (lane === "archived") return supplier.is_deleted;
         if (lane === "critical") return stats.criticalMaterials.length > 0;
         if (lane === "missing_web") return !stats.hasWebsite;
-        if (lane === "missing_lead") return !stats.hasLead;
+        if (lane === "missing_lead") return stats.materials.length > 0 && !stats.hasLead;
         if (lane === "missing_materials") return !stats.materials.length;
         return true;
       });
@@ -195,7 +195,7 @@ export function createOperationViews(ctx) {
     const avgLead = leadValues.length ? Math.round(leadValues.reduce((sum, value) => sum + value, 0) / leadValues.length) : 0;
     const incomplete = active.filter((supplier) => {
       const stats = supplierStats(supplier);
-      return !stats.hasWebsite || !stats.hasLead || !stats.materials.length;
+      return !stats.hasWebsite || (stats.materials.length > 0 && !stats.hasLead);
     });
     const cards = [
       ["Proveedores activos", active.length, "Disponibles para compras", "icon-users", "accent"],
@@ -237,7 +237,7 @@ export function createOperationViews(ctx) {
     const items = [
       ["critical", "Reposicion critica", active.filter((supplier) => supplierStats(supplier).criticalMaterials.length).length, "Materiales por debajo del aviso", "danger", "icon-alert"],
       ["missing_web", "Sin web", active.filter((supplier) => !supplierStats(supplier).hasWebsite).length, "Completa enlace de compra", "warn", "icon-link"],
-      ["missing_lead", "Sin plazo", active.filter((supplier) => !supplierStats(supplier).hasLead).length, "Falta tiempo medio de entrega", "warn", "icon-clock"],
+      ["missing_lead", "Sin plazo", active.filter((supplier) => { const stats = supplierStats(supplier); return stats.materials.length > 0 && !stats.hasLead; }).length, "Falta tiempo medio de entrega para materiales", "warn", "icon-clock"],
       ["missing_materials", "Sin materiales", active.filter((supplier) => !supplierStats(supplier).materials.length).length, "No suministra materiales preferentes", "accent", "icon-cube"],
       ["archived", "Archivados", allRows.filter((supplier) => supplier.is_deleted).length, "Fichas fuera de uso", "neutral", "icon-archive"]
     ];
@@ -346,6 +346,7 @@ export function createOperationViews(ctx) {
       hasWebsite: Boolean(String(draft.website || "").trim()),
       hasLead: number(draft.lead_time_days) > 0
     };
+    const requiresLeadTime = stats.materials.length > 0;
     const status = supplierStatus(stats, draft);
     $("#supplierFormTitle").textContent = stored ? draft.name || `Proveedor #${id}` : "Nuevo proveedor";
     $("#supplierFormStatusBadge").textContent = stored ? status.label : "Ficha incompleta";
@@ -373,7 +374,7 @@ export function createOperationViews(ctx) {
       ["Gastos", stats.invoices.length, stats.lastInvoice ? `Último ${stats.lastInvoice.invoice_date}` : "Sin compras"],
       ["Gasto", euro.format(stats.spend), "Historial registrado"],
       ["Importación fiable", reliabilityValue, reliabilityHint],
-      ["Plazo", supplierLeadLabel(draft.lead_time_days), number(draft.lead_time_days) ? "Reposición planificada" : "Completar"],
+      ...(requiresLeadTime ? [["Plazo", supplierLeadLabel(draft.lead_time_days), number(draft.lead_time_days) ? "Reposición planificada" : "Completar"]] : []),
       ...(stats.materials.length ? [["Costes sin dato", stats.missingCost.length, "Materiales vinculados"]] : [])
     ];
     $("#supplierFormMetrics").innerHTML = metricCards.map(([label, value, hint]) => `
@@ -382,6 +383,7 @@ export function createOperationViews(ctx) {
 
 
     $("#supplierMaterialsSection")?.classList.toggle("hidden", !stats.materials.length);
+    $("#supplierLeadField")?.classList.toggle("hidden", !requiresLeadTime);
     $("#supplierInvoicesTitle")?.replaceChildren(document.createTextNode(`${stats.materials.length ? "3" : "2"}. Gastos recientes`));
     $("#supplierLinkedMaterials").innerHTML = stats.materials.length ? `
       <div class="supplier-linked-list">
@@ -409,7 +411,7 @@ export function createOperationViews(ctx) {
     const review = [
       ["Nombre", draft.name ? "ok" : "warn", draft.name ? "Nombre informado" : "Obligatorio"],
       ["Web", draft.website ? "ok" : "warn", draft.website ? "Enlace disponible" : "Pendiente"],
-      ["Plazo", number(draft.lead_time_days) ? "ok" : "warn", number(draft.lead_time_days) ? `${number(draft.lead_time_days)} dias` : "Pendiente"],
+      ...(requiresLeadTime ? [["Plazo", number(draft.lead_time_days) ? "ok" : "warn", number(draft.lead_time_days) ? `${number(draft.lead_time_days)} dias` : "Pendiente"]] : []),
       ...(stats.materials.length ? [["Materiales", "ok", `${stats.materials.length} vinculados`]] : []),
       ["Compras", stats.invoices.length ? "ok" : "neutral", stats.invoices.length ? `${stats.invoices.length} facturas` : "Sin historial"]
     ];
@@ -427,7 +429,7 @@ export function createOperationViews(ctx) {
       </div>
       <div class="supplier-preview-grid">
         <span><small>Web</small><strong>${draft.website ? "OK" : "Pendiente"}</strong></span>
-        <span><small>Plazo</small><strong>${text(supplierLeadLabel(draft.lead_time_days))}</strong></span>
+        ${requiresLeadTime ? `<span><small>Plazo</small><strong>${text(supplierLeadLabel(draft.lead_time_days))}</strong></span>` : ""}
         ${stats.materials.length ? `<span><small>Materiales</small><strong>${text(stats.materials.length)}</strong></span>` : ""}
         <span><small>Gasto</small><strong>${euro.format(stats.spend)}</strong></span>
         <span><small>OCR fiable</small><strong>${stats.importReliability?.reliability_score == null ? "-" : `${stats.importReliability.reliability_score}%`}</strong></span>
