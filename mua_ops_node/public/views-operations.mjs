@@ -292,7 +292,7 @@ export function createOperationViews(ctx) {
           <article class="supplier-table-row ${supplier.is_deleted ? "deleted" : ""}">
             <span class="supplier-name-cell">
               ${entityIconMarkup(supplier.name, { type: "supplier", className: "supplier-avatar", label: supplier.name })}
-              <span><strong>${text(supplier.name)}</strong><small>${supplier.website ? `<a href="${text(supplier.website)}" target="_blank" rel="noreferrer">${text(supplier.website)}</a>` : "Sin web"}</small></span>
+              <span><strong>${text(supplier.name)}</strong></span>
             </span>
             <span>${badge(supplier.category || "Sin categoria")}</span>
             <span>${supplierStats(supplier).materials.length ? badge(supplierLeadLabel(supplier.lead_time_days), supplierLeadTone(supplier.lead_time_days)) : text("No aplica")}</span>
