@@ -250,7 +250,7 @@
 
 .replenishment-section-title {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
@@ -468,7 +468,7 @@
 .replenishment-formula-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 16px;
   margin-bottom: 12px;
 }
@@ -1091,7 +1091,7 @@ main {
 .panel-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
 }
 
@@ -6154,7 +6154,7 @@ textarea {
 
 .audit-card-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
 }
@@ -6507,7 +6507,7 @@ textarea {
 .audit-side-head,
 .audit-section-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -6779,7 +6779,7 @@ textarea {
 
 .audit-detail-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 18px;
   padding-bottom: 16px;
@@ -7670,7 +7670,7 @@ textarea {
 .settings-section-head,
 .settings-context-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding-bottom: 12px;
@@ -8010,7 +8010,7 @@ textarea {
 
 .settings-numbered-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   margin-bottom: 14px;
   padding-bottom: 12px;
@@ -8801,7 +8801,7 @@ textarea {
   .app-nav {
     position: static;
     min-height: auto;
-    align-items: flex-start;
+    align-items: center;
     padding: 12px 16px;
     grid-template-columns: 1fr auto;
     gap: 10px 16px;
@@ -8976,7 +8976,7 @@ textarea {
   }
 
   .document-viewer-toolbar {
-    align-items: flex-start;
+    align-items: center;
     flex-direction: column;
     padding: 10px 0;
   }
@@ -9638,7 +9638,7 @@ textarea {
 
 .next-import-copy {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 14px;
 }
 
@@ -9665,6 +9665,9 @@ textarea {
 .next-file-icon svg,
 .next-upload-dropzone svg,
 .next-upload-selection svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
   width: 18px;
   height: 18px;
 }
@@ -9897,6 +9900,20 @@ textarea {
   line-height: 1;
 }
 
+.next-import-warning {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  color: #9a5b16 !important;
+  font-size: 11px;
+  font-weight: 700;
+}
+.next-import-warning svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
 .next-confidence {
   display: grid;
   gap: 5px;
@@ -10165,6 +10182,12 @@ textarea {
 .next-import-notice div {
   display: grid;
   gap: 2px;
+}
+
+.next-notice-close {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: inherit;
 }
 
 .next-import-notice small {
@@ -10608,7 +10631,7 @@ textarea {
 .annotated-document-viewer {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   gap: 18px;
   min-width: 100%;
@@ -10635,6 +10658,7 @@ textarea {
   overflow: hidden;
   background: #fff;
   box-shadow: 0 7px 24px rgba(37, 31, 27, 0.14);
+  margin-inline: auto;
   zoom: var(--document-zoom, 1);
 }
 
@@ -10690,7 +10714,7 @@ textarea {
   }
 
   .next-import-copy {
-    align-items: flex-start;
+    align-items: center;
   }
 
   .next-evolution-panel .invoice-summary-grid,
@@ -11836,7 +11860,7 @@ textarea {
 
 .replenishment-chart-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
@@ -12202,7 +12226,7 @@ textarea {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   gap: 4px;
 }
@@ -12886,3 +12910,15 @@ textarea {
     grid-column: 1 / -1;
   }
 }
+
+.next-import-learning { display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:10px; border:1px solid #e6cb96; border-radius:7px; background:#fff9ee; color:#76541a; }
+.next-import-learning strong { white-space:nowrap; }
+.next-import-learning span { color:var(--muted); font-size:12px; }
+
+@media (max-width: 900px) { .next-import-learning { align-items:flex-start; flex-wrap:wrap; } .next-import-learning strong { white-space:normal; } .next-import-learning span { min-width:0; overflow-wrap:anywhere; } }
+
+.next-field-confidence { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+.next-field-confidence span { padding:4px 8px; border:1px solid var(--line); border-radius:999px; font-size:11px; color:var(--muted); background:var(--surface); }
+.next-field-confidence span.quality-high { border-color:rgba(22,139,122,.35); color:#087b6d; }
+.next-field-confidence span.quality-medium { border-color:rgba(211,147,42,.35); color:#9a6500; }
+.next-field-confidence span.quality-low { border-color:rgba(189,74,61,.35); color:#a33d31; }

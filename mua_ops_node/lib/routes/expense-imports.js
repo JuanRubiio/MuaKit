@@ -22,17 +22,19 @@ function accountingQuality(fields, lines, duplicates = {}) {
   const discount = Number(fields.discount || 0);
   const shipping = Number(fields.shipping || 0);
   const tax = Number(fields.tax || 0);
+  const additionalTax = Number(fields.additional_tax || 0);
   const total = Number(fields.total || 0);
   const subtotalDifference = Number((lineTotal - subtotal).toFixed(2));
   const grossDifference = Number((lineTotal - total).toFixed(2));
   const totalWithoutAddedTax = Number((subtotal - discount + shipping).toFixed(2));
-  const totalWithAddedTax = Number((totalWithoutAddedTax + tax).toFixed(2));
+  const totalWithAddedTax = Number((totalWithoutAddedTax + tax + additionalTax).toFixed(2));
+  const linesAreOptional = fields.category === "envios";
   const linesAreGross = activeLines.length > 0 && Math.abs(grossDifference) <= 0.02;
   const calculatedTotal = linesAreGross ? lineTotal : Math.abs(totalWithoutAddedTax - total) <= Math.abs(totalWithAddedTax - total) ? totalWithoutAddedTax : totalWithAddedTax;
   const totalDifference = Number((calculatedTotal - total).toFixed(2));
   const lineDifference = linesAreGross ? grossDifference : subtotalDifference;
-  const linesMatch = activeLines.length > 0 && (linesAreGross || Math.abs(subtotalDifference) <= 0.02) && Math.abs(totalDifference) <= 0.02;
-  const decisionsComplete = activeLines.length > 0 && acceptedLines.length === activeLines.length;
+  const linesMatch = linesAreOptional ? Math.abs(totalDifference) <= 0.02 : (activeLines.length > 0 && (linesAreGross || Math.abs(subtotalDifference) <= 0.02) && Math.abs(totalDifference) <= 0.02);
+  const decisionsComplete = linesAreOptional || (activeLines.length > 0 && acceptedLines.length === activeLines.length);
   const duplicate = Boolean(duplicates.exact || duplicates.warning);
   const score = [!missing.length, linesMatch, decisionsComplete, !duplicate].filter(Boolean).length;
   return {
@@ -49,6 +51,7 @@ function accountingQuality(fields, lines, duplicates = {}) {
     discount,
     shipping,
     tax,
+    additional_tax: additionalTax,
     lines_match: linesMatch,
     decisions_complete: decisionsComplete,
     duplicate,
@@ -111,11 +114,11 @@ function registerExpenseImportRoutes(app, ctx) {
       : null;
     if (exact) throw Object.assign(new Error("Ya existe una factura con ese proveedor y numero."), { code: "EXPENSE_IMPORT_DUPLICATE" });
     const invoiceId = insert(`INSERT INTO invoices
-      (supplier_id, document_id, invoice_number, invoice_date, category, subtotal, discount, shipping, tax, total, currency, status, notes)
-      VALUES ($supplier,$document,$number,$date,$category,$subtotal,$discount,$shipping,$tax,$total,$currency,'draft',$notes)`, {
+      (supplier_id, document_id, invoice_number, invoice_date, category, subtotal, discount, shipping, tax, additional_tax, total, currency, status, notes)
+      VALUES ($supplier,$document,$number,$date,$category, $subtotal,$discount,$shipping,$tax,$additionalTax,$total,$currency,'draft',$notes)`, {
       supplier: fields.suggested_supplier_id || null, document: item.document_id, number: fields.invoice_number || "", date: fields.invoice_date,
       category: fields.category || "materiales", subtotal: Number(fields.subtotal || fields.total || 0), discount: Number(fields.discount || 0),
-      shipping: Number(fields.shipping || 0), tax: Number(fields.tax || 0), total: Number(fields.total || 0), currency: fields.currency || "EUR",
+      shipping: Number(fields.shipping || 0), tax: Number(fields.tax || 0), additionalTax: Number(fields.additional_tax || 0), total: Number(fields.total || 0), currency: fields.currency || "EUR",
       notes: `Creada desde importacion supervisada #${item.id}`
     });
     const accepted = query("SELECT * FROM expense_import_lines WHERE expense_import_id=$id AND human_decision='accepted' ORDER BY position", { id: item.id });
@@ -190,6 +193,45 @@ function registerExpenseImportRoutes(app, ctx) {
     res.json({ ...documentExtraction.status(), counts });
   });
 
+  app.get("/api/expense-imports/quality", (req, res) => {
+    const imports = query("SELECT id, status, confidence, detected_fields_json FROM expense_imports WHERE status!='discarded'");
+    const importById = new Map(imports.map((item) => [Number(item.id), { ...item, fields: json(item.detected_fields_json, {}) }]));
+    const metrics = new Map();
+    const ensure = (supplierId, supplierName) => {
+      const key = String(supplierId || supplierName || "unknown");
+      if (!metrics.has(key)) metrics.set(key, { supplier_id: supplierId || null, supplier_name: supplierName || "Sin proveedor", processed: 0, reviewed: 0, corrected_reviews: 0, corrections: {}, last_correction_at: null });
+      return metrics.get(key);
+    };
+    imports.forEach((item) => {
+      const fields = json(item.detected_fields_json, {});
+      if (!fields.suggested_supplier_id && !fields.suggested_supplier_name) return;
+      const metric = ensure(fields.suggested_supplier_id, fields.suggested_supplier_name);
+      metric.processed += 1;
+    });
+    query("SELECT entity_id, before_json, after_json, created_at FROM audit_log WHERE entity_type='expense_import' AND action='review_update' ORDER BY id").forEach((auditRow) => {
+      const item = importById.get(Number(auditRow.entity_id));
+      const after = json(auditRow.after_json, {});
+      const before = json(auditRow.before_json, {});
+      const fields = after.detected_fields || item?.fields || {};
+      if (!fields.suggested_supplier_id && !fields.suggested_supplier_name) return;
+      const metric = ensure(fields.suggested_supplier_id, fields.suggested_supplier_name);
+      metric.reviewed += 1;
+      let changed = false;
+      ["suggested_supplier_id", "invoice_number", "invoice_date", "subtotal", "tax", "total", "category"].forEach((field) => {
+        if (JSON.stringify(before.detected_fields_json ? json(before.detected_fields_json, {})[field] : before[field]) !== JSON.stringify(fields[field])) { metric.corrections[field] = Number(metric.corrections[field] || 0) + 1; changed = true; }
+      });
+      if (changed) metric.corrected_reviews += 1;
+      metric.last_correction_at = auditRow.created_at;
+    });
+    const providers = [...metrics.values()].map((metric) => {
+      const totalCorrections = Object.values(metric.corrections).reduce((sum, value) => sum + Number(value || 0), 0);
+      const correctionRate = metric.reviewed ? Number((metric.corrected_reviews / metric.reviewed).toFixed(2)) : 0;
+      const correctionDensity = metric.reviewed ? Number((totalCorrections / metric.reviewed).toFixed(2)) : 0;
+      const repeatedFields = Object.entries(metric.corrections).filter(([, count]) => count >= 2).map(([field, count]) => ({ field, corrections: count }));
+      return { ...metric, correction_rate: correctionRate, correction_density: correctionDensity, repeated_fields: repeatedFields, needs_review: metric.reviewed >= 3 && (correctionRate >= 0.35 || repeatedFields.length > 0), learning_status: repeatedFields.length ? "candidate" : metric.reviewed >= 3 ? "stable" : "insufficient_sample" };
+    }).sort((a, b) => Number(b.needs_review) - Number(a.needs_review) || b.correction_rate - a.correction_rate || b.processed - a.processed);
+    res.json({ providers, summary: { providers: providers.length, needs_review: providers.filter((item) => item.needs_review).length, reviewed: providers.reduce((sum, item) => sum + item.reviewed, 0), corrections: providers.reduce((sum, item) => sum + Object.values(item.corrections).reduce((inner, value) => inner + Number(value || 0), 0), 0) } });
+  });
   app.get("/api/expense-imports/:id", (req, res) => {
     const item = one(`SELECT ei.*, d.original_name, d.stored_name, d.mime_type, d.size
       FROM expense_imports ei JOIN documents d ON d.id=ei.document_id WHERE ei.id=$id`, { id: req.params.id });
@@ -208,6 +250,17 @@ function registerExpenseImportRoutes(app, ctx) {
     res.json(payload(one("SELECT * FROM expense_imports WHERE id=$id", { id: req.params.id })));
   });
 
+  app.post("/api/expense-imports/:id/lines/accept-all", (req, res) => {
+    const item = one("SELECT * FROM expense_imports WHERE id=$id", { id: req.params.id });
+    if (!item) return notFound(res, "Importacion no encontrada", "EXPENSE_IMPORT_NOT_FOUND");
+    if (item.status === "confirmed") return badRequest(res, "Una importación confirmada no se puede modificar.", "EXPENSE_IMPORT_CONFIRMED");
+    const pending = query("SELECT id FROM expense_import_lines WHERE expense_import_id=$id AND COALESCE(human_decision,'pending')='pending'", { id: item.id });
+    if (!pending.length) return res.json({ ok: true, accepted_count: 0 });
+    exec("UPDATE expense_import_lines SET human_decision='accepted', updated_at=CURRENT_TIMESTAMP WHERE expense_import_id=$id AND COALESCE(human_decision,'pending')='pending'", { id: item.id });
+    audit("expense_import", item.id, "accept_all_lines", item, { accepted_lines: pending.length });
+    saveDb();
+    res.json({ ok: true, accepted_count: pending.length });
+  });
   app.patch("/api/expense-imports/:importId/lines/:lineId", (req, res) => {
     const before = one("SELECT * FROM expense_import_lines WHERE id=$id AND expense_import_id=$import", { id: req.params.lineId, import: req.params.importId });
     if (!before) return notFound(res, "Linea no encontrada", "EXPENSE_IMPORT_LINE_NOT_FOUND");
@@ -268,6 +321,7 @@ function registerExpenseImportRoutes(app, ctx) {
   app.post("/api/expense-imports/:id/reprocess", (req, res) => {
     const item = one("SELECT * FROM expense_imports WHERE id=$id", { id: req.params.id });
     if (!item) return notFound(res, "Importacion no encontrada", "EXPENSE_IMPORT_NOT_FOUND");
+    if (item.status === "confirmed") return badRequest(res, "Una importación confirmada no se puede reprocesar.", "EXPENSE_IMPORT_CONFIRMED");
     exec("UPDATE expense_imports SET status='pending', error_message='', updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: req.params.id });
     audit("expense_import", Number(req.params.id), "reprocess", item, { status: "pending" });
     saveDb();

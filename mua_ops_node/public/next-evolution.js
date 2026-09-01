@@ -18,6 +18,8 @@
   let importUploading = false;
   let importFilterTimer = null;
   let expenseImportRows = [];
+  let expenseImportQuality = { summary: { needs_review: 0 }, providers: [] };
+  let expenseImportHealth = { running: false, pending: 0, current_import_id: null, current_phase: "idle" };
   let currentImportId = null;
   let importFilters = { query: "", status: "pending_review", supplier: "", category: "", quality: "", issue: "" };
   const selectedImportIds = new Set();
@@ -45,6 +47,11 @@
       <span class="next-confidence-track"><i style="width:${Math.max(0, Math.min(100, confidence))}%"></i></span>
       <small>${text(quality.hint)}</small>
     </div>`;
+  };
+  const fieldConfidenceMarkup = (fields = {}) => {
+    const labels = { supplier: "Proveedor", invoice_number: "Número", invoice_date: "Fecha", subtotal: "Subtotal", tax: "IVA", additional_tax: "Impuestos", total: "Total" };
+    const values = Object.entries(labels).map(([key, label]) => [label, fields.field_confidence?.[key]]).filter(([, value]) => value !== null && value !== undefined);
+    return values.length ? `<div class="next-field-confidence">${values.map(([label, value]) => `<span class="quality-${value >= 85 ? "high" : value >= 65 ? "medium" : "low"}">${text(label)} <strong>${value}%</strong></span>`).join("")}</div>` : "";
   };
   const accountingMarkup = (quality = {}, compact = false) => {
     const checks = [
@@ -123,15 +130,28 @@
     if (section === "purchases") loadPurchasePlans();
   }
 
+  function importPriority(row) {
+    const accounting = row.accounting_quality || {};
+    if (["pending", "processing"].includes(row.status)) return 0;
+    if (row.status === "error") return 1;
+    if (row.duplicate || accounting.duplicate) return 2;
+    if (Math.abs(Number(accounting.total_difference || 0)) > 0.02) return 3;
+    if (accounting.missing?.length) return 2;
+    return 3;
+  }
+
   function renderImportList() {
+
     const qualityOrder = { low: 0, medium: 1, processing: 2, high: 3 };
-    const visibleRows = filteredImportRows().sort((a, b) => (qualityOrder[importQuality(a).tone] ?? 4) - (qualityOrder[importQuality(b).tone] ?? 4) || Number(b.id) - Number(a.id));
+    const visibleRows = filteredImportRows().sort((a, b) => importPriority(a) - importPriority(b) || (qualityOrder[importQuality(a).tone] ?? 4) - (qualityOrder[importQuality(b).tone] ?? 4) || Number(b.id) - Number(a.id));
     const pending = expenseImportRows.filter((row) => ["pending", "processing"].includes(row.status)).length;
+    const phaseLabel = ({ preparing: "Preparando documento", extracting: "Extrayendo texto/OCR", validating: "Validando campos", lines: "Preparando líneas" })[expenseImportHealth.current_phase] || "Cola local secuencial";
     const reliable = visibleRows.filter((row) => ["ready", "review"].includes(row.status) && importQuality(row).tone === "high").length;
     const attention = visibleRows.filter((row) => ["ready", "review", "error"].includes(row.status) && importQuality(row).tone !== "high").length;
+    const patternReview = Number(expenseImportQuality.summary?.needs_review || 0);
     const eligibleRows = eligibleImportRows(visibleRows);
     const allEligibleSelected = eligibleRows.length > 0 && eligibleRows.every((row) => selectedImportIds.has(Number(row.id)));
-    $("#expenseImportMetrics").innerHTML = metric("En proceso", pending, "Cola local secuencial") + metric("Lectura fiable", reliable, "Listas para validar") + metric("Requieren atención", attention, "Revisar datos detectados");
+    $("#expenseImportMetrics").innerHTML = metric("En proceso", pending, phaseLabel) + metric("Lectura fiable", reliable, "Listas para validar") + metric("Requieren atención", attention, "Revisar datos detectados") + metric("Proveedores con señales", patternReview, patternReview ? "Revisión fuera de esta bandeja" : "Sin señales de regresión");
     const suppliers = [...new Map(expenseImportRows.filter((row) => row.detected_fields?.suggested_supplier_id).map((row) => [row.detected_fields.suggested_supplier_id, row.detected_fields.suggested_supplier_name])).entries()];
     $("#expenseImportTools").innerHTML = `<div class="next-import-filters">
       <label>Buscar<input type="search" data-import-filter="query" value="${text(importFilters.query)}" placeholder="Documento, proveedor, número"></label>
@@ -141,10 +161,12 @@
       <label>Lectura<select data-import-filter="quality"><option value="">Todas</option><option value="high" ${importFilters.quality === "high" ? "selected" : ""}>Fiable</option><option value="medium" ${importFilters.quality === "medium" ? "selected" : ""}>Revisable</option><option value="low" ${importFilters.quality === "low" ? "selected" : ""}>Atención</option></select></label>
       <label>Incidencia<select data-import-filter="issue"><option value="">Todas</option><option value="fields" ${importFilters.issue === "fields" ? "selected" : ""}>Faltan campos</option><option value="totals" ${importFilters.issue === "totals" ? "selected" : ""}>Totales no cuadran</option><option value="decisions" ${importFilters.issue === "decisions" ? "selected" : ""}>Decisiones pendientes</option><option value="duplicate" ${importFilters.issue === "duplicate" ? "selected" : ""}>Duplicado</option></select></label>
     </div><div class="next-batch-bar"><span><strong>${selectedImportIds.size}</strong> seleccionadas para crear borradores · ${eligibleRows.length} candidatas visibles</span><div class="next-batch-actions"><button type="button" class="ghost" data-select-all-eligible-imports ${eligibleRows.length ? "" : "disabled"}>${allEligibleSelected ? "Limpiar candidatas" : "Seleccionar candidatas"}</button><button type="button" data-batch-confirm-imports ${selectedImportIds.size ? "" : "disabled"}>Confirmar selección</button></div></div>`;
+    const patternRows = expenseImportQuality.providers?.filter((provider) => provider.needs_review) || [];
+
     $("#expenseImportList").innerHTML = visibleRows.length ? visibleRows.map((row) => `<article class="next-import-row is-${row.status}">
       <input class="next-import-select" type="checkbox" data-select-expense-import="${row.id}" ${selectedImportIds.has(Number(row.id)) ? "checked" : ""} ${row.accounting_quality?.batch_eligible && ["ready", "review"].includes(row.status) ? "" : "disabled"}>
       ${row.detected_fields?.suggested_supplier_name ? entityIconMarkup(row.detected_fields.suggested_supplier_name, { type: "supplier", className: "supplier-avatar compact", label: row.detected_fields.suggested_supplier_name }) : `<span class="next-file-icon"><svg><use href="#icon-file"></use></svg></span>`}
-      <div class="next-import-document"><strong>${text(row.original_name)}</strong><small>${row.detected_fields?.suggested_supplier_name ? `${text(row.detected_fields.suggested_supplier_name)} · ` : ""}${Math.round(Number(row.size || 0) / 1024)} KB</small><span class="next-import-facts"><em>${text(expenseCategoryLabel(row.detected_fields?.category))}</em>${row.detected_fields?.rule_source ? `<em>Regla aprendida</em>` : ""}${row.detected_fields?.invoice_date ? `<em>${text(row.detected_fields.invoice_date)}</em>` : ""}${row.detected_fields?.total !== null && row.detected_fields?.total !== undefined ? `<em>${currencyFormat(row.detected_fields.total, row.detected_fields.currency || "EUR")}</em>` : ""}</span></div>
+      <div class="next-import-document"><strong>${text(row.original_name)}</strong><small>${row.detected_fields?.suggested_supplier_name ? `${text(row.detected_fields.suggested_supplier_name)} · ` : ""}${Math.round(Number(row.size || 0) / 1024)} KB</small><span class="next-import-facts"><em>${text(expenseCategoryLabel(row.detected_fields?.category))}</em>${row.detected_fields?.rule_source ? `<em>Regla aprendida</em>` : ""}${row.detected_fields?.invoice_date ? `<em>${text(row.detected_fields.invoice_date)}</em>` : ""}${row.detected_fields?.total !== null && row.detected_fields?.total !== undefined ? `<em>${currencyFormat(row.detected_fields.total, row.detected_fields.currency || "EUR")}</em>` : ""}</span>${row.warnings?.length ? `<small class="next-import-warning"><svg><use href="#icon-alert"></use></svg>${text(row.warnings[0])}</small>` : ""}</div>
       <span class="status-pill ${row.status === "error" ? "danger" : row.status === "confirmed" ? "ok" : "warn"}">${statusText(row.status)}</span>
       ${confidenceMarkup(row, true)}
       ${accountingMarkup(row.accounting_quality, true)}
@@ -153,7 +175,10 @@
   }
 
   async function loadImports() {
-    expenseImportRows = await api("/api/expense-imports");
+    const [rows, quality, health] = await Promise.all([api("/api/expense-imports"), api("/api/expense-imports/quality"), api("/api/expense-imports/health")]);
+    expenseImportRows = rows;
+    expenseImportQuality = quality || expenseImportQuality;
+    expenseImportHealth = health || expenseImportHealth;
     [...selectedImportIds].forEach((id) => {
       if (!expenseImportRows.some((row) => Number(row.id) === id && row.accounting_quality?.batch_eligible)) selectedImportIds.delete(id);
     });
@@ -170,7 +195,8 @@
   function showImportNotice(message, tone = "ok") {
     const node = $("#expenseImportNotice");
     node.className = `next-import-notice tone-${tone}`;
-    node.innerHTML = message;
+    node.classList.remove("hidden");
+    node.innerHTML = `${message}<button type="button" class="next-notice-close icon-only" data-close-import-notice aria-label="Cerrar aviso" title="Cerrar aviso"><svg aria-hidden="true"><use href="#icon-x"></use></svg></button>`;
   }
 
   function renderSelectedFiles() {
@@ -188,7 +214,7 @@
 
   function evidenceTokens(fields, lines) {
     const values = Object.values(fields.evidence || {}).map((item) => item?.text).filter(Boolean);
-    values.push(fields.suggested_supplier_name, fields.invoice_number, fields.invoice_date, fields.subtotal, fields.discount, fields.shipping, fields.tax, fields.total);
+    values.push(fields.suggested_supplier_name, fields.invoice_number, fields.invoice_date, fields.subtotal, fields.discount, fields.shipping, fields.tax, fields.additional_tax, fields.total);
     lines.forEach((line) => {
       values.push(line.original_text, line.description);
       try {
@@ -199,7 +225,7 @@
     const stopWords = new Set(["para", "como", "este", "esta", "estos", "estas", "desde", "hasta", "todos", "todas", "pedido", "detalle", "articulo", "incluido", "incluida", "unids", "lote", "pago", "tiempo", "orden", "total", "subtotal"]);
     const tokens = new Set(values.flatMap((value) => normalizeEvidence(value).split(" "))
       .filter((token) => (/\d/.test(token) ? token.length >= 3 : token.length >= 5) && !stopWords.has(token)));
-    [fields.invoice_number, fields.subtotal, fields.discount, fields.shipping, fields.tax, fields.total].forEach((value) => {
+    [fields.invoice_number, fields.subtotal, fields.discount, fields.shipping, fields.tax, fields.additional_tax, fields.total].forEach((value) => {
       const token = normalizeEvidence(value);
       if (token.length >= 3) tokens.add(token);
     });
@@ -268,6 +294,12 @@
           zones.push({ left, top, width, height, title: coordinate.text || "Zona detectada" });
         }
       });
+      if (!zones.length) {
+        coordinates.filter((coordinate) => /\d|total|importe|fecha|factura|invoice|subtotal|order|paid/i.test(String(coordinate.text || ""))).slice(0, 12).forEach((coordinate) => {
+          const box = coordinate.bbox || coordinate;
+          zones.push({ left: Number(box.x0 || box.left || 0) * widthRatio - offset.x, top: Number(box.y0 || box.top || 0) * heightRatio - offset.y, width: Math.max(8, Number((box.x1 ?? box.right ?? 0) - (box.x0 ?? box.left ?? 0)) * widthRatio), height: Math.max(12, Number((box.y1 ?? box.bottom ?? 0) - (box.y0 ?? box.top ?? 0)) * heightRatio), title: coordinate.text || "OCR detectado · revisar" });
+        });
+      }
       zones.slice(0, 18).forEach((zone) => {
         const marker = document.createElement("span");
         marker.className = `document-evidence-zone ${Number(page.confidence || 0) >= 85 ? "is-reliable" : "is-review"}`;
@@ -277,6 +309,7 @@
       });
     };
     const usefulImageBounds = (image) => {
+      if (image.naturalWidth * image.naturalHeight > 12000000) return { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight };
       const canvas = document.createElement("canvas");
       canvas.width = image.naturalWidth;
       canvas.height = image.naturalHeight;
@@ -312,24 +345,25 @@
       image.src = source;
       await image.decode();
       const bounds = usefulImageBounds(image);
+      const renderScale = Math.min(1, 1600 / bounds.width, 2200 / bounds.height);
       const stage = document.createElement("div");
       stage.className = "annotated-document-page";
-      stage.style.width = `${bounds.width}px`;
-      stage.style.height = `${bounds.height}px`;
+      stage.style.width = `${Math.round(bounds.width * renderScale)}px`;
+      stage.style.height = `${Math.round(bounds.height * renderScale)}px`;
       const canvas = document.createElement("canvas");
       canvas.className = "annotated-document-image";
-      canvas.width = bounds.width;
-      canvas.height = bounds.height;
-      canvas.getContext("2d").drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+      canvas.width = Math.round(bounds.width * renderScale);
+      canvas.height = Math.round(bounds.height * renderScale);
+      canvas.getContext("2d").drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, canvas.width, canvas.height);
       stage.appendChild(canvas);
       host.replaceChildren(stage);
       host.dataset.fitZoom = String(Math.max(0.5, Math.min(3, (host.clientWidth - 44) / bounds.width)));
-      setZoom(1.5);
+      setZoom(Number(host.dataset.zoom || 1.5));
       const page = item.pages[0] || {};
       const coordinates = page.coordinates || page.words || [];
-      const widthRatio = image.naturalWidth / Number(page.ocr_width || image.naturalWidth);
-      const heightRatio = image.naturalHeight / Number(page.ocr_height || image.naturalHeight);
-      renderOverlay(stage, coordinates, page, widthRatio, heightRatio, null, { x: bounds.x, y: bounds.y });
+      const widthRatio = image.naturalWidth / Number(page.ocr_width || image.naturalWidth) * renderScale;
+      const heightRatio = image.naturalHeight / Number(page.ocr_height || image.naturalHeight) * renderScale;
+      renderOverlay(stage, coordinates, page, widthRatio, heightRatio, null, { x: bounds.x * renderScale, y: bounds.y * renderScale });
     };
     const renderPdf = async () => {
       if (!window.pdfjsLib) throw new Error("El motor de vista previa PDF no está disponible.");
@@ -362,6 +396,7 @@
     details.addEventListener("toggle", async () => {
       if (!details.open || host.dataset.rendered === "true") return;
       try {
+        if (host.dataset.documentKind === "image") setZoom(1.5);
         if (host.dataset.documentKind === "pdf") await renderPdf(); else await renderImage();
         host.dataset.rendered = "true";
       } catch (error) {
@@ -374,7 +409,18 @@
     detected_fields: document.document_detected_fields || document.detected_fields || {}
   }, lines, host);
 
-  async function openImport(id) {
+  async function waitForImportCompletion(id, timeoutMs = 180000) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const data = await api(`/api/expense-imports/${id}`);
+      const status = data.import?.status;
+      if (["ready", "review", "error", "confirmed", "discarded"].includes(status)) return data;
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+    throw new Error("El reproceso está tardando más de lo esperado. Puedes continuar y la bandeja se actualizará al terminar.");
+  }
+
+  async function openImport(id, options = {}) {
     const data = await api(`/api/expense-imports/${id}`);
     currentImportId = Number(id);
     const item = data.import;
@@ -406,8 +452,8 @@
     };
     $("#expenseImportListView").classList.add("hidden");
     $("#expenseImportDetail").classList.remove("hidden");
-    $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · ${text(expenseCategoryLabel(fields.category))}</p></div><div class="next-import-navigation"><span>${position + 1} de ${reviewRows.length}</span><button class="ghost" data-open-expense-import="${previous?.id || ""}" ${previous ? "" : "disabled"}>Anterior</button><button class="ghost" data-open-expense-import="${next?.id || ""}" ${next ? "" : "disabled"}>Siguiente</button><button class="ghost button-with-icon" data-close-expense-import><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar revisión</span></button><button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button></div></div>
-      <div class="next-review-quality quality-${quality.tone}">${confidenceMarkup(item)}${accountingMarkup(accounting)}<div><strong>${accounting.batch_eligible ? "Lista para confirmación segura" : "Aún necesita supervisión"}</strong><span>La lectura OCR mide lo entendido; el control contable comprueba campos, líneas, decisiones y duplicados.</span></div></div>
+    $("#expenseImportDetail").innerHTML = `<div class="panel-head"><div><h2>Validación de factura</h2><p>${text(item.original_name)} · ${text(expenseCategoryLabel(fields.category))}</p></div><div class="next-import-navigation"><span>${position + 1} de ${reviewRows.length}</span><button class="ghost" data-open-expense-import="${previous?.id || ""}" ${previous ? "" : "disabled"}>Anterior</button><button class="ghost" data-open-expense-import="${next?.id || ""}" ${next ? "" : "disabled"}>Siguiente</button><button class="ghost button-with-icon" data-close-expense-import><svg><use href="#icon-arrow-left"></use></svg><span>Cerrar revisión</span></button>${item.status === "confirmed" ? "" : `<button class="ghost" data-reprocess-import="${item.id}">Reprocesar</button>`}</div></div>
+      <div class="next-review-quality quality-${quality.tone}">${confidenceMarkup(item)}${fieldConfidenceMarkup(fields)}${accountingMarkup(accounting)}<div><strong>${accounting.batch_eligible ? "Lista para confirmación segura" : "Aún necesita supervisión"}</strong><span>La lectura OCR mide lo entendido; el control contable comprueba campos, líneas, decisiones y duplicados.</span></div></div>
       ${duplicateInvoiceMarkup(data.duplicates.exact || data.duplicates.warning, Boolean(data.duplicates.exact))}
       ${documentViewerMarkup({ stored_name: item.stored_name, original_name: item.original_name, mime_type: item.mime_type }, { context: "original", annotated: true })}
       <div class="next-validation-grid">
@@ -420,15 +466,20 @@
           <label>Descuento<input name="discount" type="number" step="0.01" value="${text(fields.discount ?? 0)}"></label>
           <label>Envío<input name="shipping" type="number" step="0.01" value="${text(fields.shipping ?? 0)}"></label>
           <label>IVA<input name="tax" type="number" step="0.01" value="${text(fields.tax ?? 0)}"></label>
+          <label>Impuestos adicionales<input name="additional_tax" type="number" step="0.01" value="${text(fields.additional_tax ?? 0)}"></label>
           <label>Total pagado<input name="total" type="number" step="0.01" value="${text(fields.total ?? "")}"></label>
           <label>Moneda<select name="currency"><option value="EUR" ${(fields.currency || "EUR") === "EUR" ? "selected" : ""}>EUR · Euro</option><option value="USD" ${fields.currency === "USD" ? "selected" : ""}>USD · Dólar</option></select></label>
           <button type="submit">Guardar revisión</button>
         </form>
         <div class="next-detected-pages"><strong>Lectura por página</strong>${item.pages.map((page) => `<div><span>Página ${page.page} · ${text(page.method)}</span><b>${Math.round(page.confidence)}%</b><i><em style="width:${Math.max(0, Math.min(100, Number(page.confidence || 0)))}%"></em></i></div>`).join("")}</div>
       </div>
-      <div class="next-lines"><div class="next-lines-head"><div><h3>Líneas sugeridas</h3><p>Los precios conservan el importe del producto con IVA incluido cuando el documento lo informa. Descuentos y envío permanecen en la cabecera.</p></div><div class="next-lines-head-actions"><div class="next-lines-balance"><span>Productos <strong>${currencyFormat(accounting.line_total, fields.currency || "EUR")}</strong></span><span>Subtotal <strong>${currencyFormat(accounting.subtotal, fields.currency || "EUR")}</strong></span><span>Descuento <strong>−${currencyFormat(accounting.discount, fields.currency || "EUR")}</strong></span><span>Envío <strong>${currencyFormat(accounting.shipping, fields.currency || "EUR")}</strong></span><span>Total pagado <strong>${currencyFormat(fields.total, fields.currency || "EUR")}</strong></span></div><button type="button" class="ghost" data-merge-import-lines="${item.id}">Combinar seleccionadas</button><button type="button" class="ghost" data-add-import-line="${item.id}">Añadir línea</button></div></div>${data.lines.length ? data.lines.map(lineMarkup).join("") : `<div class="empty-state">No se detectaron líneas fiables. Añade las necesarias antes de confirmar.</div>`}</div>
+      <div class="next-lines"><div class="next-lines-head"><div><h3>${fields.category === "envios" ? "Resumen de cargos" : "Líneas sugeridas"}</h3><p>${fields.category === "envios" ? "Esta factura se valida por su base imponible, IVA y total; no requiere líneas de producto." : "Los precios conservan el importe del producto con IVA incluido cuando el documento lo informa. Descuentos y envío permanecen en la cabecera."}</p></div><div class="next-lines-head-actions"><div class="next-lines-balance"><span>Productos <strong>${currencyFormat(accounting.line_total, fields.currency || "EUR")}</strong></span><span>Subtotal <strong>${currencyFormat(accounting.subtotal, fields.currency || "EUR")}</strong></span><span>Descuento <strong>−${currencyFormat(accounting.discount, fields.currency || "EUR")}</strong></span><span>Envío <strong>${currencyFormat(accounting.shipping, fields.currency || "EUR")}</strong></span><span>Impuestos adicionales <strong>${currencyFormat(fields.additional_tax || 0, fields.currency || "EUR")}</strong></span><span>Total pagado <strong>${currencyFormat(fields.total, fields.currency || "EUR")}</strong></span></div>${fields.category === "envios" ? "" : `${data.lines.some((line) => line.human_decision !== "accepted" && line.human_decision !== "rejected") ? `<button type="button" class="ghost button-with-icon" data-accept-all-import-lines="${item.id}"><svg aria-hidden="true"><use href="#icon-check-circle"></use></svg><span>Aceptar todas pendientes</span></button>` : ""}<button type="button" class="ghost" data-merge-import-lines="${item.id}">Combinar seleccionadas</button><button type="button" class="ghost" data-add-import-line="${item.id}">Añadir línea</button>`}</div></div>${data.lines.length ? data.lines.map(lineMarkup).join("") : `<div class="empty-state">${fields.category === "envios" ? "No hay líneas de producto: se conservará el resumen de cargos del documento." : "No se detectaron líneas fiables. Añade las necesarias antes de confirmar."}</div>`}</div>
       <div class="row-actions next-import-final-actions"><div class="next-discard-action"><button type="button" class="ghost" data-request-discard-import="${item.id}">Eliminar importación</button><span>El archivo y su lectura se borrarán definitivamente.</span></div><button type="button" ${data.duplicates.exact ? "disabled" : ""} data-confirm-import="${item.id}">Confirmar y crear factura borrador</button></div>`;
-    $("#expenseImportDetail").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (Number.isFinite(options.scrollTop)) {
+      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({ top: options.scrollTop, left: 0, behavior: "auto" })));
+    } else {
+      $("#expenseImportDetail").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     renderAnnotatedImportViewer(item, data.lines);
   }
 
@@ -728,8 +779,26 @@
         await openInvoice(button.dataset.openDuplicateInvoice);
       }
       if (Object.prototype.hasOwnProperty.call(button.dataset, "closeExpenseImport")) showImportList();
+      if (Object.prototype.hasOwnProperty.call(button.dataset, "closeImportNotice")) { $("#expenseImportNotice").classList.add("hidden"); return; }
       if (button.dataset.openExpenseImport) await openImport(button.dataset.openExpenseImport);
-      if (button.dataset.reprocessImport) { await api(`/api/expense-imports/${button.dataset.reprocessImport}/reprocess`, { method: "POST" }); await loadImports(); }
+      if (button.dataset.reprocessImport) {        button.disabled = true; button.textContent = "Reprocesando…"; toast("Reprocesando factura…");
+        showImportNotice(`<span class="next-spinner"></span><div><strong>Reprocesando documento</strong><small>La extracción está volviendo a ejecutarse. Puedes seguir viendo la bandeja mientras termina.</small></div>`, "progress");
+        await api(`/api/expense-imports/${button.dataset.reprocessImport}/reprocess`, { method: "POST" });
+        const refreshed = await waitForImportCompletion(button.dataset.reprocessImport);
+        await loadImports();
+        await openImport(button.dataset.reprocessImport);
+        toast(refreshed.import.status === "error" ? "El reproceso ha terminado con errores; revisa los avisos." : "Reproceso concluido; la factura se ha actualizado.");
+        showImportNotice(`<div><strong>Reproceso concluido</strong><small>La factura se ha actualizado con la nueva extracción.</small></div>`, "ok");
+      }
+      if (button.dataset.acceptAllImportLines) {
+        const importId = button.dataset.acceptAllImportLines;
+        const scrollTop = window.scrollY;
+        button.disabled = true;
+        button.querySelector("span")?.replaceChildren(document.createTextNode("Aceptando…"));
+        const result = await api(`/api/expense-imports/${importId}/lines/accept-all`, { method: "POST", body: JSON.stringify({}) });
+        toast(`${result.accepted_count} líneas aceptadas`);
+        await openImport(importId, { scrollTop });
+      }
       if (Object.prototype.hasOwnProperty.call(button.dataset, "batchConfirmImports")) {
         const result = await api("/api/expense-imports/batch-confirm", { method: "POST", body: JSON.stringify({ ids: [...selectedImportIds] }) });
         selectedImportIds.clear();
@@ -794,6 +863,7 @@
         await openImport(button.dataset.mergeImportLines);
       }
       if (button.dataset.saveImportLine) {
+        const scrollTop = window.scrollY;
         const row = button.closest("[data-import-line-row]");
         const body = Object.fromEntries(Array.from(row.querySelectorAll("[data-line-field]")).map((input) => [input.dataset.lineField, input.value]));
         body.package_count = number(body.package_count);
@@ -806,7 +876,7 @@
         body.suggested_material_id = body.suggested_material_id || null;
         await api(`/api/expense-imports/${button.dataset.importId}/lines/${button.dataset.saveImportLine}`, { method: "PATCH", body: JSON.stringify(body) });
         toast("Línea actualizada");
-        await openImport(button.dataset.importId);
+        await openImport(button.dataset.importId, { scrollTop });
       }
       if (button.id === "createPurchasePlan") {
         const lines = Array.from(document.querySelectorAll("[data-replenishment-select]:checked")).map((node) => ({
@@ -989,7 +1059,7 @@
     if (event.target.id !== "expenseImportReviewForm") return;
     event.preventDefault();
     const detected_fields = Object.fromEntries(new FormData(event.target).entries());
-    ["subtotal", "discount", "shipping", "tax", "total"].forEach((field) => {
+    ["subtotal", "discount", "shipping", "tax", "additional_tax", "total"].forEach((field) => {
       detected_fields[field] = Number(detected_fields[field] || 0);
     });
     await api(`/api/expense-imports/${event.target.dataset.importId}`, { method: "PATCH", body: JSON.stringify({ detected_fields }) });

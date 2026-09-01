@@ -174,7 +174,7 @@
             <section id="expenseImportPanel" class="next-evolution-panel hidden">
               <div id="expenseImportListView" class="next-import-list-view">
               <section class="panel next-import-hero">
-                <div class="next-import-copy"><span class="next-import-icon"><svg><use href="#icon-file"></use></svg></span><div><h2>Importar facturas</h2><p>Arrastra PDFs o imágenes. Se procesan localmente y siempre requieren tu validación.</p><small>Hasta 20 archivos · 10 MB por archivo · PDF, JPG, PNG o WebP</small></div></div>
+                <div class="next-import-copy"><span class="next-import-icon" aria-hidden="true"><svg><use href="#icon-note"></use></svg></span><div><h2>Importar facturas</h2><p>Arrastra PDFs o imágenes. Se procesan localmente y siempre requieren tu validación.</p><small>Hasta 20 archivos · 10 MB por archivo · PDF, JPG, PNG o WebP</small></div></div>
                 <form id="expenseImportUploadForm" class="next-upload-form">
                   <label id="expenseImportDropzone" class="next-upload-dropzone">
                     <input name="documents" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple required>
@@ -320,6 +320,7 @@
                       <label class="required"><span class="field-label"><svg><use href="#icon-coin"></use></svg><span>Subtotal</span></span><input name="subtotal" inputmode="decimal" placeholder="0,00"></label>
                       <label><span class="field-label"><svg><use href="#icon-percent"></use></svg><span>Descuento</span></span><input name="discount" inputmode="decimal" placeholder="0,00"></label>
                       <label><span class="field-label"><svg><use href="#icon-percent"></use></svg><span>IVA</span></span><input name="tax" inputmode="decimal" placeholder="0,00"></label>
+                      <label><span class="field-label"><svg><use href="#icon-percent"></use></svg><span>Impuestos adicionales</span></span><input name="additional_tax" inputmode="decimal" placeholder="0,00"></label>
                       <label><span class="field-label"><svg><use href="#icon-truck"></use></svg><span>Envío</span></span><input name="shipping" inputmode="decimal" placeholder="0,00"></label>
                       <label class="required"><span class="field-label"><svg><use href="#icon-coin"></use></svg><span>Total</span></span><input name="total" inputmode="decimal" required placeholder="0,00"></label>
                     </div>
