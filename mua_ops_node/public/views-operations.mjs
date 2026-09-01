@@ -158,9 +158,9 @@ export function createOperationViews(ctx) {
     const web = $("#supplierWebFilter")?.value;
     const lane = $("#supplierStatusTabs")?.dataset.activeLane || "";
     if (category) rows = rows.filter((supplier) => String(supplier.category || "") === String(category));
-    if (lead === "short") rows = rows.filter((supplier) => number(supplier.lead_time_days) > 0 && number(supplier.lead_time_days) <= 7);
-    if (lead === "medium") rows = rows.filter((supplier) => number(supplier.lead_time_days) >= 8 && number(supplier.lead_time_days) <= 14);
-    if (lead === "long") rows = rows.filter((supplier) => number(supplier.lead_time_days) >= 15);
+    if (lead === "short") rows = rows.filter((supplier) => supplierStats(supplier).materials.length > 0 && number(supplier.lead_time_days) > 0 && number(supplier.lead_time_days) <= 7);
+    if (lead === "medium") rows = rows.filter((supplier) => supplierStats(supplier).materials.length > 0 && number(supplier.lead_time_days) >= 8 && number(supplier.lead_time_days) <= 14);
+    if (lead === "long") rows = rows.filter((supplier) => supplierStats(supplier).materials.length > 0 && number(supplier.lead_time_days) >= 15);
     if (web === "with") rows = rows.filter((supplier) => String(supplier.website || "").trim());
     if (web === "without") rows = rows.filter((supplier) => !String(supplier.website || "").trim());
     if ($("#suppliersWithMaterials")?.checked) rows = rows.filter((supplier) => supplierStats(supplier).materials.length > 0);
@@ -191,7 +191,7 @@ export function createOperationViews(ctx) {
     const withMaterials = active.filter((supplier) => supplierStats(supplier).materials.length);
     const invoiceCount = state.invoices.filter((invoice) => !invoice.is_deleted && invoice.supplier_id).length;
     const totalSpend = state.invoices.filter((invoice) => !invoice.is_deleted && invoice.supplier_id).reduce((sum, invoice) => sum + number(invoice.total), 0);
-    const leadValues = active.map((supplier) => number(supplier.lead_time_days)).filter(Boolean);
+    const leadValues = active.filter((supplier) => supplierStats(supplier).materials.length > 0).map((supplier) => number(supplier.lead_time_days)).filter(Boolean);
     const avgLead = leadValues.length ? Math.round(leadValues.reduce((sum, value) => sum + value, 0) / leadValues.length) : 0;
     const incomplete = active.filter((supplier) => {
       const stats = supplierStats(supplier);
@@ -305,7 +305,7 @@ export function createOperationViews(ctx) {
               <span><strong>${text(supplier.name)}</strong><small>${supplier.website ? `<a href="${text(supplier.website)}" target="_blank" rel="noreferrer">${text(supplier.website)}</a>` : "Sin web"}</small></span>
             </span>
             <span>${badge(supplier.category || "Sin categoria")}</span>
-            <span>${badge(supplierLeadLabel(supplier.lead_time_days), supplierLeadTone(supplier.lead_time_days))}</span>
+            <span>${supplierStats(supplier).materials.length ? badge(supplierLeadLabel(supplier.lead_time_days), supplierLeadTone(supplier.lead_time_days)) : text("No aplica")}</span>
             <span class="supplier-number-stack"><strong>${text(stats.materials.length)}</strong><small>${stats.criticalMaterials.length ? `${stats.criticalMaterials.length} a reponer` : "sin alertas"}</small></span>
             <span class="supplier-number-stack"><strong>${text(stats.invoices.length)}</strong><small>${stats.lastInvoice ? text(stats.lastInvoice.invoice_date) : "sin compras"}</small></span>
             <span class="amount">${euro.format(stats.spend)}</span>
