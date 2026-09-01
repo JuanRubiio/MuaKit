@@ -155,24 +155,18 @@ export function createOperationViews(ctx) {
     let rows = applyTextSearch([...state.suppliers], $("#supplierSearch")?.value, ["name", "category", "website", "notes"]);
     const category = $("#supplierCategoryFilter")?.value;
     const lead = $("#supplierLeadFilter")?.value;
-    const web = $("#supplierWebFilter")?.value;
     const lane = $("#supplierStatusTabs")?.dataset.activeLane || "";
     if (category) rows = rows.filter((supplier) => String(supplier.category || "") === String(category));
     if (lead === "short") rows = rows.filter((supplier) => supplierStats(supplier).materials.length > 0 && number(supplier.lead_time_days) > 0 && number(supplier.lead_time_days) <= 7);
     if (lead === "medium") rows = rows.filter((supplier) => supplierStats(supplier).materials.length > 0 && number(supplier.lead_time_days) >= 8 && number(supplier.lead_time_days) <= 14);
     if (lead === "long") rows = rows.filter((supplier) => supplierStats(supplier).materials.length > 0 && number(supplier.lead_time_days) >= 15);
-    if (web === "with") rows = rows.filter((supplier) => String(supplier.website || "").trim());
-    if (web === "without") rows = rows.filter((supplier) => !String(supplier.website || "").trim());
-    if ($("#suppliersWithMaterials")?.checked) rows = rows.filter((supplier) => supplierStats(supplier).materials.length > 0);
     if (lane) {
       rows = rows.filter((supplier) => {
         const stats = supplierStats(supplier);
         if (lane === "active") return !supplier.is_deleted;
         if (lane === "archived") return supplier.is_deleted;
         if (lane === "critical") return stats.criticalMaterials.length > 0;
-        if (lane === "missing_web") return !stats.hasWebsite;
         if (lane === "missing_lead") return stats.materials.length > 0 && !stats.hasLead;
-        if (lane === "missing_materials") return !stats.materials.length;
         return true;
       });
     }
@@ -203,7 +197,7 @@ export function createOperationViews(ctx) {
       ["Gastos", invoiceCount, "Compras con proveedor", "icon-file", "neutral"],
       ["Gasto", euro.format(totalSpend), "Compras registradas", "icon-coin", "gold"],
       ["Plazo medio", avgLead ? `${avgLead} dias` : "-", "Tiempo de reposicion", "icon-clock", "rose"],
-      ["Por completar", incomplete.length, "Web, plazo o materiales", "icon-alert", "warn"]
+      ["Por completar", incomplete.length, "Web o plazo de materiales", "icon-alert", "warn"]
     ];
     $("#supplierSummaryCards").innerHTML = cards.map(([label, value, hint, icon, tone]) => `
       <article class="suppliers-summary-card tone-${tone}">
@@ -236,9 +230,7 @@ export function createOperationViews(ctx) {
     const active = allRows.filter((supplier) => !supplier.is_deleted);
     const items = [
       ["critical", "Reposicion critica", active.filter((supplier) => supplierStats(supplier).criticalMaterials.length).length, "Materiales por debajo del aviso", "danger", "icon-alert"],
-      ["missing_web", "Sin web", active.filter((supplier) => !supplierStats(supplier).hasWebsite).length, "Completa enlace de compra", "warn", "icon-link"],
       ["missing_lead", "Sin plazo", active.filter((supplier) => { const stats = supplierStats(supplier); return stats.materials.length > 0 && !stats.hasLead; }).length, "Falta tiempo medio de entrega para materiales", "warn", "icon-clock"],
-      ["missing_materials", "Sin materiales", active.filter((supplier) => !supplierStats(supplier).materials.length).length, "No suministra materiales preferentes", "accent", "icon-cube"],
       ["archived", "Archivados", allRows.filter((supplier) => supplier.is_deleted).length, "Fichas fuera de uso", "neutral", "icon-archive"]
     ];
     $("#supplierReviewQueue").innerHTML = items.map(([lane, label, count, hint, tone, icon]) => `
@@ -256,8 +248,6 @@ export function createOperationViews(ctx) {
       ["", "Todos", allRows.length],
       ["active", "Activos", allRows.filter((supplier) => !supplier.is_deleted).length],
       ["critical", "Criticos", allRows.filter((supplier) => supplierStats(supplier).criticalMaterials.length).length],
-      ["missing_web", "Sin web", allRows.filter((supplier) => !supplierStats(supplier).hasWebsite).length],
-      ["missing_materials", "Sin materiales", allRows.filter((supplier) => !supplierStats(supplier).materials.length).length]
     ];
     const active = $("#supplierStatusTabs")?.dataset.activeLane || "";
     $("#supplierStatusTabs").innerHTML = `<div class="invoice-status-strip">${lanes.map(([lane, label, count]) => `
@@ -746,7 +736,6 @@ export function createOperationViews(ctx) {
       ["missing", "Pedidos revisables", reviewable.length, `${total ? Math.round((reviewable.length / total) * 100) : 0}% del total necesita revision`, reviewable.length ? "warn" : "ok", "icon-alert"],
       ["missing_lines", "Sin desglose", missingLines.length, "Pedidos sin lineas Shopify sincronizadas", missingLines.length ? "warn" : "ok", "icon-file"],
       ["missing_set", "Set pendiente", missingSets.length, "Tipología sin set por defecto", missingSets.length ? "warn" : "ok", "icon-layers"],
-      ["missing_materials", "Bloqueo de coste", missingMaterials.length + missingCosts.length, `${missingMaterials.length} sin material · ${missingCosts.length} sin coste`, (missingMaterials.length + missingCosts.length) ? "danger" : "ok", "icon-link"],
       ["low_margin", "Presion de margen", lowMargin.length, "Pedidos por debajo del umbral operativo", lowMargin.length ? "danger" : "ok", "icon-chart"]
     ];
     $("#ordersReviewQueue").innerHTML = items.map(([status, label, count, hint, tone, icon]) => `
