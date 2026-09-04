@@ -362,7 +362,7 @@ function likinAgencyFields(lines) {
   const tax = amount(text.match(/^\s*iva\s*(?:\d+(?:[.,]\d+)?%?)?\s*:\s*([0-9][0-9.,]*)/im)?.[1]);
   const total = amount(text.match(/^\s*a\s+pagar\s*:\s*([0-9][0-9.,]*)/im)?.[1]) ?? amount(text.match(/^\s*total\s*:\s*([0-9][0-9.,]*)/im)?.[1]);
   const withholding = amount(text.match(/^\s*irpf[^\n]*?\s+(-?[0-9][0-9.,]*)\s*€/im)?.[1]);
-  return { invoice_number: invoiceNumber, invoice_date: numericDateToIso(dateText), subtotal, tax, additional_tax: 0, total, currency: "EUR", category: "servicios", supplier_hint: "likinagency", suppress_lines: true, withholding_tax: withholding };
+  return { invoice_number: invoiceNumber, invoice_date: numericDateToIso(dateText), subtotal, discount: withholding ?? 0, tax, additional_tax: 0, total, currency: "EUR", category: "servicios", supplier_hint: "likinagency", suppress_lines: true };
 }
 function sendcloudFields(lines) {
   const text = lines.join("\n");
