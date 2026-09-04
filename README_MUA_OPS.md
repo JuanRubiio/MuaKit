@@ -1,5 +1,7 @@
 # Mua Ops
 
+Release estable actual: **v1.2.4** (`v1.2.4`).
+
 Aplicacion local para gestionar la operativa de Mua Kit: materiales,
 proveedores, facturas, adjuntos, lineas de compra, costes medios, kits,
 cobros, Shopify sync e historial.
@@ -20,6 +22,7 @@ http://127.0.0.1:5055
 
 ```powershell
 npm test
+npm run test:ui:smoke
 ```
 
 La prueba levanta el servidor en el puerto `5065` con una base SQLite temporal
@@ -49,7 +52,7 @@ data\mua_ops\backups
 Importante: los backups contienen toda la base local, incluida configuracion
 privada como credenciales de Shopify. Tratalos como datos privados.
 
-El fichero tactico anterior queda solo como fuente de migracion historica:
+El fichero tactico anterior queda solo como fuente de migracion historica; no es necesario para arrancar la app actual:
 
 ```text
 data\mua_ops\mua_ops.json
@@ -103,17 +106,9 @@ materiales, costes medios, puntos de reposicion y composicion de kits.
 
 ## Versionado
 
-El MVP estable esta etiquetado como:
+La release estable actual es `v1.2.4`. El alcance y la validación están en `docs/releases/v1.2.4.md`.
 
-```text
-mua-ops-mvp-v0.1
-```
-
-La estabilizacion tecnica se trabaja en:
-
-```text
-codex/technical-stabilization
-```
+El MVP original conserva el tag histórico `mua-ops-mvp-v0.1`. Las ramas de trabajo usan el prefijo `codex/`; esta release se publicó desde `codex/intelligent-replenishment-v2` y está preparada para PR a `main`.
 
 ## Metodologia SDD
 

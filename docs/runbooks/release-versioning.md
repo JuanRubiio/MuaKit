@@ -11,7 +11,8 @@ codex/<nombre>
 Ramas importantes:
 
 - `codex/shopify-direct-sync`: base del MVP v0.1.
-- `codex/technical-stabilization`: estabilizacion tecnica actual.
+- `main`: rama objetivo de integración.
+- `codex/intelligent-replenishment-v2`: rama de esta release, publicada en GitHub.
 
 ## Cierre de una fase
 
@@ -36,7 +37,19 @@ npm test
 - `v1.1.0`: cierre de la remodelacion visual.
 - `v1.2.0`: gastos automatizados y primera version de reposicion.
 - `v1.2.1`: refuerzo de la bandeja de importacion.
-- `v1.2.2`: Dashboard de control y estabilizacion previa al rediseño de reposicion.
+- `v1.2.2`: Dashboard de control y estabilización previa al rediseño de reposición.
+- `v1.2.3`: estabilización adicional de smoke tests.
+- `v1.2.4`: cierre de importación OCR, patrones por proveedor, proveedores y control contable.
+
+## Preparación de PR a main
+
+Antes de abrir el PR:
+
+1. Confirmar `git status --short` vacío.
+2. Ejecutar `npm test` y `npm run test:ui:smoke`.
+3. Revisar migraciones, documentación de release y cambios de datos.
+4. Comparar la rama contra `main` y revisar que no haya archivos generados o secretos.
+5. Publicar la rama y el tag; el merge a `main` debe hacerse mediante PR.
 
 ## Antes de cambios con datos
 

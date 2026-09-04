@@ -17,12 +17,11 @@ margen debe tener una spec antes de implementarse.
 
 ## Estado actual
 
-La version MVP queda documentada retrospectivamente en:
+La versión estable actual es `v1.2.4`, publicada desde la rama `codex/intelligent-replenishment-v2`. Su alcance y validación están documentados en `releases/v1.2.4.md` y el procedimiento de cierre en `runbooks/release-versioning.md`. La versión MVP queda documentada retrospectivamente en:
 
 - `specs/000-retro-mua-ops-mvp-v0.1.md`
 - `specs/001-retro-shopify-direct-sync.md`
 - `specs/002-retro-income-and-finance-dashboard.md`
 - `specs/003-retro-technical-stabilization-v0.2.md`
 
-La siguiente spec nueva deberia escribirse cuando las facturas esten al dia y
-tengamos una foto real del negocio.
+Las specs nuevas deben acompañar cualquier cambio que afecte a dinero, stock, proveedores, facturas, Shopify o cálculos. Los documentos tácticos anteriores se conservan en `legacy/` y no describen el flujo operativo actual.
