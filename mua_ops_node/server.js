@@ -1057,6 +1057,13 @@ const SCHEMA_MIGRATIONS = [
         );
       `);
     }
+  },
+  {
+    id: "020_invoice_additional_tax",
+    name: "Add additional taxes to invoices",
+    up: ({ ensureColumn }) => {
+      ensureColumn("invoices", "additional_tax", "REAL NOT NULL DEFAULT 0");
+    }
   }
 ];
 
@@ -3782,6 +3789,7 @@ function invoiceParams(b) {
     discount: n(b.discount),
     shipping: n(b.shipping),
     tax: n(b.tax),
+    additionalTax: n(b.additional_tax),
     total: n(b.total),
     currency: b.currency || "EUR",
     status: b.status || "draft",
