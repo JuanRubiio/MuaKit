@@ -307,6 +307,19 @@ Amount due $45.00 USD`;
   const euroFields = detectFields("Shopify\nPaid on Jun 12, 2026\nTOTAL €17.25 EUR\nBill #543058864");
   assert(euroFields.total === 17.25 && euroFields.currency === "EUR", "The currency attached to invoice total should win over other currencies");
   assert(euroFields.invoice_number === "543058864" && euroFields.invoice_date === "2026-06-12", "Common invoice references and named dates should be normalized");
+  const sendcloudFields = detectFields("Sendcloud BV\nMüa Fecha de factura 17-08-2026\nNúmero de factura 1-26-ES0044207\nBase imponible (sin IVA) 306,01 €\nIVA (21%) 64,26 €\nImporte total 370,27 €");
+  assert(sendcloudFields.invoice_number === "1-26-ES0044207" && sendcloudFields.invoice_date === "2026-08-17" && sendcloudFields.total === 370.27, "Sendcloud invoice summaries should normalize invoice number, ISO date and total");
+  assert(sendcloudFields.subtotal === 306.01 && sendcloudFields.tax === 64.26, "Sendcloud subtotal should use the taxable base, not the shipping section total");
+  const sendcloudEvidence = fieldEvidence(sendcloudFields, [{ page: 1, text: "Base imponible (sin IVA) 306,01 €\nIVA (21%) 64,26 €" }]);
+  assert(sendcloudEvidence.subtotal?.text.includes("Base imponible") && sendcloudEvidence.tax?.text.includes("IVA") && typeof sendcloudEvidence.subtotal?.confidence === "number", "Sendcloud taxable base and VAT should retain visual evidence with field confidence");
+  const shippingQuality = accountingQuality({ suggested_supplier_id: 3429, invoice_number: "1-26-ES0044207", invoice_date: "2026-08-17", total: 370.27, subtotal: 306.01, tax: 64.26, category: "envios" }, []);
+  assert(shippingQuality.lines_match && shippingQuality.decisions_complete && shippingQuality.batch_eligible, "Shipping imports without product lines should be batch eligible");
+  const mismatchedShippingQuality = accountingQuality({ suggested_supplier_id: 3429, invoice_number: "1-26-ES0045917", invoice_date: "2026-08-31", total: 284.27, subtotal: 243.93, tax: 49.34, category: "envios" }, []);
+  assert(!mismatchedShippingQuality.lines_match && !mismatchedShippingQuality.batch_eligible, "Shipping imports without lines must still be blocked when taxable base plus VAT does not reconcile to the total");
+  assert(detectedInvoiceLines(sendcloudFields.lines, sendcloudFields).length === 0, "Sendcloud summaries should never generate product lines");
+  const ikeaFields = detectFields("IKEA\nNº iSell: 1613657840\nTotal (con IVA) 753,83\n6/7/26");
+  assert(ikeaFields.invoice_number === "1613657840" && ikeaFields.invoice_date === "2026-07-06" && ikeaFields.total === 753.83, "IKEA order summaries should recover references, short dates and bare totals");
+  assert(detectFields("Fecha 31/02/2026").invoice_date === "", "Invalid calendar dates must not be accepted from OCR");
   assert(detectedInvoiceLines(["TOTAL €17.25 EUR", "Mua Kit Apps (1 item) €17.25 EUR", "Globo Product Options $19.90 USD", "Payment status paid"]).length === 1, "Only plausible product lines should become suggestions");
   const convertedLine = parseInvoiceLine("Globo Product Options $19.90 USD", { currency: "EUR", exchange_rate: { from: "USD", rate: 0.8669, to: "EUR" } });
   assert(convertedLine.description === "Globo Product Options" && convertedLine.converted_amount === 17.2513, "Suggested lines should keep a clean description and convert to invoice currency");
@@ -362,8 +375,18 @@ Cosas a tener en cuenta:`;
   assert(aliFields.total === 8.53 && aliFields.subtotal === 9.96 && aliFields.discount === 1.43 && aliFields.shipping === 0, "AliExpress payment totals and summary amounts should be parsed despite OCR decimal loss");
   assert(inferExpenseCategory(aliExpressText, "envios", ["envios"]) === "materiales", "AliExpress order summaries should be classified as material expenses");
   const aliLines = detectedAliExpressLines(aliFields.lines, aliFields);
-  assert(aliLines.length === 2 && aliLines[0].quantity === 2, "AliExpress item blocks should preserve products and quantities");
+  assert(aliLines.length === 2 && aliLines[0].package_count === 2 && aliLines[0].units_per_package === 10 && aliLines[0].total_units === 20, "AliExpress item blocks should preserve products and quantities");
   assert(Math.abs(aliLines.reduce((sum, line) => sum + line.line_total, 0) - aliFields.subtotal) < 0.01, "AliExpress product lines should preserve gross prices before invoice discounts");
+  const aliPackageText = `AliExpress
+Detalle del artículo
+Pinzas de acero inoxidable 3/12 pie
+Silvery 12 pes
+3,79€ x11
+Shop1104152584 Store
+Cosas a tener en cuenta:`;
+  const aliPackageFields = detectFields(aliPackageText);
+  const aliPackageLine = detectedAliExpressLines(aliPackageFields.lines, aliPackageFields)[0];
+  assert(aliPackageLine.package_count === 11 && aliPackageLine.units_per_package === 12 && aliPackageLine.total_units === 132 && aliPackageLine.price_per_package === 3.79 && Math.abs(aliPackageLine.unit_price - 0.315833) < 0.000001 && aliPackageLine.line_total === 41.69, "AliExpress package structure should preserve packages, units per package and package price");
   const alibabaText = `Receipt
 Marketplace Operator:
 Receipt number: #27996940501042809
@@ -918,6 +941,11 @@ Importe total adeudado EUR 0,00`;
     });
     assert(invoice.id, "Invoice should be created");
 
+    const duplicatedInvoice = await request("POST", `/api/invoices/${invoice.id}/duplicate`);
+    assert(duplicatedInvoice.status === "draft", "Duplicated invoice should be created as a draft");
+    assert(duplicatedInvoice.additional_tax === 0, "Duplicated invoice should default additional tax to zero");
+    assert(duplicatedInvoice.invoice_number === "TEST-001 copia", "Duplicated invoice should suffix the invoice number");
+
     const taxInvoice = await request("POST", "/api/invoices", {
       supplier_id: socialSecuritySupplier.id,
       invoice_number: "TGSS-TEST-001",
@@ -1247,6 +1275,10 @@ Importe total adeudado EUR 0,00`;
     assert(confirmedImport.invoice_id > 0, "Human confirmation should create a draft invoice transactionally");
     const importedInvoice = await request("GET", `/api/invoices/${confirmedImport.invoice_id}`);
     assert(importedInvoice.invoice.status === "draft", "Imported expense must remain draft after confirmation");
+    const confirmedReprocess = await requestRaw("POST", `/api/expense-imports/${expenseImport.id}/reprocess`, {});
+    assert(confirmedReprocess.response.status === 400 && confirmedReprocess.payload.code === "EXPENSE_IMPORT_CONFIRMED", "Confirmed imports must reject reprocessing");
+    const qualityMetrics = await request("GET", "/api/expense-imports/quality");
+    assert(Array.isArray(qualityMetrics.providers) && qualityMetrics.summary && Number.isFinite(qualityMetrics.summary.reviewed), "Expense import quality should expose provider learning metrics");
     const duplicateImportForm = new FormData();
     duplicateImportForm.append("documents", new Blob([tinyPng], { type: "image/png" }), "invoice-test.png");
     const duplicateUpload = await fetch(`${BASE_URL}/api/expense-imports`, { method: "POST", body: duplicateImportForm });

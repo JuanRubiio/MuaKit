@@ -40,8 +40,8 @@ function registerInvoiceRoutes(app, ctx) {
   app.post("/api/invoices", (req, res) => {
     const b = req.body;
     const id = insert(
-      `INSERT INTO invoices (supplier_id, document_id, invoice_number, invoice_date, category, subtotal, discount, shipping, tax, total, currency, status, notes)
-       VALUES ($supplier, $document, $number, $date, $category, $subtotal, $discount, $shipping, $tax, $total, $currency, $status, $notes)`,
+      `INSERT INTO invoices (supplier_id, document_id, invoice_number, invoice_date, category, subtotal, discount, shipping, tax, additional_tax, total, currency, status, notes)
+       VALUES ($supplier, $document, $number, $date, $category, $subtotal, $discount, $shipping, $tax, $additionalTax, $total, $currency, $status, $notes)`,
       invoiceParams(b)
     );
     const after = one("SELECT * FROM invoices WHERE id=$id", { id });
@@ -89,7 +89,7 @@ function registerInvoiceRoutes(app, ctx) {
 
   app.patch("/api/invoices/:id", (req, res) => {
     updateEntity("invoices", "invoice", req.params.id, req.body, [
-      "supplier_id", "document_id", "invoice_number", "invoice_date", "category", "subtotal", "discount", "shipping", "tax", "total", "currency", "status", "notes"
+      "supplier_id", "document_id", "invoice_number", "invoice_date", "category", "subtotal", "discount", "shipping", "tax", "additional_tax", "total", "currency", "status", "notes"
     ], res);
   });
 
@@ -97,9 +97,9 @@ function registerInvoiceRoutes(app, ctx) {
     const source = one("SELECT * FROM invoices WHERE id=$id", { id: req.params.id });
     if (!source) return notFound(res, "Factura no encontrada", "INVOICE_NOT_FOUND");
     const id = insert(
-      `INSERT INTO invoices (supplier_id, document_id, invoice_number, invoice_date, category, subtotal, discount, shipping, tax, total, currency, status, notes)
-       VALUES ($supplier_id, $document_id, $invoice_number, $invoice_date, $category, $subtotal, $discount, $shipping, $tax, $total, $currency, 'draft', $notes)`,
-      { ...source, invoice_number: `${source.invoice_number || "sin-numero"} copia` }
+      `INSERT INTO invoices (supplier_id, document_id, invoice_number, invoice_date, category, subtotal, discount, shipping, tax, additional_tax, total, currency, status, notes)
+       VALUES ($supplier_id, $document_id, $invoice_number, $invoice_date, $category, $subtotal, $discount, $shipping, $tax, $additionalTax, $total, $currency, 'draft', $notes)`,
+      { ...source, additionalTax: source.additional_tax ?? 0, invoice_number: `${source.invoice_number || "sin-numero"} copia` }
     );
     for (const line of query("SELECT * FROM invoice_lines WHERE invoice_id=$id AND is_deleted=0", { id: req.params.id })) {
       insert(
