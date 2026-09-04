@@ -23,12 +23,13 @@ function accountingQuality(fields, lines, duplicates = {}) {
   const shipping = Number(fields.shipping || 0);
   const tax = Number(fields.tax || 0);
   const additionalTax = Number(fields.additional_tax || 0);
+  const withholdingTax = Number(fields.withholding_tax || 0);
   const total = Number(fields.total || 0);
   const subtotalDifference = Number((lineTotal - subtotal).toFixed(2));
   const grossDifference = Number((lineTotal - total).toFixed(2));
   const totalWithoutAddedTax = Number((subtotal - discount + shipping).toFixed(2));
-  const totalWithAddedTax = Number((totalWithoutAddedTax + tax + additionalTax).toFixed(2));
-  const linesAreOptional = fields.category === "envios";
+  const totalWithAddedTax = Number((totalWithoutAddedTax + tax + additionalTax - withholdingTax).toFixed(2));
+  const linesAreOptional = ["envios", "servicios"].includes(fields.category);
   const linesAreGross = activeLines.length > 0 && Math.abs(grossDifference) <= 0.02;
   const calculatedTotal = linesAreGross ? lineTotal : Math.abs(totalWithoutAddedTax - total) <= Math.abs(totalWithAddedTax - total) ? totalWithoutAddedTax : totalWithAddedTax;
   const totalDifference = Number((calculatedTotal - total).toFixed(2));
