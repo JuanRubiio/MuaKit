@@ -48,7 +48,7 @@ function aliExpressMoney(value, referenceTotal = null) {
   const raw = String(value || "").trim();
   const parsed = amount(raw);
   if (parsed === null) return null;
-  if (!/[,.]/.test(raw) && referenceTotal !== null && parsed > Number(referenceTotal) * 2) return parsed / 100;
+  if (!/[,.]/.test(raw) && referenceTotal !== null && Math.abs(parsed) > Number(referenceTotal) * 2) return parsed / 100;
   return parsed;
 }
 
@@ -463,6 +463,11 @@ function cleanAliExpressDescription(value) {
     .trim();
 }
 
+function aliExpressOcrPriceHint(value) {
+  const match = String(value || "").match(/\b(\d)\s*(\d)%/);
+  return match ? Number(`${match[1]}.${match[2]}9`) : null;
+}
+
 function detectedAliExpressLines(lines, fields = {}) {
   if (!lines.some((line) => /aliexpress/i.test(line))) return [];
   const detailStart = lines.findIndex((line) => /detalle del art[ií]culo/i.test(line));
@@ -472,11 +477,32 @@ function detectedAliExpressLines(lines, fields = {}) {
   const result = [];
   const allDescriptionParts = [];
   let buffer = [];
+  const unresolved = [];
+  const flushUnresolved = (line = "") => {
+    const description = buffer.join(" ").replace(/\s+/g, " ").trim();
+    if (description && !/^(?:[A-ZÁÉÍÓÚÑ]{1,4}|onwear)$/i.test(description)) {
+      const packageOnly = line.match(/[xX]\s*(\d{1,3})\b/);
+      unresolved.push({
+        description,
+        packageCount: Number(packageOnly?.[1] || 1),
+        hasPackageEvidence: Boolean(packageOnly),
+        unitsPerPackage: Number(description.match(/\b(\d+)\s*(?:pcs?|pes|piezas?|unidades?|uds?)\b/i)?.[1] || 1),
+        pricePerPackage: aliExpressOcrPriceHint(line),
+        originalText: [...buffer, line].filter(Boolean).join(" ")
+      });
+    }
+    buffer = [];
+  };
   for (let index = 0; index < detail.length; index += 1) {
     const line = detail[index];
-    if (/\b(?:official|offical|store|shop\d+)\b/i.test(line)) { buffer = []; continue; }
+    if (/\b(?:official|offical|store|shop\d+)\b/i.test(line)) { flushUnresolved(); continue; }
     const priceMatch = line.match(/([0-9][0-9.,]*)\s*€(?:\s*[xX]?\s*(\d+))?/);
+    const packageOnly = line.match(/[xX]\s*(\d{1,3})\b/);
     if (!priceMatch) {
+      if (packageOnly) {
+        flushUnresolved(line);
+        continue;
+      }
       const cleaned = cleanAliExpressDescription(line);
       if (cleaned && !/^[A-ZÁÉÍÓÚÑ]{1,4}$/.test(cleaned)) { buffer.push(cleaned); allDescriptionParts.push(cleaned); }
       continue;
@@ -485,6 +511,10 @@ function detectedAliExpressLines(lines, fields = {}) {
     let packageCount = Number(priceMatch[2] || 0);
     const nearbyQuantity = detail.slice(index + 1, index + 3).join(" ").match(/\b[xX]\s*(\d+)\b/);
     if (!packageCount && nearbyQuantity) packageCount = Number(nearbyQuantity[1]);
+    if (!packageCount) {
+      const precedingQuantity = detail.slice(Math.max(0, index - 3), index).join(" ").match(/(?:^|\s)\/\s*(\d{1,3})\b/);
+      if (precedingQuantity) packageCount = Number(precedingQuantity[1]);
+    }
     const unitsMatch = buffer.join(" ").match(/\b(\d+)\s*(?:pcs?|pes|piezas?|unidades?|uds?)\b/i);
     const unitsPerPackage = Number(unitsMatch?.[1] || 1);
     const description = buffer.join(" ").replace(/\s+/g, " ").trim();
@@ -498,6 +528,35 @@ function detectedAliExpressLines(lines, fields = {}) {
       result.push({ description, quantity: totalUnits, package_count: packageCount, units_per_package: unitsPerPackage, total_units: totalUnits, price_per_package: Number(pricePerPackage.toFixed(2)), unit_price: Number((pricePerPackage / unitsPerPackage).toFixed(6)), line_total: Number((pricePerPackage * packageCount).toFixed(2)), original_text: [...buffer, line, nearbyQuantity?.[0] || ""].filter(Boolean).join(" ") });
     }
     buffer = [];
+  }
+  flushUnresolved();
+  const knownLineTotal = result.reduce((sum, line) => sum + line.line_total, 0);
+  let remaining = fields.subtotal !== null ? Number((Number(fields.subtotal) - knownLineTotal).toFixed(2)) : null;
+  for (const candidate of unresolved) {
+    if (candidate.pricePerPackage !== null && remaining !== null) {
+      const candidateTotal = Number((candidate.pricePerPackage * candidate.packageCount).toFixed(2));
+      if (candidateTotal <= remaining + 0.05) remaining = Number((remaining - candidateTotal).toFixed(2));
+    }
+  }
+  const withoutPrice = unresolved.filter((candidate) => candidate.pricePerPackage === null && candidate.hasPackageEvidence);
+  if (withoutPrice.length === 1 && remaining !== null && remaining > 0) {
+    withoutPrice[0].pricePerPackage = Number((remaining / withoutPrice[0].packageCount).toFixed(2));
+  }
+  for (const candidate of unresolved) {
+    if (candidate.pricePerPackage === null) continue;
+    const totalUnits = candidate.packageCount * candidate.unitsPerPackage;
+    result.push({
+      description: candidate.description,
+      quantity: totalUnits,
+      package_count: candidate.packageCount,
+      units_per_package: candidate.unitsPerPackage,
+      total_units: totalUnits,
+      price_per_package: Number(candidate.pricePerPackage.toFixed(2)),
+      unit_price: Number((candidate.pricePerPackage / candidate.unitsPerPackage).toFixed(6)),
+      line_total: Number((candidate.pricePerPackage * candidate.packageCount).toFixed(2)),
+      original_text: candidate.originalText,
+      extraction_confidence: 42
+    });
   }
   if (!result.length && allDescriptionParts.length && fields.subtotal > 0) {
     result.push({ description: allDescriptionParts.slice(0, 2).join(" "), quantity: 1, package_count: 1, units_per_package: 1, total_units: 1, price_per_package: Number(fields.subtotal), unit_price: Number(fields.subtotal), line_total: Number(fields.subtotal), original_text: allDescriptionParts.join(" ") });
@@ -1107,6 +1166,12 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
       const detectedLines = detectedInvoiceLines(fields.lines, fields);
       const lineKey = (line) => typeof line === "string" ? normalize(line) : `${normalize(line.description)}|${Number(line.unit_price ?? line.line_total ?? 0).toFixed(6)}`;
       const uniqueLines = detectedLines.filter((line, index, all) => all.findIndex((candidate) => lineKey(candidate) === lineKey(line)) === index);
+      const requiresLineReview = uniqueLines.some((line) => Number(line.extraction_confidence || 100) < 60);
+      if (requiresLineReview) {
+        const warnings = JSON.parse(one("SELECT warnings_json FROM expense_imports WHERE id=$id", { id: importId })?.warnings_json || "[]");
+        if (!warnings.includes("Hay líneas con importes reconstruidos por OCR; requieren revisión.")) warnings.push("Hay líneas con importes reconstruidos por OCR; requieren revisión.");
+        exec("UPDATE expense_imports SET status='review', warnings_json=$warnings, updated_at=CURRENT_TIMESTAMP WHERE id=$id", { id: importId, warnings: JSON.stringify(warnings) });
+      }
       uniqueLines.forEach((line, index) => {
         const parsedLine = parseInvoiceLine(line, fields);
         if (!parsedLine) return;
@@ -1118,6 +1183,8 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
         const stem = (token) => token.replace(/(?:es|s)$/i, "");
         const aliases = normalizedLine.includes("elephant gold") ? ["elefante", "dorado"]
           : normalizedLine.includes("elephant steel") ? ["elefante", "plateado"]
+          : normalizedLine.includes("cadenas de eslabones") && (normalizedLine.includes("gold") || normalizedLine.includes("dorado")) ? ["cadena", "dorada", "acero"]
+          : normalizedLine.includes("cadenas de eslabones") && (normalizedLine.includes("steel") || normalizedLine.includes("plateado")) ? ["cadena", "plateada", "acero"]
           : /(bottle|botella)/.test(normalizedLine) && /(squeeze|applicator|needle|aguja|opaca|opaque)/.test(normalizedLine) ? ["botella", "opaca", "resina", "3ml", "5ml"]
           : /(lamp|lampara)/.test(normalizedLine) ? ["lampara", "uv"]
           : normalizedLine.includes("etsy") ? []
@@ -1148,7 +1215,7 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
           VALUES ($import, $position, $original, $description, 1, 1, 1, 1, $total, $total, $total, $impressions, $material, $confidence, 'pending', $originalData)`, {
           import: importId, position: index + 1, original: typeof line === "string" ? line : line.original_text, description: parsedLine.description,
           total: parsedLine.line_total ?? parsedLine.converted_amount, impressions: parsedLine.impressions, material: material?.id || null,
-          confidence: material ? (directMaterial ? 85 : fuzzyMaterial ? 76 : 78) : Math.min(confidence, 69),
+          confidence: Number(line.extraction_confidence || (material ? (directMaterial ? 85 : fuzzyMaterial ? 76 : 78) : Math.min(confidence, 69))),
           originalData: JSON.stringify({ ...parsedLine, material_rule_source: directMaterial ? "material_name" : fuzzyMaterial ? "material_tokens" : historicalMaterial ? "historical_invoice_line" : null })
         });
         if (typeof line === "object") {

@@ -55,6 +55,12 @@ function cleanTestDir() {
   fs.mkdirSync(resolved, { recursive: true });
 }
 
+function removeTestDir() {
+  const resolved = path.resolve(TEST_DIR);
+  assert(resolved.startsWith(path.join(ROOT, "data")), "Test directory must stay inside data/");
+  rmWithRetry(resolved);
+}
+
 function createMockShopifyServer() {
   const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && req.url === "/admin/oauth/access_token") {
@@ -395,6 +401,33 @@ Cosas a tener en cuenta:`;
   const aliPackageFields = detectFields(aliPackageText);
   const aliPackageLine = detectedAliExpressLines(aliPackageFields.lines, aliPackageFields)[0];
   assert(aliPackageLine.package_count === 11 && aliPackageLine.units_per_package === 12 && aliPackageLine.total_units === 132 && aliPackageLine.price_per_package === 3.79 && Math.abs(aliPackageLine.unit_price - 0.315833) < 0.000001 && aliPackageLine.line_total === 41.69, "AliExpress package structure should preserve packages, units per package and package price");
+  const aliOcrText = `AliExpress
+Resumen
+ID de pedido: 3076634324121055
+Tiempo de la orden: 7 oct, 2026
+Subtotal: 112,56 €
+Todos los descuentos: 6,07€
+Total: 109,80€
+Detalle del artículo
+10 Uds. De dijes de bisel abierto de c
+gold plated
+(& 519€ x12
+Onwear Store
+10 Uds. De dijes de bisel abierto de c
+Ds plain steel
+¡a
+ES ave x12
+Onwear Store
+Cosas a tener en cuenta:`;
+  const aliOcrFields = detectFields(aliOcrText);
+  const aliOcrLines = detectedAliExpressLines(aliOcrFields.lines, aliOcrFields);
+  assert(aliOcrLines.length === 2 && aliOcrLines[0].line_total === 62.28 && aliOcrLines[1].line_total === 50.28 && aliOcrLines[1].extraction_confidence === 42, "AliExpress OCR should retain an unpriced product and reconcile its price only when the subtotal makes it unambiguous");
+  const aliNegativeText = `AliExpress
+Subtotal: 120,48€
+Descuento de aranceles de AliExpress: -1498€
+Total: 118,36€`;
+  const aliNegativeFields = detectFields(aliNegativeText);
+  assert(aliNegativeFields.discount === 14.98, "AliExpress compact negative amounts should preserve their sign and decimal scale");
   const alibabaText = `Receipt
 Marketplace Operator:
 Receipt number: #27996940501042809
@@ -1424,6 +1457,7 @@ Importe total adeudado EUR 0,00`;
   } finally {
     await stopTestServer();
     await new Promise((resolve) => mockShopifyServer.close(resolve));
+    removeTestDir();
     if (process.env.MUA_OPS_TEST_DEBUG) {
       console.log(serverOutput);
     }
