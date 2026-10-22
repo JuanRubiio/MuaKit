@@ -317,7 +317,29 @@ Amount due $45.00 USD`;
   assert(prismaFields.invoice_number === "000281" && prismaFields.invoice_date === "2026-08-25" && prismaFields.subtotal === 73.55 && prismaFields.tax === 15.45 && prismaFields.total === 89, "Prisma invoice layouts should extract number, date and fiscal totals");
   assert(prismaFields.supplier_hint === "prisma" && prismaFields.category === "materiales", "Prisma layouts should identify the material supplier pattern");
   const prismaLines = detectedInvoiceLines(prismaFields.lines, prismaFields);
-  assert(prismaLines.length === 1 && prismaLines[0].quantity === 1 && prismaLines[0].line_total === 89, "Prisma invoice rows without currency symbols should become one reliable line");  const likinFields = detectFields("FACTURA\n01/08/2026 Número: F-00020-2026\nhttps://likinagency.com/\nModo Agencia\nSubtotal: 672,00 €\nIVA 21%: 141,12 €\nIRPF -15% 100,80 €\nA pagar: 712,32 €");
+  assert(prismaLines.length === 1 && prismaLines[0].quantity === 1 && prismaLines[0].line_total === 89, "Prisma invoice rows without currency symbols should become one reliable line");
+  const malagaPackText = `FACTURA
+21/10/2026
+T099926004399
+Sur-Innopack SL | B93548576
+www.malagapack.com
+Número de factura Fecha de Factura Referencia de pedido Fecha de pedido
+T099926004399 21/10/2026 MPA041823 15/10/2026
+Referencia Producto Tasa de Precio Cant. Total
+18H 100 Sobres acolchado 18/H con plástico de 21 % 23,50 € 4 94,00 €
+burbujas 36x27cm Exterior int Color: Marrón
+ART102483 FEFCO 0427 / 220 x 115 x 55 mm / Canal micro / 21 % 0,92 € 400 368,00 €
+Marrón / Marrón / 1 tinta / 2 caras
+Desglose impuestos
+Gastos de envío 24,00 €
+Total Productos 462,00 €
+Total impuesto 102,06 €
+Pagos por 588,06 €`;
+  const malagaPackFields = detectFields(malagaPackText);
+  assert(malagaPackFields.invoice_number === "T099926004399" && malagaPackFields.invoice_date === "2026-10-21" && malagaPackFields.subtotal === 462 && malagaPackFields.shipping === 24 && malagaPackFields.tax === 102.06 && malagaPackFields.total === 588.06, "MalagaPack invoices should extract invoice number and separated product, shipping and tax totals");
+  const malagaPackLines = detectedInvoiceLines(malagaPackFields.lines, malagaPackFields);
+  assert(malagaPackLines.length === 2 && malagaPackLines[0].quantity === 4 && malagaPackLines[0].line_total === 94 && malagaPackLines[1].quantity === 400 && malagaPackLines[1].line_total === 368, "MalagaPack product rows should preserve quantities and line totals without turning tax summaries into products");
+  const likinFields = detectFields("FACTURA\n01/08/2026 Número: F-00020-2026\nhttps://likinagency.com/\nModo Agencia\nSubtotal: 672,00 €\nIVA 21%: 141,12 €\nIRPF -15% 100,80 €\nA pagar: 712,32 €");
   assert(likinFields.invoice_number === "F-00020-2026" && likinFields.invoice_date === "2026-08-01" && likinFields.subtotal === 672 && likinFields.tax === 141.12 && likinFields.discount === 100.8 && likinFields.total === 712.32, "LikinAgency invoice layouts should use the payable total and VAT amount");
   const likinQuality = accountingQuality({ suggested_supplier_id: 8, invoice_number: likinFields.invoice_number, invoice_date: likinFields.invoice_date, total: likinFields.total, subtotal: likinFields.subtotal, tax: likinFields.tax, additional_tax: 0, discount: likinFields.discount, category: likinFields.category }, []);
   assert(likinQuality.lines_match && likinQuality.decisions_complete && likinQuality.batch_eligible, "LikinAgency service invoices without product lines should reconcile withholding and be batch eligible");

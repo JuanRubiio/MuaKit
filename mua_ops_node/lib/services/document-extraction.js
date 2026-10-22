@@ -353,6 +353,50 @@ function detectedPrismaLines(lines, fields = {}) {
   if (lineTotal === null) return [];
   return [{ description: match[1].trim(), quantity, package_count: quantity, units_per_package: 1, total_units: quantity, price_per_package: Number((lineTotal / quantity).toFixed(2)), unit_price: Number((lineTotal / quantity).toFixed(6)), line_total: lineTotal, original_text: line }];
 }
+
+function malagaPackFields(lines) {
+  const text = lines.join("\n");
+  if (!/malagapack\.com|sur-innopack/i.test(text) || !/n[uú]mero de factura\s+fecha de factura/i.test(text)) return null;
+  const header = text.match(/n[uú]mero de factura\s+fecha de factura[^\n]*\n\s*([A-Z0-9-]{6,})\s+(\d{1,2}[./-]\d{1,2}[./-]\d{4})/i);
+  const invoiceNumber = header?.[1] || text.match(/\b(T\d{8,})\b/i)?.[1] || "";
+  const invoiceDate = numericDateToIso(header?.[2] || text.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{4})\b/)?.[1] || "");
+  const subtotal = amount(text.match(/\btotal\s+productos\s+([0-9][0-9.,]*)\s*€/i)?.[1]);
+  const shipping = amount(text.match(/\bgastos\s+de\s+env[ií]o\s+([0-9][0-9.,]*)\s*€/i)?.[1]) || 0;
+  const tax = amount(text.match(/\btotal\s+impuesto\s+([0-9][0-9.,]*)\s*€/i)?.[1]);
+  const total = amount(text.match(/\bpagos\s+por\s+([0-9][0-9.,]*)\s*€/i)?.[1])
+    ?? amount(text.match(/\bm[eé]todo de pago\s+total\s+([0-9][0-9.,]*)\s*€/i)?.[1]);
+  return { invoice_number: invoiceNumber, invoice_date: invoiceDate, subtotal, discount: 0, shipping, tax, total, currency: "EUR", category: "materiales", supplier_hint: "malagapack" };
+}
+
+function detectedMalagaPackLines(lines, fields = {}) {
+  if (fields.supplier_hint !== "malagapack") return [];
+  const start = lines.findIndex((line) => /referencia\s+producto\s+tasa\s+de/i.test(line));
+  const end = lines.findIndex((line, index) => index > start && /\bdesglose\b/i.test(line));
+  if (start < 0 || end < 0) return [];
+  const result = [];
+  const rowPattern = /^([A-Z0-9]+)\s+(.+?)\s+21\s*%\s+([0-9][0-9.,]*)\s*€\s+(\d+)\s+([0-9][0-9.,]*)\s*€\s*$/i;
+  for (let index = start + 1; index < end; index += 1) {
+    const match = lines[index].match(rowPattern);
+    if (!match) continue;
+    const continuation = lines[index + 1] && !rowPattern.test(lines[index + 1]) && !/desglose|gastos de env[ií]o/i.test(lines[index + 1]) ? ` ${lines[index + 1]}` : "";
+    const packageCount = Number(match[4]);
+    const pricePerPackage = amount(match[3]);
+    const lineTotal = amount(match[5]);
+    result.push({
+      description: `${match[1]} ${match[2]}${continuation}`.replace(/\s+/g, " ").trim(),
+      quantity: packageCount,
+      package_count: packageCount,
+      units_per_package: 1,
+      total_units: packageCount,
+      price_per_package: pricePerPackage,
+      unit_price: pricePerPackage,
+      line_total: lineTotal,
+      original_text: `${lines[index]}${continuation}`
+    });
+  }
+  return result;
+}
+
 function likinAgencyFields(lines) {
   const text = lines.join("\n");
   if (!/likinagency\.com/i.test(text) || !/\b(?:factura|modo agencia)\b/i.test(text)) return null;
@@ -839,6 +883,7 @@ function detectFields(text) {
   const shein = sheinFields(lines);
   const correos = correosFieldsSafe(lines);
   const prisma = prismaFields(lines);
+  const malagaPack = malagaPackFields(lines);
   const likinagency = likinAgencyFields(lines);
   const sendcloud = sendcloudFields(lines);
   const dhl = dhlFields(lines);
@@ -883,13 +928,15 @@ function detectFields(text) {
   const safeInvoiceNumber = text.match(/factura\s+recurrente\s+([A-Z0-9][A-Z0-9\/_-]{2,})/i)?.[1] || (/^(fecha|empresa|date|number|numero|referencia|reference)$/i.test(invoiceNumber) ? "" : invoiceNumber);
   const genericSubtotal = amount(text.match(/\b(?:subtotal|base imponible(?:\s*\([^)]*\))?)\s*[: ]\s*([0-9][0-9.,]*)\s*(?:€|EUR)?/i)?.[1]);
   const genericTax = amount(text.match(/\b(?:iva|vat)(?:\s*\([^)]*\))?\s*[: ]\s*([0-9][0-9.,]*)\s*(?:€|EUR)?/i)?.[1]);
-  return { invoice_number: safeInvoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(genericSubtotal !== null ? { subtotal: genericSubtotal } : {}), ...(genericTax !== null ? { tax: genericTax } : {}), ...(prisma || {}), ...(likinagency || {}), ...(aliExpress || {}), ...(alibaba || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(sendcloud || {}), ...(dhl || {}), ...(fedex || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}), ...(klaviyo || {}) };
+  return { invoice_number: safeInvoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(genericSubtotal !== null ? { subtotal: genericSubtotal } : {}), ...(genericTax !== null ? { tax: genericTax } : {}), ...(prisma || {}), ...(malagaPack || {}), ...(likinagency || {}), ...(aliExpress || {}), ...(alibaba || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(sendcloud || {}), ...(dhl || {}), ...(fedex || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}), ...(klaviyo || {}) };
 }
 
 function detectedInvoiceLines(lines, fields = {}) {
   if (fields.suppress_lines) return [];
   const prismaLines = detectedPrismaLines(lines, fields);
   if (prismaLines.length) return prismaLines;
+  const malagaPackLines = detectedMalagaPackLines(lines, fields);
+  if (malagaPackLines.length) return malagaPackLines;
   const alibabaLines = detectedAlibabaLines(lines, fields);
   if (alibabaLines.length) return alibabaLines;
   const aliExpressLines = detectedAliExpressLines(lines, fields);
@@ -1108,8 +1155,8 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   function suggest(fields) {
     const suppliers = query("SELECT id, name, category FROM suppliers WHERE is_deleted=0");
     const normalizedText = normalize(fields.lines.slice(0, 100).join(" "));
-    const aliases = { prisma: ["prisma"], likinagency: ["likinagency", "likin agency"], meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], dhl: ["dhl", "dhl express", "dhl express spain"], fedex: ["fedex", "fedex express", "federal express"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], alibaba: ["alibaba", "alibaba com", "alibaba.com"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"], klaviyo: ["klaviyo", "klaviyo inc"], sendcloud: ["sendcloud", "sendcloud bv"], ikea: ["ikea", "ikea iberica"], analizza: ["analizza", "asesoria contable fiscal"] };
-    const newSupplierProfiles = { sendcloud: { name: "Sendcloud", category: "envios" }, ikea: { name: "IKEA", category: "materiales" }, analizza: { name: "Analizza", category: "servicios" } };
+    const aliases = { prisma: ["prisma"], likinagency: ["likinagency", "likin agency"], meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], dhl: ["dhl", "dhl express", "dhl express spain"], fedex: ["fedex", "fedex express", "federal express"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], alibaba: ["alibaba", "alibaba com", "alibaba.com"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"], klaviyo: ["klaviyo", "klaviyo inc"], sendcloud: ["sendcloud", "sendcloud bv"], malagapack: ["malagapack", "sur-innopack", "malagapack.com"], ikea: ["ikea", "ikea iberica"], analizza: ["analizza", "asesoria contable fiscal"] };
+    const newSupplierProfiles = { sendcloud: { name: "Sendcloud", category: "envios" }, malagapack: { name: "MalagaPack", category: "materiales" }, ikea: { name: "IKEA", category: "materiales" }, analizza: { name: "Analizza", category: "servicios" } };
     const supplierHint = normalize(fields.supplier_hint);
     const profileKey = Object.keys(newSupplierProfiles).find((key) => supplierHint === key || aliases[key]?.some((alias) => normalizedText.includes(normalize(alias))));
     if (profileKey && !suppliers.some((item) => normalize(item.name) === normalize(newSupplierProfiles[profileKey].name))) {
