@@ -57,9 +57,9 @@ export function createMarketingViews(ctx) {
       legend: { top: 0, textStyle: { color: "#766e68" }, data: ["Inversión Meta", "Impresiones", "Pedidos"] },
       xAxis: { type: "category", data: compactTimeline(rows.map((row) => row.key), finance.granularity), axisLine: { lineStyle: { color: "#d9d2ca" } }, axisLabel: { color: "#766e68" }, axisTick: { show: false } },
       yAxis: [
-        { type: "value", axisLabel: { color: "#b85d72", formatter: (value) => euro.format(value) }, splitLine: { lineStyle: { color: "#eee9e3" } } },
-        { type: "value", position: "right", axisLabel: { color: "#4f6d93", formatter: (value) => `${Math.round(value / 1000)}k` }, splitLine: { show: false } },
-        { type: "value", position: "right", offset: 45, minInterval: 1, axisLabel: { color: "#166b5e", formatter: "{value}" }, splitLine: { show: false } }
+        { type: "value", axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) }, splitLine: { lineStyle: { color: "#eee9e3" } } },
+        { type: "value", position: "right", axisLabel: { color: "#766e68", formatter: (value) => `${Math.round(value / 1000)}k` }, splitLine: { show: false } },
+        { type: "value", position: "right", offset: 45, minInterval: 1, axisLabel: { color: "#766e68", formatter: "{value}" }, splitLine: { show: false } }
       ],
       series: [
         { name: "Inversión Meta", type: "bar", barMaxWidth: 26, itemStyle: { color: "#b85d72", borderRadius: [4, 4, 0, 0] }, data: rows.map((row) => row.spend) },
@@ -84,8 +84,8 @@ export function createMarketingViews(ctx) {
       legend: { top: 0, textStyle: { color: "#766e68" }, data: ["Margen tras Meta", "Margen sobre ventas"] },
       xAxis: { type: "category", data: compactTimeline(rows.map((row) => row.key), finance.granularity), axisLine: { lineStyle: { color: "#d9d2ca" } }, axisLabel: { color: "#766e68" }, axisTick: { show: false } },
       yAxis: [
-        { type: "value", axisLabel: { color: "#166b5e", formatter: (value) => euro.format(value) }, splitLine: { lineStyle: { color: "#eee9e3" } } },
-        { type: "value", position: "right", axisLabel: { color: "#c18a3a", formatter: "{value}%" }, splitLine: { show: false } }
+        { type: "value", axisLabel: { color: "#766e68", formatter: (value) => euro.format(value) }, splitLine: { lineStyle: { color: "#eee9e3" } } },
+        { type: "value", position: "right", axisLabel: { color: "#766e68", formatter: "{value}%" }, splitLine: { show: false } }
       ],
       series: [
         { name: "Margen tras Meta", type: "bar", barMaxWidth: 30, itemStyle: { color: "#166b5e", borderRadius: [5, 5, 0, 0] }, data: rows.map((row) => row.profit_after_marketing) },
@@ -107,7 +107,7 @@ export function createMarketingViews(ctx) {
         return `<div class="dashboard-chart-tooltip"><strong>${text(params[0]?.axisValue || "")}</strong><span><i style="background:#4f6d93"></i>Pedidos / 1.000 impresiones<b>${formatPerThousand(item.orders_per_thousand_impressions)}</b></span></div>`;
       } },
       xAxis: { type: "category", data: compactTimeline(rows.map((row) => row.key), finance.granularity), axisLine: { lineStyle: { color: "#d9d2ca" } }, axisLabel: { color: "#766e68" }, axisTick: { show: false } },
-      yAxis: { type: "value", min: 0, axisLabel: { color: "#4f6d93", formatter: (value) => number(value).toFixed(1) }, splitLine: { lineStyle: { color: "#eee9e3" } } },
+      yAxis: { type: "value", min: 0, axisLabel: { color: "#766e68", formatter: (value) => number(value).toFixed(1) }, splitLine: { lineStyle: { color: "#eee9e3" } } },
       series: [{ name: "Pedidos / 1.000 impresiones", type: "line", smooth: true, symbolSize: 6, lineStyle: { width: 2.5, color: "#4f6d93" }, itemStyle: { color: "#4f6d93" }, areaStyle: { color: "rgba(79,109,147,.10)" }, data: rows.map((row) => row.orders_per_thousand_impressions) }]
     }, true);
     requestAnimationFrame(() => chart.resize());
@@ -163,8 +163,6 @@ export function createMarketingViews(ctx) {
     $("#marketingPulse").innerHTML = `<div class="marketing-pulse-icon">${icon("icon-activity")}</div><div><strong>${signal} ${comparison}</strong><span>${topCampaign ? `${topCampaign.name} concentra el ${formatPercent(topCampaign.spend_share)} de la inversión facturada. La comparación es agregada: no atribuye pedidos a una campaña.` : "Sin campañas identificadas en las facturas de este periodo."}</span></div><div class="marketing-pulse-context"><small>Periodo</small><b>${text(finance.window?.label || "Activo")}</b></div>`;
     const campaigns = marketing.campaigns || [];
     $("#marketingCampaigns").innerHTML = campaigns.length ? `<div class="marketing-campaign-table"><div class="marketing-campaign-head"><span>Campaña</span><span>Inversión</span><span>Impresiones</span><span>CPM</span><span>Peso</span></div>${campaigns.map((campaign) => `<article><span><strong>${text(campaign.name)}</strong><small>${formatNumber(campaign.invoice_count)} facturas</small></span><span>${euro.format(number(campaign.spend))}</span><span>${formatNumber(campaign.impressions)}</span><span>${campaign.cpm == null ? "-" : euro.format(campaign.cpm)}</span><span>${formatPercent(campaign.spend_share)}</span></article>`).join("")}</div>` : `<div class="empty-state small">Aún no hay líneas de campaña Meta confirmadas dentro de este periodo.</div>`;
-    const quality = marketing.data_quality || {};
-    $("#marketingDataQuality").innerHTML = `<div class="marketing-quality-list"><div><span>Gasto con impresiones</span><strong>${formatPercent(quality.impression_coverage_percent)}</strong><small>${quality.spend_with_impressions == null ? "-" : euro.format(number(quality.spend_with_impressions))} en líneas con alcance</small></div><div><span>Facturas con campañas</span><strong>${formatNumber(quality.invoice_coverage)}</strong><small>${formatNumber(quality.lines_with_impressions)} líneas con impresiones</small></div><div><span>Comisiones excluidas</span><strong>${euro.format(number(metrics.commission_spend))}</strong><small>No se presentan como campañas</small></div></div>`;
     renderTrend(chartMarketing, chartFinance);
     renderReach(chartMarketing, chartFinance);
     renderProfit(chartMarketing, chartFinance);

@@ -65,9 +65,6 @@ async function run() {
       const pixels = canvas.getContext("2d")?.getImageData(0, 0, canvas.width, canvas.height)?.data;
       return pixels && pixels.some((value, index) => index % 4 === 3 && value > 0);
     }), null, { timeout: 5000 });
-    if (!(await page.locator("#marketingDataQuality").innerText())) {
-      throw new Error("Marketing no explica la cobertura de los datos");
-    }
     await page.locator("#marketingFilterTrigger").click();
     await page.locator("#marketingFilterPopover:not(.hidden)").waitFor({ state: "visible", timeout: 5000 });
     await page.locator('[data-marketing-period-option="all"]').click();
