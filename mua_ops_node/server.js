@@ -2989,6 +2989,8 @@ function dashboardMarketing(window, granularity, profitability) {
   const isCommissionLine = (line) => /\bcomisi[oó]n(?:es)?\b/i.test(String(line.description || ""));
   const campaignLines = lines.filter((line) => !isCommissionLine(line));
   const commissionSpend = lines.filter(isCommissionLine).reduce((sum, line) => sum + n(line.line_total), 0);
+  const spendWithImpressions = campaignLines.filter((line) => n(line.impressions) > 0)
+    .reduce((sum, line) => sum + n(line.line_total), 0);
   const campaignMap = new Map();
   const trendMap = new Map();
   const addTrend = (key, values) => {
@@ -3020,8 +3022,10 @@ function dashboardMarketing(window, granularity, profitability) {
   const totalOrders = orderRows.length;
   const totalSales = orderRows.reduce((sum, order) => sum + n(order.net_amount), 0);
   const keys = dashboardBucketSpan(window.from, window.to, granularity, Array.from(trendMap.keys()).sort());
+  const profitByKey = new Map((profitability?.series || []).map((row) => [row.key, row]));
   const trend = keys.map((key) => {
     const row = trendMap.get(key) || { key, spend: 0, impressions: 0, orders: 0, sales: 0, campaigns: new Set() };
+    const profit = profitByKey.get(key);
     return {
       key: row.key,
       spend: row.spend,
@@ -3032,7 +3036,11 @@ function dashboardMarketing(window, granularity, profitability) {
       cpm: row.impressions ? (row.spend / row.impressions) * 1000 : null,
       spend_per_order: row.orders ? row.spend / row.orders : null,
       sales_per_euro_spent: row.spend ? row.sales / row.spend : null,
-      spend_share_of_sales: row.sales ? (row.spend / row.sales) * 100 : null
+      spend_share_of_sales: row.sales ? (row.spend / row.sales) * 100 : null,
+      orders_per_thousand_impressions: row.impressions ? (row.orders / row.impressions) * 1000 : null,
+      profit_before_marketing: profit ? n(profit.profit) : null,
+      profit_after_marketing: profit ? n(profit.profit) - row.spend : null,
+      profit_after_marketing_margin_percent: profit?.sales ? ((n(profit.profit) - row.spend) / n(profit.sales)) * 100 : null
     };
   });
   const campaignSpend = Array.from(campaignMap.values()).reduce((sum, campaign) => sum + campaign.spend, 0);
@@ -3050,6 +3058,7 @@ function dashboardMarketing(window, granularity, profitability) {
       spend_per_order: totalOrders ? metaSpend / totalOrders : null,
       spend_share_of_sales: totalSales ? (metaSpend / totalSales) * 100 : null,
       sales_per_euro_spent: metaSpend ? totalSales / metaSpend : null,
+      orders_per_thousand_impressions: lines.reduce((sum, line) => sum + n(line.impressions), 0) ? (totalOrders / lines.reduce((sum, line) => sum + n(line.impressions), 0)) * 1000 : null,
       estimated_profit_after_marketing: profitability?.metrics?.total_profit == null ? null : n(profitability.metrics.total_profit) - metaSpend,
       commission_spend: commissionSpend,
       unallocated_spend: Math.max(0, metaSpend - campaignSpend - commissionSpend)
@@ -3068,7 +3077,10 @@ function dashboardMarketing(window, granularity, profitability) {
     data_quality: {
       invoice_coverage: metaInvoiceIds.size,
       lines_with_impressions: campaignLines.filter((line) => n(line.impressions) > 0).length,
-      campaign_spend: campaignSpend
+      campaign_spend: campaignSpend,
+      impression_coverage_percent: metaSpend ? (spendWithImpressions / metaSpend) * 100 : null,
+      spend_with_impressions: spendWithImpressions,
+      profitability_coverage_percent: profitability?.metrics?.reliable_coverage_percent ?? null
     }
   };
 }
@@ -3172,6 +3184,21 @@ function previousEquivalentWindow(window = {}) {
     from: formatIsoDate(previousStart),
     to: formatIsoDate(previousEnd),
     label: "Periodo anterior equivalente"
+  };
+}
+
+function sameCalendarDaysPreviousMonth(window = {}) {
+  if (!window.from || !window.to) return null;
+  const start = new Date(`${window.from}T00:00:00`);
+  const end = new Date(`${window.to}T00:00:00`);
+  if (start.getDate() !== 1 || end < start) return null;
+  const previousStart = new Date(start.getFullYear(), start.getMonth() - 1, 1);
+  const previousMonthLastDay = new Date(start.getFullYear(), start.getMonth(), 0).getDate();
+  const previousEnd = new Date(previousStart.getFullYear(), previousStart.getMonth(), Math.min(end.getDate(), previousMonthLastDay));
+  return {
+    from: formatIsoDate(previousStart),
+    to: formatIsoDate(previousEnd),
+    label: "Mismos días del mes anterior"
   };
 }
 
@@ -3544,6 +3571,14 @@ function dashboardFinance(options = {}) {
   const previousProfitability = previousWindow ? dashboardProfitability(previousWindow, granularity, settings) : null;
   const sales = dashboardSales(window, previousWindow, granularity, invoices, profitability, previousInvoices, previousProfitability);
   const marketing = dashboardMarketing(window, granularity, profitability);
+  const sameDaysPreviousMonth = sameCalendarDaysPreviousMonth(window);
+  if (sameDaysPreviousMonth) {
+    const previousMonthlyProfitability = dashboardProfitability(sameDaysPreviousMonth, granularity, settings);
+    marketing.same_days_previous_month = {
+      window: sameDaysPreviousMonth,
+      metrics: dashboardMarketing(sameDaysPreviousMonth, granularity, previousMonthlyProfitability).metrics
+    };
+  }
   const replenishmentResult = createReplenishmentService({ query, one, materialCosts, settingsObject }).recommendations();
   const purchaseCandidates = replenishmentResult.recommendations
     .filter((row) => row.suggested_quantity > 0)

@@ -59,12 +59,15 @@ async function run() {
     if ((await page.locator("#marketingKpis .marketing-kpi").count()) !== 4 || !(await page.locator("#marketingCampaigns").count())) {
       throw new Error("Marketing no muestra el resumen de Meta ni el desglose de campañas");
     }
-    await page.waitForFunction(() => ["marketingTrendChart", "marketingReachChart"].every((id) => {
+    await page.waitForFunction(() => ["marketingTrendChart", "marketingReachChart", "marketingProfitChart", "marketingQualityChart"].every((id) => {
       const canvas = document.querySelector(`#${id} canvas`);
       if (!canvas || canvas.width <= 100 || canvas.height <= 100) return false;
       const pixels = canvas.getContext("2d")?.getImageData(0, 0, canvas.width, canvas.height)?.data;
       return pixels && pixels.some((value, index) => index % 4 === 3 && value > 0);
     }), null, { timeout: 5000 });
+    if (!(await page.locator("#marketingDataQuality").innerText())) {
+      throw new Error("Marketing no explica la cobertura de los datos");
+    }
     await page.locator("#marketingFilterTrigger").click();
     await page.locator("#marketingFilterPopover:not(.hidden)").waitFor({ state: "visible", timeout: 5000 });
     await page.locator('[data-marketing-period-option="all"]').click();
