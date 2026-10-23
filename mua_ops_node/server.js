@@ -2966,6 +2966,113 @@ function dashboardSales(window, previousWindow, granularity, invoices, profitabi
   };
 }
 
+function dashboardMarketing(window, granularity, profitability) {
+  const isMetaInvoice = (invoice) => invoice.category === "marketing"
+    && /\b(meta|facebook)\b/i.test(String(invoice.supplier_name || ""));
+  const metaInvoices = activeInvoicesWithMeta().filter((invoice) => isMetaInvoice(invoice)
+    && dateInRange(invoice.invoice_date, window.from, window.to));
+  const metaInvoiceIds = new Set(metaInvoices.map((invoice) => Number(invoice.id)));
+  const metaSpend = metaInvoices.reduce((sum, invoice) => sum + n(invoice.total), 0);
+  const lines = query(
+    `SELECT l.id, l.invoice_id, l.description, l.line_total, l.impressions, i.invoice_date
+     FROM invoice_lines l
+     JOIN invoices i ON i.id = l.invoice_id
+     JOIN suppliers s ON s.id = i.supplier_id
+     WHERE l.is_deleted = 0 AND i.is_deleted = 0 AND i.status != 'archived'
+       AND i.category = 'marketing'
+       AND lower(coalesce(s.name, '')) IN ('meta', 'meta platforms', 'facebook')
+       AND ($from = '' OR i.invoice_date >= $from)
+       AND ($to = '' OR i.invoice_date <= $to)
+     ORDER BY i.invoice_date ASC, l.id ASC`,
+    { from: window.from || "", to: window.to || "" }
+  );
+  const isCommissionLine = (line) => /\bcomisi[oó]n(?:es)?\b/i.test(String(line.description || ""));
+  const campaignLines = lines.filter((line) => !isCommissionLine(line));
+  const commissionSpend = lines.filter(isCommissionLine).reduce((sum, line) => sum + n(line.line_total), 0);
+  const campaignMap = new Map();
+  const trendMap = new Map();
+  const addTrend = (key, values) => {
+    if (!key) return;
+    const bucket = trendMap.get(key) || { key, spend: 0, impressions: 0, orders: 0, sales: 0, campaigns: new Set() };
+    Object.entries(values).forEach(([field, value]) => { bucket[field] += n(value); });
+    trendMap.set(key, bucket);
+    return bucket;
+  };
+  metaInvoices.forEach((invoice) => addTrend(dashboardBucketKey(invoice.invoice_date, granularity), { spend: invoice.total }));
+  campaignLines.forEach((line) => {
+    const name = String(line.description || "Campaña sin nombre").trim() || "Campaña sin nombre";
+    const campaign = campaignMap.get(name) || { name, spend: 0, impressions: 0, invoice_ids: new Set() };
+    campaign.spend += n(line.line_total);
+    campaign.impressions += n(line.impressions);
+    campaign.invoice_ids.add(Number(line.invoice_id));
+    campaignMap.set(name, campaign);
+    const trendBucket = addTrend(dashboardBucketKey(line.invoice_date, granularity), { impressions: line.impressions });
+    if (trendBucket) trendBucket.campaigns.add(name);
+  });
+  const orderRows = query(
+    `SELECT order_date, net_amount FROM sales_orders
+     WHERE is_deleted = 0
+       AND ($from = '' OR order_date >= $from)
+       AND ($to = '' OR order_date <= $to)`,
+    { from: window.from || "", to: window.to || "" }
+  );
+  orderRows.forEach((order) => addTrend(dashboardBucketKey(order.order_date, granularity), { orders: 1, sales: order.net_amount }));
+  const totalOrders = orderRows.length;
+  const totalSales = orderRows.reduce((sum, order) => sum + n(order.net_amount), 0);
+  const keys = dashboardBucketSpan(window.from, window.to, granularity, Array.from(trendMap.keys()).sort());
+  const trend = keys.map((key) => {
+    const row = trendMap.get(key) || { key, spend: 0, impressions: 0, orders: 0, sales: 0, campaigns: new Set() };
+    return {
+      key: row.key,
+      spend: row.spend,
+      impressions: row.impressions,
+      orders: row.orders,
+      sales: row.sales,
+      campaign_count: row.campaigns.size,
+      cpm: row.impressions ? (row.spend / row.impressions) * 1000 : null,
+      spend_per_order: row.orders ? row.spend / row.orders : null,
+      sales_per_euro_spent: row.spend ? row.sales / row.spend : null,
+      spend_share_of_sales: row.sales ? (row.spend / row.sales) * 100 : null
+    };
+  });
+  const campaignSpend = Array.from(campaignMap.values()).reduce((sum, campaign) => sum + campaign.spend, 0);
+  return {
+    source: "Facturas Meta + pedidos Shopify",
+    attribution_note: "Las métricas comerciales son agregadas al periodo; no atribuyen pedidos a una campaña concreta.",
+    metrics: {
+      spend: metaSpend,
+      invoice_count: metaInvoices.length,
+      campaign_count: campaignMap.size,
+      impressions: lines.reduce((sum, line) => sum + n(line.impressions), 0),
+      cpm: lines.reduce((sum, line) => sum + n(line.impressions), 0) ? (metaSpend / lines.reduce((sum, line) => sum + n(line.impressions), 0)) * 1000 : null,
+      orders: totalOrders,
+      sales: totalSales,
+      spend_per_order: totalOrders ? metaSpend / totalOrders : null,
+      spend_share_of_sales: totalSales ? (metaSpend / totalSales) * 100 : null,
+      sales_per_euro_spent: metaSpend ? totalSales / metaSpend : null,
+      estimated_profit_after_marketing: profitability?.metrics?.total_profit == null ? null : n(profitability.metrics.total_profit) - metaSpend,
+      commission_spend: commissionSpend,
+      unallocated_spend: Math.max(0, metaSpend - campaignSpend - commissionSpend)
+    },
+    campaigns: Array.from(campaignMap.values())
+      .map((campaign) => ({
+        name: campaign.name,
+        spend: campaign.spend,
+        impressions: campaign.impressions,
+        invoice_count: campaign.invoice_ids.size,
+        cpm: campaign.impressions ? (campaign.spend / campaign.impressions) * 1000 : null,
+        spend_share: metaSpend ? (campaign.spend / metaSpend) * 100 : null
+      }))
+      .sort((a, b) => b.spend - a.spend || a.name.localeCompare(b.name, "es")),
+    trend,
+    data_quality: {
+      invoice_coverage: metaInvoiceIds.size,
+      lines_with_impressions: campaignLines.filter((line) => n(line.impressions) > 0).length,
+      campaign_spend: campaignSpend
+    }
+  };
+}
+
 function monthSpan(from, to, fallbackMonths = []) {
   if (!from || !to) return fallbackMonths;
   const months = [];
@@ -3436,6 +3543,7 @@ function dashboardFinance(options = {}) {
   const profitability = dashboardProfitability(window, granularity, settings);
   const previousProfitability = previousWindow ? dashboardProfitability(previousWindow, granularity, settings) : null;
   const sales = dashboardSales(window, previousWindow, granularity, invoices, profitability, previousInvoices, previousProfitability);
+  const marketing = dashboardMarketing(window, granularity, profitability);
   const replenishmentResult = createReplenishmentService({ query, one, materialCosts, settingsObject }).recommendations();
   const purchaseCandidates = replenishmentResult.recommendations
     .filter((row) => row.suggested_quantity > 0)
@@ -3561,6 +3669,7 @@ function dashboardFinance(options = {}) {
     top_materials: topMaterials,
     profitability,
     sales,
+    marketing,
     replenishment: {
       generated_at: replenishmentResult.generated_at,
       parameters: replenishmentResult.parameters,

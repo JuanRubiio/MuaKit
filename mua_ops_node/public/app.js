@@ -14,6 +14,12 @@ const state = {
   systemHealth: null,
   systemTestHealth: null,
   dashboardFinance: null,
+  marketingFinance: null,
+  marketingHistoryFinance: null,
+  marketingPreset: "this_month",
+  marketingFrom: "",
+  marketingTo: "",
+  marketingLoadToken: 0,
   dashboardLiveRefreshTimer: null,
   dashboardLiveRefreshInFlight: false,
   dashboardSpendView: "suppliers",
@@ -230,6 +236,7 @@ const TECHNICAL_LOG_LEVELS = {
 const PAGINATION_PAGE_SIZES = [10, 20, 50, 100];
 const viewModules = {
   dashboard: null,
+  marketing: null,
   income: null,
   system: null,
   materials: null,
@@ -300,8 +307,9 @@ function createViewContext() {
 
 async function loadViewModules() {
   const context = createViewContext();
-  const [dashboardModule, incomeModule, systemModule, materialsModule, invoicesModule, operationsModule, auditModule] = await Promise.all([
+  const [dashboardModule, marketingModule, incomeModule, systemModule, materialsModule, invoicesModule, operationsModule, auditModule] = await Promise.all([
     import("/views-dashboard.mjs"),
+    import("/views-marketing.mjs"),
     import("/views-income.mjs"),
     import("/views-system.mjs"),
     import("/views-materials.mjs"),
@@ -310,6 +318,7 @@ async function loadViewModules() {
     import("/views-audit.mjs")
   ]);
   viewModules.dashboard = dashboardModule.createDashboardViews(context);
+  viewModules.marketing = marketingModule.createMarketingViews(context);
   viewModules.income = incomeModule.createIncomeViews(context);
   viewModules.system = systemModule.createSystemViews(context);
   viewModules.materials = materialsModule.createMaterialViews(context);
@@ -1288,6 +1297,25 @@ async function loadDashboardFinance() {
   if (state.dashboardGranularity) params.set("granularity", state.dashboardGranularity);
   state.dashboardFinance = await api(`/api/dashboard/finance${params.toString() ? `?${params}` : ""}`);
   renderDashboard();
+  renderMarketing();
+}
+
+async function loadMarketingFinance() {
+  const preset = state.marketingPreset || "this_month";
+  const params = new URLSearchParams({ preset, granularity: "month" });
+  if (preset === "custom") {
+    if (state.marketingFrom) params.set("from", state.marketingFrom);
+    if (state.marketingTo) params.set("to", state.marketingTo);
+  }
+  const token = ++state.marketingLoadToken;
+  const [finance, historyFinance] = await Promise.all([
+    api(`/api/dashboard/finance?${params}`),
+    preset === "this_month" ? api("/api/dashboard/finance?preset=last_6_months&granularity=month") : Promise.resolve(null)
+  ]);
+  if (token !== state.marketingLoadToken) return;
+  state.marketingFinance = finance;
+  state.marketingHistoryFinance = historyFinance || finance;
+  renderMarketing();
 }
 
 function setupDashboardLiveRefresh() {
@@ -1327,6 +1355,13 @@ async function loadShopifyConnection() {
   state.shopifySyncStatus = status;
   renderShopifyConnection();
   setupShopifyAutoSync();
+}
+
+async function refreshShopifySyncStatus() {
+  const status = await api("/api/shopify/sync-status");
+  state.shopifySyncStatus = status;
+  renderShopifyConnection();
+  return status;
 }
 
 async function loadSystemHealth() {
@@ -1392,6 +1427,10 @@ function renderDashboardCharts() {
 
 function renderDashboard() {
   return viewModules.dashboard?.renderDashboard();
+}
+
+function renderMarketing() {
+  return viewModules.marketing?.renderMarketing();
 }
 
 async function loadIncome() {
@@ -1569,13 +1608,21 @@ window.addEventListener("mua:expenses-changed", () => {
 async function maybeRunShopifyAutoSync() {
   if (!state.shopifySyncStatus?.sync_enabled) return;
   if (document.visibilityState !== "visible") return;
-  const status = await api("/api/shopify/sync-status");
-  state.shopifySyncStatus = status;
-  renderShopifyConnection();
+  const status = await refreshShopifySyncStatus();
   if (!status.due || status.running) return;
-  const result = await api("/api/shopify/sync", { method: "POST", body: "{}" });
-  await refreshAfterShopifySync(result);
-  toast("Shopify sincronizado automáticamente");
+  try {
+    const result = await api("/api/shopify/sync", { method: "POST", body: "{}" });
+    await Promise.all([
+      refreshShopifySyncStatus().catch(() => {}),
+      refreshAfterShopifySync(result)
+    ]);
+    toast("Shopify sincronizado automáticamente");
+  } finally {
+    // The sync endpoint persists its final state before responding. Refresh it
+    // even if a secondary dashboard loader fails, so the Shopify tab cannot
+    // remain showing the previous run forever.
+    await refreshShopifySyncStatus().catch(() => {});
+  }
 }
 
 function setupShopifyAutoSync() {
@@ -1778,9 +1825,17 @@ async function testShopifyConnectionAction() {
 }
 
 async function syncShopifyNow() {
-  const result = await api("/api/shopify/sync", { method: "POST", body: "{}" });
-  await refreshAfterShopifySync(result);
-  toast("Shopify sincronizado");
+  try {
+    const result = await api("/api/shopify/sync", { method: "POST", body: "{}" });
+    await Promise.all([
+      refreshShopifySyncStatus().catch(() => {}),
+      refreshAfterShopifySync(result)
+    ]);
+    toast("Shopify sincronizado");
+  } finally {
+    // Keep the sync panel truthful even when a non-Shopify refresh fails.
+    await refreshShopifySyncStatus().catch(() => {});
+  }
 }
 
 async function createSystemBackup() {
@@ -1931,6 +1986,10 @@ function setActiveView(view) {
   $("#pageTitle").textContent = title;
   if (view === "audit") loadAudit().catch((error) => toast(error.message));
   if (view === "dashboard") requestAnimationFrame(() => renderDashboardCharts());
+  if (view === "marketing") {
+    requestAnimationFrame(() => renderMarketing());
+    if (!state.marketingFinance) loadMarketingFinance().catch((error) => toast(error.message));
+  }
   if (view === "income") requestAnimationFrame(() => renderPayouts());
   if (view === "kits") requestAnimationFrame(() => renderKits());
 }
@@ -2520,6 +2579,51 @@ function bindEvents() {
     state.technicalLogLevel = "relevant";
     resetPagination("technicalLogs");
     renderTechnicalLogs();
+  });
+  $("#marketingFilterTrigger")?.addEventListener("click", () => {
+    const popover = $("#marketingFilterPopover");
+    const opening = popover?.classList.contains("hidden");
+    popover?.classList.toggle("hidden", !opening);
+    $("#marketingFilterTrigger")?.setAttribute("aria-expanded", opening ? "true" : "false");
+  });
+  $("#marketingPeriodOptions")?.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-marketing-period-option]");
+    if (!option) return;
+    state.marketingPreset = option.dataset.marketingPeriodOption || "this_month";
+    if (state.marketingPreset !== "custom") {
+      state.marketingFrom = "";
+      state.marketingTo = "";
+    }
+    renderMarketing();
+  });
+  $("#marketingFrom")?.addEventListener("change", (event) => {
+    state.marketingPreset = "custom";
+    state.marketingFrom = event.currentTarget.value || "";
+    renderMarketing();
+  });
+  $("#marketingTo")?.addEventListener("change", (event) => {
+    state.marketingPreset = "custom";
+    state.marketingTo = event.currentTarget.value || "";
+    renderMarketing();
+  });
+  $("#marketingApplyRange")?.addEventListener("click", () => {
+    state.marketingPreset = state.marketingPreset || "this_month";
+    state.marketingTo = $("#marketingTo")?.value || "";
+    if (state.marketingFrom && state.marketingTo && state.marketingFrom > state.marketingTo) {
+      toast("La fecha inicial debe ser anterior a la final.");
+      return;
+    }
+    $("#marketingFilterPopover")?.classList.add("hidden");
+    $("#marketingFilterTrigger")?.setAttribute("aria-expanded", "false");
+    loadMarketingFinance().catch((error) => toast(error.message));
+  });
+  $("#marketingFilterReset")?.addEventListener("click", () => {
+    state.marketingPreset = "this_month";
+    state.marketingFrom = "";
+    state.marketingTo = "";
+    $("#marketingFilterPopover")?.classList.add("hidden");
+    $("#marketingFilterTrigger")?.setAttribute("aria-expanded", "false");
+    loadMarketingFinance().catch((error) => toast(error.message));
   });
   ["#technicalLogQuery", "#technicalLogSource", "#technicalLogLevel", "#technicalLogFrom", "#technicalLogTo"].forEach((selector) => {
     $(selector)?.addEventListener(selector === "#technicalLogQuery" ? "input" : "change", debounce(() => {

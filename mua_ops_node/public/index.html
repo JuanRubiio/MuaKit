@@ -74,6 +74,7 @@
       </div>
       <nav class="tabs tabs-main">
         <button class="tab active" data-view="dashboard" aria-label="Dashboard"><svg><use href="#icon-home"></use></svg><span>Dashboard</span></button>
+        <button class="tab" data-view="marketing" aria-label="Marketing"><svg><use href="#icon-megaphone"></use></svg><span>Marketing</span></button>
         <button class="tab" data-view="invoices" aria-label="Gastos"><svg><use href="#icon-file"></use></svg><span>Gastos</span></button>
         <button class="tab" data-view="income" aria-label="Ingresos"><svg><use href="#icon-chart"></use></svg><span>Ingresos</span></button>
         <button class="tab" data-view="materials" aria-label="Materiales"><svg><use href="#icon-cube"></use></svg><span>Materiales</span></button>
@@ -153,6 +154,40 @@
             </div>
             <section class="panel dashboard-detail-panel"><div class="panel-head"><div><h2 id="dashboardDetailTitle">Lecturas para decidir</h2><p id="dashboardDetailText">Detalle de los principales impulsores.</p></div></div><div id="dashboardSpendList" class="list compact"></div></section>
           </div>
+        </section>
+
+        <section id="marketing" class="view">
+          <header class="entity-overview-head marketing-overview-head">
+            <div>
+              <p class="eyebrow">CRECIMIENTO</p>
+              <h1>Marketing</h1>
+              <p id="marketingPeriodLabel">Seguimiento mensual de inversión y demanda.</p>
+            </div>
+          </header>
+          <div class="marketing-commandbar">
+            <button id="marketingFilterTrigger" type="button" class="dashboard-filter-trigger" aria-expanded="false">
+              <svg><use href="#icon-calendar"></use></svg>
+              <strong id="marketingWindowLabel">Este mes</strong>
+              <span id="marketingFilterSummary">Mensual</span>
+              <b>⌄</b>
+            </button>
+            <section id="marketingFilterPopover" class="panel marketing-filter-popover hidden">
+              <fieldset><legend>Periodo</legend><div id="marketingPeriodOptions" class="marketing-filter-options"></div></fieldset>
+              <div id="marketingCustomRange" class="marketing-custom-range hidden" aria-label="Rango de fechas de Marketing">
+                <label>Desde<input id="marketingFrom" type="date"></label>
+                <label>Hasta<input id="marketingTo" type="date"></label>
+              </div>
+              <div class="marketing-filter-note">Todos los gráficos se agrupan por mes.</div>
+              <div class="marketing-filter-actions"><button id="marketingFilterReset" type="button" class="ghost">Restablecer</button><button id="marketingApplyRange" type="button">Aplicar filtros</button></div>
+            </section>
+          </div>
+          <div id="marketingKpis" class="marketing-kpis"></div>
+          <section id="marketingPulse" class="marketing-pulse"></section>
+          <div class="marketing-grid">
+            <section class="panel marketing-trend-panel"><div class="panel-head"><div><h2>Coste de marketing por pedido</h2><p id="marketingTrendText">Comparativa mensual con el número de pedidos.</p></div></div><div id="marketingTrendChart" class="chart-surface chart-surface-hero"></div></section>
+            <section class="panel marketing-reach-panel"><div class="panel-head"><div><h2>Inversión, alcance y pedidos</h2><p id="marketingReachText">Impresiones, inversión y pedidos por mes.</p></div></div><div id="marketingReachChart" class="chart-surface chart-surface-hero"></div></section>
+          </div>
+          <section class="panel marketing-campaign-panel"><div class="panel-head"><div><h2>Campañas activas</h2><p>Extraídas de las facturas de Meta. Las comisiones se excluyen.</p></div></div><div id="marketingCampaigns"></div></section>
         </section>
 
         <section id="invoices" class="view">

@@ -717,6 +717,8 @@ Importe total adeudado EUR 0,00`;
 
     const initialDashboard = await request("GET", "/api/dashboard/finance");
     assert(initialDashboard.kpis, "Dashboard finance should include KPIs");
+    assert(initialDashboard.marketing?.metrics, "Dashboard should expose Meta marketing analytics");
+    assert(Array.isArray(initialDashboard.marketing?.campaigns), "Marketing analytics should expose detected campaigns");
     assert(Array.isArray(initialDashboard.monthly_spend), "Dashboard finance should include monthly spend");
     assert(initialDashboard.monthly_breakdown?.series?.total, "Dashboard finance should include monthly breakdown");
     assert(Array.isArray(initialDashboard.category_spend), "Dashboard finance should include category spend");
@@ -1026,6 +1028,23 @@ Importe total adeudado EUR 0,00`;
     assert(taxInvoice.id, "Tax expense invoices should be created");
     const dashboardWithTaxExpense = await request("GET", "/api/dashboard/finance?preset=this_year");
     assert(dashboardWithTaxExpense.category_spend.some((row) => row.category === "impuestos" && row.total === 320), "Dashboard finance should include tax expense category spend when present");
+
+    const metaSupplier = seededSuppliers.find((supplier) => supplier.name === "Meta");
+    assert(metaSupplier?.id, "Meta should be available as a seeded marketing supplier");
+    const metaInvoice = await request("POST", "/api/invoices", {
+      supplier_id: metaSupplier.id, invoice_number: "FBADS-TEST-001", invoice_date: "2026-01-25", category: "marketing",
+      subtotal: 75, discount: 0, shipping: 0, tax: 0, total: 75, currency: "EUR", status: "posted", notes: "Meta campaigns test"
+    });
+    await request("POST", `/api/invoices/${metaInvoice.id}/lines`, { description: "Mascotas", package_count: 1, units_per_package: 1, price_per_package: 25, impressions: 10000, affects_stock: false });
+    await request("POST", `/api/invoices/${metaInvoice.id}/lines`, { description: "Maternidad", package_count: 1, units_per_package: 1, price_per_package: 50, impressions: 20000, affects_stock: false });
+    await request("POST", `/api/invoices/${metaInvoice.id}/lines`, { description: "Comisiones por ubicación", package_count: 1, units_per_package: 1, price_per_package: 5, impressions: 0, affects_stock: false });
+    const marketingDashboard = await request("GET", "/api/dashboard/finance?preset=this_year");
+    assert(marketingDashboard.marketing.metrics.spend >= 75, "Marketing analytics should aggregate Meta invoice spend");
+    assert(marketingDashboard.marketing.metrics.impressions >= 30000, "Marketing analytics should aggregate extracted Meta impressions");
+    assert(marketingDashboard.marketing.campaigns.some((campaign) => campaign.name === "Mascotas" && campaign.impressions === 10000), "Marketing analytics should group Meta invoice lines by campaign");
+    assert(!marketingDashboard.marketing.campaigns.some((campaign) => /comision/i.test(campaign.name)), "Marketing analytics should exclude Meta commission lines from campaigns");
+    assert(marketingDashboard.marketing.metrics.commission_spend >= 5, "Marketing analytics should keep Meta commissions separate from campaigns");
+    assert(marketingDashboard.marketing.trend.some((row) => row.campaign_count >= 2), "Marketing analytics should expose campaign activity in its historical trend");
 
     const line = await request("POST", `/api/invoices/${invoice.id}/lines`, {
       material_id: material.id,
