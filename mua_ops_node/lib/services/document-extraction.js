@@ -246,6 +246,52 @@ function klaviyoFields(lines) {
   };
 }
 
+function anthropicFields(lines) {
+  const text = lines.join("\n");
+  if (!/anthropic\s+ireland/i.test(text) || !/\breceipt\b/i.test(text) || !/invoice\s+number/i.test(text)) return null;
+  const invoiceMatch = text.match(/\binvoice\s+number\s+([A-Z0-9]+)\s*(?:-|[\u0000\s])+\s*([0-9]{3,})/i);
+  const invoiceNumber = invoiceMatch ? `${invoiceMatch[1]}-${invoiceMatch[2]}` : "";
+  const dateText = text.match(/\bdate\s+paid\s+([A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4})/i)?.[1] || "";
+  const value = (pattern) => amount(text.match(pattern)?.[1]);
+  const subtotal = value(/\bsubtotal\s+€\s*([0-9][0-9.,]*)/i);
+  const total = value(/\btotal\s+€\s*([0-9][0-9.,]*)/i)
+    ?? value(/\bamount\s+paid\s+€\s*([0-9][0-9.,]*)/i);
+  return {
+    invoice_number: invoiceNumber,
+    invoice_date: englishDateToIso(dateText),
+    subtotal,
+    discount: 0,
+    shipping: 0,
+    tax: 0,
+    total,
+    currency: "EUR",
+    category: "software",
+    supplier_hint: "anthropic"
+  };
+}
+
+function detectedAnthropicLines(lines, fields = {}) {
+  if (fields.supplier_hint !== "anthropic") return [];
+  const line = lines.find((value) => /^.+?\s+\d+\s+€?[0-9][0-9.,]*\s+\d+(?:[.,]\d+)?%\s+€?[0-9][0-9.,]*\s*$/i.test(value));
+  const match = line?.match(/^(.+?)\s+(\d+)\s+€?([0-9][0-9.,]*)\s+\d+(?:[.,]\d+)?%\s+€?([0-9][0-9.,]*)\s*$/i);
+  if (!match) return [];
+  const quantity = Number(match[2]);
+  const unitPrice = amount(match[3]);
+  const lineTotal = amount(match[4]);
+  if (!quantity || unitPrice === null || lineTotal === null) return [];
+  return [{
+    description: match[1].trim(),
+    quantity,
+    package_count: quantity,
+    units_per_package: 1,
+    total_units: quantity,
+    price_per_package: unitPrice,
+    unit_price: unitPrice,
+    line_total: lineTotal,
+    original_text: line
+  }];
+}
+
 function canvaFields(lines) {
   const text = lines.join("\n");
   const normalizedText = normalize(text);
@@ -892,6 +938,7 @@ function detectFields(text) {
   const apple = appleFields(lines);
   const capcut = capcutFields(lines);
   const klaviyo = klaviyoFields(lines);
+  const anthropic = anthropicFields(lines);
   const numericDate = numericDateToIso(text.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/)?.[1] || "");
   const namedDate = text.match(/\b(?:paid on|bill created|fecha)\s+([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{4})/i);
   const spanishDate = text.match(/(?:fecha de la factura\/pago|fecha)\s*\n\s*(\d{1,2})\s+([a-záéíóú]{3,5})\.?\s+(\d{4})/i);
@@ -928,7 +975,7 @@ function detectFields(text) {
   const safeInvoiceNumber = text.match(/factura\s+recurrente\s+([A-Z0-9][A-Z0-9\/_-]{2,})/i)?.[1] || (/^(fecha|empresa|date|number|numero|referencia|reference)$/i.test(invoiceNumber) ? "" : invoiceNumber);
   const genericSubtotal = amount(text.match(/\b(?:subtotal|base imponible(?:\s*\([^)]*\))?)\s*[: ]\s*([0-9][0-9.,]*)\s*(?:€|EUR)?/i)?.[1]);
   const genericTax = amount(text.match(/\b(?:iva|vat)(?:\s*\([^)]*\))?\s*[: ]\s*([0-9][0-9.,]*)\s*(?:€|EUR)?/i)?.[1]);
-  return { invoice_number: safeInvoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(genericSubtotal !== null ? { subtotal: genericSubtotal } : {}), ...(genericTax !== null ? { tax: genericTax } : {}), ...(prisma || {}), ...(malagaPack || {}), ...(likinagency || {}), ...(aliExpress || {}), ...(alibaba || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(sendcloud || {}), ...(dhl || {}), ...(fedex || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}), ...(klaviyo || {}) };
+  return { invoice_number: safeInvoiceNumber, invoice_date: date, total: selectedTotal?.value ?? null, currency: selectedTotal?.currency || "EUR", exchange_rate: exchangeRate, lines, ...(genericSubtotal !== null ? { subtotal: genericSubtotal } : {}), ...(genericTax !== null ? { tax: genericTax } : {}), ...(prisma || {}), ...(malagaPack || {}), ...(likinagency || {}), ...(aliExpress || {}), ...(alibaba || {}), ...(etsy || {}), ...(shein || {}), ...(correos || {}), ...(sendcloud || {}), ...(dhl || {}), ...(fedex || {}), ...(canva || {}), ...(apple || {}), ...(capcut || {}), ...(klaviyo || {}), ...(anthropic || {}) };
 }
 
 function detectedInvoiceLines(lines, fields = {}) {
@@ -953,6 +1000,8 @@ function detectedInvoiceLines(lines, fields = {}) {
   if (capcutLines.length) return capcutLines;
   const klaviyoLines = detectedKlaviyoLines(lines, fields);
   if (klaviyoLines.length) return klaviyoLines;
+  const anthropicLines = detectedAnthropicLines(lines, fields);
+  if (anthropicLines.length) return anthropicLines;
   const excluded = /\b(total|subtotal|vat|iva|tax|payment|paid|billing|bill|address|overview|page \d|learn more|recipient|credit|discount|shipping|mastercard|floor|dublin|spain|transacci[oó]n|umbral de pago|emitido una factura)\b|=|\(\d+\s+items?\)/i;
   return lines.filter((line) => {
     if (line.length > 220 || excluded.test(line)) return false;
@@ -1034,14 +1083,19 @@ function fieldEvidence(fields, pages) {
     const confidence = words.length ? words.reduce((sum, word) => sum + Number(word.confidence || 0), 0) / words.length : Number(page?.confidence || 0);
     return { ...match, confidence: Math.round(confidence) };
   };
+  const lineAmount = (text) => {
+    const match = String(text || "").match(/(?:€|EUR)\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(?:€|EUR)/i);
+    return match ? amount(match[1] || match[2]) : null;
+  };
+  const labeledAmount = (value, pattern) => pageLines.find((line) => value !== null && pattern.test(line.text) && lineAmount(line.text) === Number(value)) || null;
   return {
     supplier: annotate(find(fields.suggested_supplier_name)),
     invoice_number: annotate(find(fields.invoice_number)),
     invoice_date: annotate(find(fields.invoice_date) || pageLines.find((line) => /\b(fecha|date|paid on|bill created)\b/i.test(line.text)) || null),
-    total: annotate(pageLines.find((line) => fields.total !== null && amount(line.text) === Number(fields.total) && /\b(total|importe|due)\b|€|\bEUR\b|\bUSD\b|\$/i.test(line.text)) || null),
-    subtotal: annotate(pageLines.find((line) => { const match = line.text.match(/([0-9][0-9.,]*)\s*(?:€|EUR)/i); return fields.subtotal !== null && /\b(subtotal|base imponible)\b/i.test(line.text) && match && amount(match[1]) === Number(fields.subtotal); }) || null),
-    tax: annotate(pageLines.find((line) => { const match = line.text.match(/([0-9][0-9.,]*)\s*(?:€|EUR)/i); return fields.tax !== null && /\b(iva|vat|tax)\b/i.test(line.text) && match && amount(match[1]) === Number(fields.tax); }) || null),
-    additional_tax: annotate(pageLines.find((line) => { const match = line.text.match(/([0-9][0-9.,]*)\s*(?:€|EUR)/i); return fields.additional_tax !== null && /\b(cargos? de importaci[oó]n|importaci[oó]n|arancel|customs|duty|import)\b/i.test(line.text) && match && amount(match[1]) === Number(fields.additional_tax); }) || null),
+    total: annotate(labeledAmount(fields.total, /\b(total|importe|amount\s+paid|due)\b/i) || pageLines.find((line) => fields.total !== null && lineAmount(line.text) === Number(fields.total) && /€|\bEUR\b|\bUSD\b|\$/i.test(line.text)) || null),
+    subtotal: annotate(labeledAmount(fields.subtotal, /\b(subtotal|base imponible|total productos)\b/i) || null),
+    tax: annotate(labeledAmount(fields.tax, /\b(iva|vat|tax)\b/i) || null),
+    additional_tax: annotate(labeledAmount(fields.additional_tax, /\b(cargos? de importaci[oó]n|importaci[oó]n|arancel|customs|duty|import)\b/i) || null),
     category: annotate(find(fields.suggested_supplier_name) || pageLines.find((line) => /\b(meta anuncios|apps?|software|marketing|env[ií]o|material)\b/i.test(line.text)) || null)
   };
 }
@@ -1155,8 +1209,8 @@ function createDocumentExtractionService({ query, one, exec, insert, saveDb, aud
   function suggest(fields) {
     const suppliers = query("SELECT id, name, category FROM suppliers WHERE is_deleted=0");
     const normalizedText = normalize(fields.lines.slice(0, 100).join(" "));
-    const aliases = { prisma: ["prisma"], likinagency: ["likinagency", "likin agency"], meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], dhl: ["dhl", "dhl express", "dhl express spain"], fedex: ["fedex", "fedex express", "federal express"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], alibaba: ["alibaba", "alibaba com", "alibaba.com"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"], klaviyo: ["klaviyo", "klaviyo inc"], sendcloud: ["sendcloud", "sendcloud bv"], malagapack: ["malagapack", "sur-innopack", "malagapack.com"], ikea: ["ikea", "ikea iberica"], analizza: ["analizza", "asesoria contable fiscal"] };
-    const newSupplierProfiles = { sendcloud: { name: "Sendcloud", category: "envios" }, malagapack: { name: "MalagaPack", category: "materiales" }, ikea: { name: "IKEA", category: "materiales" }, analizza: { name: "Analizza", category: "servicios" } };
+    const aliases = { prisma: ["prisma"], likinagency: ["likinagency", "likin agency"], meta: ["meta platforms", "meta anuncios", "facebook"], correos: ["correos"], dhl: ["dhl", "dhl express", "dhl express spain"], fedex: ["fedex", "fedex express", "federal express"], shopify: ["shopify international"], etsy: ["etsy ireland", "etsy", "etsy com"], shein: ["shein", "infinite styles services"], aliexpress: ["aliexpress"], alibaba: ["alibaba", "alibaba com", "alibaba.com"], canva: ["canva"], capcut: ["capcut"], apple: ["apple", "app store", "icloud", "cuenta de apple"], klaviyo: ["klaviyo", "klaviyo inc"], anthropic: ["anthropic", "anthropic ireland"], sendcloud: ["sendcloud", "sendcloud bv"], malagapack: ["malagapack", "sur-innopack", "malagapack.com"], ikea: ["ikea", "ikea iberica"], analizza: ["analizza", "asesoria contable fiscal"] };
+    const newSupplierProfiles = { anthropic: { name: "Anthropic", category: "software" }, sendcloud: { name: "Sendcloud", category: "envios" }, malagapack: { name: "MalagaPack", category: "materiales" }, ikea: { name: "IKEA", category: "materiales" }, analizza: { name: "Analizza", category: "servicios" } };
     const supplierHint = normalize(fields.supplier_hint);
     const profileKey = Object.keys(newSupplierProfiles).find((key) => supplierHint === key || aliases[key]?.some((alias) => normalizedText.includes(normalize(alias))));
     if (profileKey && !suppliers.some((item) => normalize(item.name) === normalize(newSupplierProfiles[profileKey].name))) {

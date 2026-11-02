@@ -297,6 +297,26 @@ Amount due $45.00 USD`;
   assert(inferExpenseCategory("Recibo de la Tesoreria General de la Seguridad Social cuota autonomo", "otros", ["otros"]) === "impuestos", "Social Security self-employed fees should be classified as tax expenses");
   const klaviyoLines = detectedKlaviyoLines(klaviyoFields.lines, klaviyoFields);
   assert(klaviyoLines.length === 1 && klaviyoLines[0].description.includes("Klaviyo Platform") && klaviyoLines[0].line_total === 45, "Klaviyo platform charges should become one editable line");
+  const anthropicText = `Receipt
+Invoice number 9BF0758D \u0000 11252538
+Receipt number 2811 \u0000 3483
+Date paid November 2, 2026
+Anthropic Ireland, Limited Bill to
+€18.00 paid on November 2, 2026
+Reverse charge applies - Customer to account for tax under Article 196 of Directive 2006/112/EC.
+Unit price Amount
+Description Qty Tax
+\u0000 1 \u0000
+Claude Pro 1 €18.00 0% €18.00
+Nov 1 \u0000 Nov 30, 2026
+Subtotal €18.00
+Total €18.00
+Amount paid €18.00`;
+  const anthropicFields = detectFields(anthropicText);
+  assert(anthropicFields.invoice_number === "9BF0758D-11252538" && anthropicFields.invoice_date === "2026-11-02", "Anthropic invoice references and dates should be detected from the invoice number, not the receipt number");
+  assert(anthropicFields.subtotal === 18 && anthropicFields.tax === 0 && anthropicFields.total === 18 && anthropicFields.currency === "EUR" && anthropicFields.category === "software", "Anthropic reverse-charge receipts should separate subtotal, zero VAT and total");
+  const anthropicLines = detectedInvoiceLines(anthropicFields.lines, anthropicFields);
+  assert(anthropicLines.length === 1 && anthropicLines[0].description === "Claude Pro" && anthropicLines[0].line_total === 18, "Anthropic subscription receipts should produce one clean software line");
   assert(ORDER_TYPES.length === 7, "Orders should expose the seven agreed business typologies");
   const maternityDetection = detectOrderType([
     { id: 1, title: "Kit Müa | Recuerdos de Maternidad" },
