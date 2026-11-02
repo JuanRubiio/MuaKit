@@ -1,5 +1,10 @@
 # Mua Ops - Flujo de costes, inventario y margen
 
+Nota: este documento conserva el razonamiento tactico inicial. La fuente
+operativa actual es la app local Node/SQLite descrita en `README_MUA_OPS.md`.
+La metodologia actual vive en `docs/README.md` y `docs/sdd/README.md`. Los CSV
+y scripts historicos quedan como apoyo puntual, no como flujo principal.
+
 ## Objetivo
 
 Mantener una fuente viva de costes por material para que Mua Kit pueda saber:

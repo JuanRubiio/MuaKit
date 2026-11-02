@@ -1,7 +1,10 @@
 # Mua Ops
 
-Aplicacion local para gestionar el catalogo operativo de Mua Kit: materiales,
-proveedores, facturas, adjuntos, lineas de compra, costes medios e historial.
+Release estable actual: **v1.2.5** (`v1.2.5`).
+
+Aplicacion local para gestionar la operativa de Mua Kit: materiales,
+proveedores, facturas, adjuntos, lineas de compra, costes medios, kits,
+cobros, Shopify sync e historial.
 
 ## Arrancar
 
@@ -19,11 +22,15 @@ http://127.0.0.1:5055
 
 ```powershell
 npm test
+npm run test:ui:smoke
 ```
 
 La prueba levanta el servidor en el puerto `5065` con una base SQLite temporal
-en `data\mua_ops_test`, crea proveedor, material, factura, adjunto y linea, y
-valida que archivar/restaurar la factura cambia los costes.
+en `data\mua_ops_test_<pid>_<timestamp>`. Valida API, Shopify mock, cobros,
+facturas, costes, migraciones, backups, health check y reinicio con base
+existente. El test elimina su directorio temporal al finalizar; si un proceso
+se interrumpe, esos directorios se pueden borrar cuando empiecen por
+`mua_ops_test_`.
 
 ## Datos
 
@@ -39,34 +46,108 @@ Los adjuntos se copian dentro de:
 data\mua_ops\uploads
 ```
 
-El fichero tactico anterior queda solo como fuente de migracion historica:
+Los backups locales se guardan en:
+
+```text
+data\mua_ops\backups
+```
+
+Importante: los backups contienen toda la base local, incluida configuracion
+privada como credenciales de Shopify. Tratalos como datos privados.
+
+El fichero tactico anterior queda solo como fuente de migracion historica; no es necesario para arrancar la app actual:
 
 ```text
 data\mua_ops\mua_ops.json
 ```
 
-## Importacion Shopify
+## Backups y salud tecnica
 
-La app importa productos e imagenes desde:
+Antes de aplicar migraciones pendientes sobre una base existente, la app crea
+un backup automatico. Tambien se puede crear uno manualmente:
 
 ```text
-C:\Users\Portatil\Downloads\products_export_1.csv
-shopify\inventario\inventory_export_1.csv
+POST /api/system/backup
 ```
 
-El CSV de productos aporta las imagenes desde `Image Src` de Shopify CDN. El
-inventario aporta stock por `Handle`. Shopify es fuente de catalogo visual; la
-fuente operativa para costes es el catalogo interno de `materials`.
+Estado tecnico:
+
+```text
+GET /api/system/health
+```
+
+Devuelve integridad SQLite, migraciones aplicadas, ultimo backup, tamano de DB
+y estado basico de Shopify sin exponer tokens completos.
+
+## Shopify
+
+El flujo principal es la sincronizacion directa con Shopify Admin API desde
+Configuracion > Shopify. La app puede sincronizar catalogo/imagenes, inventario,
+pedidos y payouts de Shopify.
+
+Los CSV historicos quedan como fallback puntual:
+
+```text
+shopify\inventario\products_export_1.csv
+shopify\inventario\inventory_export_1.csv
+shopify\pagos\payouts_export_1.csv
+```
+
+Shopify es la fuente real de stock. Mua Ops conserva el catalogo interno de
+materiales, costes medios, puntos de reposicion y composicion de kits.
 
 ## Flujo Recomendado
 
-1. Revisar productos Shopify e identificar que SKU representa cada material.
-2. Crear o editar materiales internos.
-3. Vincular productos Shopify con materiales internos cuando proceda.
-4. Crear o editar proveedores.
-5. Crear factura manual y adjuntar PDF/imagen como soporte documental.
-6. Anadir lineas de factura con paquetes, unidades por paquete y coste.
-7. Revisar costes medios y ultimo coste en la vista Costes.
+1. Sincronizar Shopify desde Configuracion cuando haya cambios de catalogo,
+   inventario, pedidos o payouts.
+2. Revisar materiales internos y sus enlaces con productos Shopify.
+3. Crear o editar proveedores cuando sea necesario.
+4. Crear factura manual y adjuntar PDF/imagen como soporte documental.
+5. Anadir lineas de factura con paquetes, unidades por paquete y coste.
+6. Revisar costes medios, ultimo coste y composicion de kits.
+7. Revisar dashboard para gastos, cobros, stock a reponer y datos pendientes.
+
+## Versionado
+
+La release estable actual es `v1.2.5`. El alcance y la validación están en `docs/releases/v1.2.5.md`.
+
+El MVP original conserva el tag histórico `mua-ops-mvp-v0.1`. Las ramas de trabajo usan el prefijo `codex/`; esta release se publicó desde `codex/marketing-filter-polish` y está preparada para PR a `main`.
+
+## Metodologia SDD
+
+A partir de la estabilizacion tecnica, Mua Ops adopta una metodologia SDD
+ligera. La documentacion principal esta en:
+
+```text
+docs\README.md
+docs\sdd\README.md
+```
+
+Regla practica: si un cambio toca dinero, stock, Shopify, pedidos, margen,
+migraciones o seguridad, debe tener spec antes de implementarse.
+
+Plantillas:
+
+```text
+docs\sdd\spec-template.md
+docs\sdd\adr-template.md
+docs\sdd\hardness-checklist.md
+```
+
+Specs retrospectivas del trabajo ya implementado:
+
+```text
+docs\specs\000-retro-mua-ops-mvp-v0.1.md
+docs\specs\001-retro-shopify-direct-sync.md
+docs\specs\002-retro-income-and-finance-dashboard.md
+docs\specs\003-retro-technical-stabilization-v0.2.md
+```
+
+Spec de evolución visual y funcional en seguimiento:
+
+```text
+docs\specs\004-visual-refresh-v1.md
+```
 
 ## Criterio
 

@@ -4,9 +4,11 @@ node_modules/
 data/
 declaraciones_trimestrales/
 shopify/
+etsy/
 tools/__pycache__/
 server.out.log
 server.err.log
+recovery/
 
 *.sqlite
 *.sqlite-shm
@@ -15,6 +17,7 @@ server.err.log
 
 uploads/
 tmp/
+coverage/
 
 .DS_Store
 Thumbs.db

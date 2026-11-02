@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-hidden="true">
+  <circle cx="32" cy="32" r="31" fill="#f8fafc"/>
+  <circle cx="32" cy="32" r="31" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="32" y="32" fill="#334155" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700" text-anchor="middle" dominant-baseline="central">M</text>
+</svg>
