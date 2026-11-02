@@ -101,7 +101,13 @@ instalador local o contenedor.
 ## Limpieza
 
 - No borrar `tools/` por ahora: son legado tactico y referencia historica.
-- `server.out.log` y `server.err.log` estan ignorados por git y son artefactos
-  runtime locales.
+- Los logs de raiz (`*.log`), `coverage/` y `tmp/` estan ignorados por git y son
+  artefactos regenerables; se pueden eliminar cuando no haya una incidencia
+  activa que requiera conservarlos.
+- Los directorios `data/mua_ops_test_<pid>_<timestamp>` son bases temporales
+  creadas por `test-api.js`. Si quedan tras una interrupcion, se pueden borrar
+  despues de confirmar que no son `data/mua_ops` ni `data/mua_ops_test`.
 - Las carpetas `shopify/`, `etsy/`, `declaraciones_trimestrales/` y `data/`
   estan fuera de git por contener datos reales o exportaciones.
+- `recovery/` conserva scripts y una instantanea de una incidencia; no es parte
+  del runtime y se mantiene hasta decidir explicitamente su archivo externo.

@@ -12,7 +12,7 @@ Ramas importantes:
 
 - `codex/shopify-direct-sync`: base del MVP v0.1.
 - `main`: rama objetivo de integración.
-- `codex/intelligent-replenishment-v2`: rama de esta release, publicada en GitHub.
+- La rama de cada release se publica en GitHub con el prefijo `codex/` y se cierra con un tag semántico.
 
 ## Cierre de una fase
 
@@ -40,6 +40,7 @@ npm test
 - `v1.2.2`: Dashboard de control y estabilización previa al rediseño de reposición.
 - `v1.2.3`: estabilización adicional de smoke tests.
 - `v1.2.4`: cierre de importación OCR, patrones por proveedor, proveedores y control contable.
+- `v1.2.5`: patrones adicionales de importación, Anthropic/MalagaPack y mejoras del dominio de marketing.
 
 ## Preparación de PR a main
 

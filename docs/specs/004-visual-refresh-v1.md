@@ -1,36 +1,40 @@
 # Spec: Visual Refresh v1
 
+## Estado
+
+Parcialmente implementada y mantenida retrospectivamente como referencia de
+diseño. Las pantallas y componentes ya integrados deben reflejarse aquí cuando
+se cierre cada fase; lo pendiente no debe interpretarse como contrato vigente.
+
 ## Contexto
 
 La fase de estabilizacion tecnica ya dejo la app clasica suficientemente modularizada para abordar una mejora visual sobre la interfaz actual de `http://127.0.0.1:5055/`.
 
 Los disenos aceptados estan en:
 
-- `desings/visual-refresh/dashboard.png`
-- `desings/visual-refresh/facturas.png`
-- `desings/visual-refresh/editar factura.png`
-- `desings/visual-refresh/nueva factura.png`
-- `desings/visual-refresh/ingresos.png`
-- `desings/visual-refresh/nuevo ingreso.png`
-- `desings/visual-refresh/materiales.png`
-- `desings/visual-refresh/ver material.png`
-- `desings/visual-refresh/nuevo material.png`
-- `desings/visual-refresh/proveedores.png`
-- `desings/visual-refresh/ver proveedor.png`
-- `desings/visual-refresh/nuevo proveedor.png`
-- `desings/visual-refresh/costes.png`
-- `desings/visual-refresh/ver coste.png`
-- `desings/visual-refresh/kits.png`
-- `desings/visual-refresh/ver kit.png`
-- `desings/visual-refresh/nuevo kit.png`
-- `desings/visual-refresh/editar kit.png`
-- `desings/visual-refresh/actividad.png`
-- `desings/visual-refresh/ver actividad.png`
-- `desings/visual-refresh/configuracion.png`
-- `desings/visual-refresh/configuracion shopify.png`
-- `desings/visual-refresh/configuracion logs.png`
-
-Nota: la carpeta esta escrita como `desings`. Puede renombrarse mas adelante si no rompe referencias locales.
+- `docs/designs/visual-refresh/dashboard.png`
+- `docs/designs/visual-refresh/facturas.png`
+- `docs/designs/visual-refresh/editar factura.png`
+- `docs/designs/visual-refresh/nueva factura.png`
+- `docs/designs/visual-refresh/ingresos.png`
+- `docs/designs/visual-refresh/nuevo ingreso.png`
+- `docs/designs/visual-refresh/materiales.png`
+- `docs/designs/visual-refresh/ver material.png`
+- `docs/designs/visual-refresh/nuevo material.png`
+- `docs/designs/visual-refresh/proveedores.png`
+- `docs/designs/visual-refresh/ver proveedor.png`
+- `docs/designs/visual-refresh/nuevo proveedor.png`
+- `docs/designs/visual-refresh/costes.png`
+- `docs/designs/visual-refresh/ver coste.png`
+- `docs/designs/visual-refresh/kits.png`
+- `docs/designs/visual-refresh/ver kit.png`
+- `docs/designs/visual-refresh/nuevo kit.png`
+- `docs/designs/visual-refresh/editar kit.png`
+- `docs/designs/visual-refresh/actividad.png`
+- `docs/designs/visual-refresh/ver actividad.png`
+- `docs/designs/visual-refresh/configuración.png`
+- `docs/designs/visual-refresh/configuración shopify.png`
+- `docs/designs/visual-refresh/configuración logs.png`
 
 ## Objetivo
 
@@ -177,7 +181,7 @@ Cada listado debe pasar de cards/listas a tabla densa con tabs, filtros compacto
 - Hay que evitar convertir placeholders visuales en datos falsos.
 - El cambio de sidebar a topbar afecta `index.html`, CSS, tests y posiblemente responsive.
 - Las tablas densas pueden necesitar nuevos helpers compartidos para no volver al monolito.
-- La carpeta `desings` tiene typo; renombrarla puede mejorar orden, pero conviene hacerlo una vez y ajustar referencias documentales.
+- Las referencias históricas usaban el typo `desings`; la ruta canónica actual es `docs/designs/visual-refresh/`.
 
 ## Criterios de aceptacion
 
@@ -189,4 +193,3 @@ Cada listado debe pasar de cards/listas a tabla densa con tabs, filtros compacto
 - `npm test` pasa.
 - `npm run test:ui:smoke` pasa.
 - Se revisa al menos una captura desktop por grupo: dashboard, facturas, ingresos, materiales, costes, kits, sistema.
-

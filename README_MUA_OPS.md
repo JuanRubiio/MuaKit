@@ -1,6 +1,6 @@
 # Mua Ops
 
-Release estable actual: **v1.2.4** (`v1.2.4`).
+Release estable actual: **v1.2.5** (`v1.2.5`).
 
 Aplicacion local para gestionar la operativa de Mua Kit: materiales,
 proveedores, facturas, adjuntos, lineas de compra, costes medios, kits,
@@ -26,8 +26,11 @@ npm run test:ui:smoke
 ```
 
 La prueba levanta el servidor en el puerto `5065` con una base SQLite temporal
-en `data\mua_ops_test`. Valida API, Shopify mock, cobros, facturas, costes,
-migraciones, backups, health check y reinicio con base existente.
+en `data\mua_ops_test_<pid>_<timestamp>`. Valida API, Shopify mock, cobros,
+facturas, costes, migraciones, backups, health check y reinicio con base
+existente. El test elimina su directorio temporal al finalizar; si un proceso
+se interrumpe, esos directorios se pueden borrar cuando empiecen por
+`mua_ops_test_`.
 
 ## Datos
 
@@ -106,9 +109,9 @@ materiales, costes medios, puntos de reposicion y composicion de kits.
 
 ## Versionado
 
-La release estable actual es `v1.2.4`. El alcance y la validación están en `docs/releases/v1.2.4.md`.
+La release estable actual es `v1.2.5`. El alcance y la validación están en `docs/releases/v1.2.5.md`.
 
-El MVP original conserva el tag histórico `mua-ops-mvp-v0.1`. Las ramas de trabajo usan el prefijo `codex/`; esta release se publicó desde `codex/intelligent-replenishment-v2` y está preparada para PR a `main`.
+El MVP original conserva el tag histórico `mua-ops-mvp-v0.1`. Las ramas de trabajo usan el prefijo `codex/`; esta release se publicó desde `codex/marketing-filter-polish` y está preparada para PR a `main`.
 
 ## Metodologia SDD
 
@@ -138,6 +141,12 @@ docs\specs\000-retro-mua-ops-mvp-v0.1.md
 docs\specs\001-retro-shopify-direct-sync.md
 docs\specs\002-retro-income-and-finance-dashboard.md
 docs\specs\003-retro-technical-stabilization-v0.2.md
+```
+
+Spec de evolución visual y funcional en seguimiento:
+
+```text
+docs\specs\004-visual-refresh-v1.md
 ```
 
 ## Criterio

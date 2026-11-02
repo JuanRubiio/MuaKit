@@ -1,6 +1,6 @@
 {
   "name": "muakit",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Mua Ops local operations app",
   "main": "mua_ops_node/server.js",
   "directories": {

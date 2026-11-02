@@ -2,7 +2,7 @@
 
 Aplicación local para gestionar materiales, proveedores, facturas, costes, pedidos, cobros y sincronización con Shopify.
 
-Versión estable: **v1.2.4** · [notas de release](docs/releases/v1.2.4.md)
+Versión estable: **v1.2.5** · [notas de release](docs/releases/v1.2.5.md)
 
 ## Inicio rápido
 
@@ -28,7 +28,7 @@ Las pruebas usan datos temporales y no modifican la base operativa local.
 - [Índice de documentación](docs/README.md)
 - [Operación local](docs/runbooks/local-operations.md)
 - [Versionado y releases](docs/runbooks/release-versioning.md)
-- [Release v1.2.4](docs/releases/v1.2.4.md)
+- [Release v1.2.5](docs/releases/v1.2.5.md)
 - [Decisiones técnicas](docs/adr/)
 - [Specs y retrospectivas](docs/specs/)
 
